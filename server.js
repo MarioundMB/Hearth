@@ -19,6 +19,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const crypto = require('crypto');
 const os = require('os');
+const { exec } = require('child_process');
 
 const { version: VERSION } = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
@@ -204,6 +205,152 @@ function asyncHandler(fn) {
       res.status(err.statusCode || 500).json({ error: err.message || 'Serverfehler' });
     });
 }
+
+// ---------------------------------------------------------------------------
+// Monitoring-Hilfsfunktionen
+// ---------------------------------------------------------------------------
+
+// CPU-Auslastung über /proc/stat (Linux-only, graceful fallback)
+let _cpuPrev = null;
+function _readProcStat() {
+  try {
+    const line = fs.readFileSync('/proc/stat', 'utf8').split('\n')[0];
+    const v = line.split(/\s+/).slice(1).map(Number);
+    return { user: v[0], nice: v[1], system: v[2], idle: v[3], iowait: v[4] || 0, irq: v[5] || 0, soft: v[6] || 0 };
+  } catch (_) { return null; }
+}
+function getCpuPercent() {
+  const curr = _readProcStat();
+  if (!curr) return null;
+  if (!_cpuPrev) { _cpuPrev = curr; return 0; }
+  const sum = (s) => s.user + s.nice + s.system + s.idle + s.iowait + s.irq + s.soft;
+  const totalDiff = sum(curr) - sum(_cpuPrev);
+  const idleDiff = (curr.idle + curr.iowait) - (_cpuPrev.idle + _cpuPrev.iowait);
+  _cpuPrev = curr;
+  return totalDiff === 0 ? 0 : Math.max(0, Math.min(100, Math.round((1 - idleDiff / totalDiff) * 100)));
+}
+// Ersten Sample nehmen damit die nächste Abfrage einen sinnvollen Delta hat
+_cpuPrev = _readProcStat();
+
+// Festplatten via df (ignoriert tmpfs/overlay/squashfs)
+function getDiskInfo() {
+  return new Promise((resolve) => {
+    exec(
+      "df -B1 -x tmpfs -x devtmpfs -x overlay -x squashfs --output=source,size,used,avail,target 2>/dev/null",
+      (err, stdout) => {
+        if (err || !stdout) return resolve([]);
+        try {
+          resolve(
+            stdout.trim().split('\n').slice(1)
+              .map((l) => {
+                const p = l.trim().split(/\s+/);
+                return { fs: p[0], total: +p[1], used: +p[2], avail: +p[3], mount: p[4] };
+              })
+              .filter((d) => d.total > 0 && !isNaN(d.total))
+          );
+        } catch (_) { resolve([]); }
+      }
+    );
+  });
+}
+
+// Netzwerk-Durchsatz via /proc/net/dev (Delta zwischen Abfragen)
+let _netPrev = null, _netPrevTs = 0;
+function getNetworkRate() {
+  try {
+    const lines = fs.readFileSync('/proc/net/dev', 'utf8').trim().split('\n').slice(2);
+    const now = {};
+    for (const line of lines) {
+      const p = line.trim().split(/\s+/);
+      const name = p[0].replace(':', '');
+      if (name === 'lo') continue;
+      now[name] = { rx: +p[1], tx: +p[9] };
+    }
+    const ts = Date.now();
+    let rxBps = 0, txBps = 0;
+    if (_netPrev && ts > _netPrevTs) {
+      const dt = (ts - _netPrevTs) / 1000;
+      for (const [n, v] of Object.entries(now)) {
+        if (_netPrev[n]) {
+          rxBps += Math.max(0, v.rx - _netPrev[n].rx) / dt;
+          txBps += Math.max(0, v.tx - _netPrev[n].tx) / dt;
+        }
+      }
+    }
+    _netPrev = now; _netPrevTs = ts;
+    return { rxMbps: (rxBps * 8) / 1e6, txMbps: (txBps * 8) / 1e6 };
+  } catch (_) { return { rxMbps: 0, txMbps: 0 }; }
+}
+
+// Temperaturen via /sys/class/thermal oder /sys/class/hwmon
+function getTemperatures() {
+  const temps = [];
+  const readTemp = (filePath) => {
+    try { const v = +fs.readFileSync(filePath, 'utf8').trim() / 1000; return (v > 0 && v < 200) ? Math.round(v * 10) / 10 : null; } catch (_) { return null; }
+  };
+  try {
+    const thermalBase = '/sys/class/thermal';
+    if (fs.existsSync(thermalBase)) {
+      for (const zone of fs.readdirSync(thermalBase).filter((z) => z.startsWith('thermal_zone'))) {
+        try {
+          const val = readTemp(`${thermalBase}/${zone}/temp`);
+          const label = fs.readFileSync(`${thermalBase}/${zone}/type`, 'utf8').trim();
+          if (val !== null) temps.push({ label, value: val });
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  if (temps.length === 0) {
+    try {
+      const hwBase = '/sys/class/hwmon';
+      if (fs.existsSync(hwBase)) {
+        for (const hw of fs.readdirSync(hwBase)) {
+          try {
+            const name = fs.readFileSync(`${hwBase}/${hw}/name`, 'utf8').trim();
+            for (const f of fs.readdirSync(`${hwBase}/${hw}`).filter((f) => /^temp\d+_input$/.test(f))) {
+              const val = readTemp(`${hwBase}/${hw}/${f}`);
+              if (val !== null) temps.push({ label: name, value: val });
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+  return temps;
+}
+
+// ---------------------------------------------------------------------------
+// Monitor-Endpoint (Admin)
+// ---------------------------------------------------------------------------
+app.get(
+  '/api/monitor',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const [disks, containers] = await Promise.all([
+      getDiskInfo(),
+      docker.listContainers({ all: true }).catch(() => []),
+    ]);
+    const dockerInfo = await docker.info().catch(() => ({}));
+
+    res.json({
+      mem: { total: os.totalmem(), free: os.freemem(), used: os.totalmem() - os.freemem() },
+      cpu: { percent: getCpuPercent(), cores: os.cpus().length, model: os.cpus()[0]?.model || '' },
+      disks,
+      net: getNetworkRate(),
+      temps: getTemperatures(),
+      system: {
+        hostname: os.hostname(),
+        uptime: os.uptime(),
+        loadavg: os.loadavg(),
+        containers: containers.length,
+        running: containers.filter((c) => c.State === 'running').length,
+        dockerVersion: dockerInfo.ServerVersion || null,
+        platform: os.platform(),
+      },
+      ts: Date.now(),
+    });
+  })
+);
 
 // ---------------------------------------------------------------------------
 // Einstellungen (Admin)

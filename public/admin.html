@@ -283,6 +283,157 @@
         margin-bottom: 14px;
       }
 
+      /* ===== Admin-Layout (Main + Monitoring-Sidebar) ===== */
+      .admin-layout {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        padding-top: 18px;
+      }
+      .admin-main {
+        flex: 1;
+        min-width: 0;
+      }
+      .monitor-panel {
+        width: 272px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 72px;
+        max-height: calc(100vh - 82px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-bright) transparent;
+        padding-bottom: 40px;
+      }
+      .monitor-panel::-webkit-scrollbar { width: 4px; }
+      .monitor-panel::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
+
+      /* Monitoring cards */
+      .mon-row2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .mon-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 12px;
+        margin-bottom: 8px;
+      }
+      .mon-row2 .mon-card { margin-bottom: 0; }
+      .mon-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 9px;
+        gap: 4px;
+      }
+      .mon-title {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        flex-shrink: 0;
+      }
+      .mon-value {
+        font-family: var(--font-mono);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text);
+        line-height: 1;
+      }
+      .mon-sub {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-faint);
+        margin-top: 5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .mon-bar {
+        height: 5px;
+        background: var(--bg);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 8px;
+      }
+      .mon-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        background: var(--accent);
+        transition: width 0.6s ease;
+        min-width: 2px;
+      }
+      .mon-bar-fill.warn { background: var(--warn); }
+      .mon-bar-fill.crit { background: var(--danger); }
+
+      /* Network chart */
+      .mon-net-badges { display: flex; gap: 6px; align-items: baseline; }
+      .mon-net-rx { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); }
+      .mon-net-tx { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--warn); }
+      .mon-net-unit { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+      .mon-chart-svg { width: 100%; height: 52px; display: block; margin-top: 4px; overflow: visible; }
+      .mon-chart-legend { font-size: 10px; color: var(--text-faint); margin-top: 5px; }
+
+      /* Disk mini-tabs */
+      .mon-tabs { display: flex; gap: 2px; }
+      .mon-tab {
+        font-size: 10px;
+        font-family: var(--font-mono);
+        padding: 2px 7px;
+        border-radius: 4px;
+        background: transparent;
+        border: 1px solid var(--border-bright);
+        color: var(--text-faint);
+        cursor: pointer;
+        transition: all 0.12s;
+      }
+      .mon-tab.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #0c0e0d;
+        font-weight: 700;
+      }
+      .mon-disk-row { margin-bottom: 9px; }
+      .mon-disk-row:last-child { margin-bottom: 0; }
+      .mon-disk-label {
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-dim);
+        margin-bottom: 4px;
+      }
+
+      /* Temperatures */
+      .mon-temp-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 5px 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+      }
+      .mon-temp-row:last-child { border-bottom: none; }
+      .mon-temp-key { color: var(--text-dim); font-size: 11px; }
+      .mon-temp-val { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+      .mon-temp-val.warm { color: var(--warn); }
+      .mon-temp-val.hot { color: var(--danger); }
+
+      /* System info grid */
+      .mon-info-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 5px 10px;
+        font-size: 11px;
+      }
+      .mon-info-key { color: var(--text-faint); }
+      .mon-info-val { font-family: var(--font-mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
       /* Brand als Klick-Ziel (sekundärer Weg zu Einstellungen) */
       button.brand {
         appearance: none;
@@ -434,50 +585,152 @@
       </div>
     </header>
 
-    <div class="wrap">
-      <div class="sysbar" id="sysbar"></div>
+    <div class="wrap" style="max-width:1440px">
+      <div class="admin-layout">
 
-      <div class="tabs">
-        <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
-        <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
-        <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
-      </div>
+        <!-- ── Hauptbereich ───────────────────────────────────── -->
+        <div class="admin-main">
+          <div class="tabs">
+            <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
+            <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
+            <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
+          </div>
 
-      <!-- Container -->
-      <section class="view active" id="view-containers">
-        <div class="toolbar">
-          <h2 data-i18n="containers.title">Container</h2>
-          <div class="spacer"></div>
-          <button class="btn sm ghost" id="refresh-containers">⟳ <span data-i18n="nav.refresh">Aktualisieren</span></button>
-          <button class="btn primary sm" id="new-container" data-i18n="containers.new">+ Neuer Container</button>
-        </div>
-        <div class="list" id="containers"></div>
-      </section>
+          <!-- Container -->
+          <section class="view active" id="view-containers">
+            <div class="toolbar">
+              <h2 data-i18n="containers.title">Container</h2>
+              <div class="spacer"></div>
+              <button class="btn sm ghost" id="refresh-containers">⟳ <span data-i18n="nav.refresh">Aktualisieren</span></button>
+              <button class="btn primary sm" id="new-container" data-i18n="containers.new">+ Neuer Container</button>
+            </div>
+            <div class="list" id="containers"></div>
+          </section>
 
-      <!-- Images -->
-      <section class="view" id="view-images">
-        <div class="toolbar">
-          <h2 data-i18n="images.title">Images</h2>
-          <div class="spacer"></div>
-          <button class="btn primary sm" id="pull-image" data-i18n="images.pull">↓ Image ziehen</button>
-        </div>
-        <div class="list" id="images"></div>
-      </section>
+          <!-- Images -->
+          <section class="view" id="view-images">
+            <div class="toolbar">
+              <h2 data-i18n="images.title">Images</h2>
+              <div class="spacer"></div>
+              <button class="btn primary sm" id="pull-image" data-i18n="images.pull">↓ Image ziehen</button>
+            </div>
+            <div class="list" id="images"></div>
+          </section>
 
-      <!-- Dateimanager -->
-      <section class="view" id="view-files">
-        <div class="toolbar">
-          <h2 data-i18n="files.title">Dateimanager</h2>
-          <div class="spacer"></div>
-          <button class="btn sm" id="mkdir" data-i18n="files.newFolder">+ Ordner</button>
-        </div>
-        <div class="crumbs" id="crumbs"></div>
-        <div class="dropzone" id="dropzone">
-          <span data-i18n="files.dropzone">Dateien hierher ziehen oder klicken zum Hochladen</span>
-          <input type="file" id="fileinput" multiple style="display: none" />
-        </div>
-        <div class="list" id="files"></div>
-      </section>
+          <!-- Dateimanager -->
+          <section class="view" id="view-files">
+            <div class="toolbar">
+              <h2 data-i18n="files.title">Dateimanager</h2>
+              <div class="spacer"></div>
+              <button class="btn sm" id="mkdir" data-i18n="files.newFolder">+ Ordner</button>
+            </div>
+            <div class="crumbs" id="crumbs"></div>
+            <div class="dropzone" id="dropzone">
+              <span data-i18n="files.dropzone">Dateien hierher ziehen oder klicken zum Hochladen</span>
+              <input type="file" id="fileinput" multiple style="display: none" />
+            </div>
+            <div class="list" id="files"></div>
+          </section>
+        </div><!-- /.admin-main -->
+
+        <!-- ── Monitoring-Sidebar (immer sichtbar) ────────────── -->
+        <aside class="monitor-panel">
+
+          <!-- CPU + RAM -->
+          <div class="mon-row2">
+            <div class="mon-card">
+              <div class="mon-head">
+                <span class="mon-title">CPU</span>
+                <span class="mon-value" id="mon-cpu-pct">–</span>
+              </div>
+              <div class="mon-bar"><div class="mon-bar-fill" id="mon-cpu-bar" style="width:0%"></div></div>
+              <div class="mon-sub" id="mon-cpu-cores">– cores</div>
+            </div>
+            <div class="mon-card">
+              <div class="mon-head">
+                <span class="mon-title">RAM</span>
+                <span class="mon-value" id="mon-ram-pct">–</span>
+              </div>
+              <div class="mon-bar"><div class="mon-bar-fill" id="mon-ram-bar" style="width:0%"></div></div>
+              <div class="mon-sub" id="mon-ram-detail">– / –</div>
+            </div>
+          </div>
+
+          <!-- Network -->
+          <div class="mon-card">
+            <div class="mon-head">
+              <span class="mon-title">Network</span>
+              <div class="mon-net-badges">
+                <span class="mon-net-rx" id="mon-rx">↓ 0.00</span>
+                <span class="mon-net-tx" id="mon-tx">↑ 0.00</span>
+                <span class="mon-net-unit">Mbit/s</span>
+              </div>
+            </div>
+            <svg class="mon-chart-svg" id="mon-net-svg" viewBox="0 0 248 52" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="rxGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#c4f042" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#c4f042" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="txGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f5c451" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#f5c451" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <polygon id="mon-rx-area" fill="url(#rxGrad)"/>
+              <polygon id="mon-tx-area" fill="url(#txGrad)"/>
+              <polyline id="mon-rx-line" fill="none" stroke="#c4f042" stroke-width="1.5" stroke-linejoin="round"/>
+              <polyline id="mon-tx-line" fill="none" stroke="#f5c451" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+            <div class="mon-chart-legend">
+              <span style="color:var(--accent)">▬</span> Download &nbsp;
+              <span style="color:var(--warn)">▬</span> Upload
+            </div>
+          </div>
+
+          <!-- Storage -->
+          <div class="mon-card">
+            <div class="mon-head">
+              <span class="mon-title">Storage</span>
+              <div class="mon-tabs">
+                <button class="mon-tab active" data-disktab="total">Total</button>
+                <button class="mon-tab" data-disktab="each">Each</button>
+              </div>
+            </div>
+            <div id="mon-disk-total"><div class="mon-sub">Loading…</div></div>
+            <div id="mon-disk-each" style="display:none"></div>
+          </div>
+
+          <!-- Temperatures -->
+          <div class="mon-card" id="mon-temps-card">
+            <div class="mon-head">
+              <span class="mon-title">Temperature</span>
+            </div>
+            <div id="mon-temps-body">
+              <div class="mon-sub">Reading sensors…</div>
+            </div>
+          </div>
+
+          <!-- System -->
+          <div class="mon-card">
+            <div class="mon-title" style="margin-bottom:10px">System</div>
+            <div class="mon-info-grid">
+              <span class="mon-info-key">Host</span>
+              <span class="mon-info-val" id="mon-hostname">–</span>
+              <span class="mon-info-key">Uptime</span>
+              <span class="mon-info-val" id="mon-uptime">–</span>
+              <span class="mon-info-key">Load avg</span>
+              <span class="mon-info-val" id="mon-load">–</span>
+              <span class="mon-info-key">Containers</span>
+              <span class="mon-info-val" id="mon-ctr-stat">–</span>
+              <span class="mon-info-key">Docker</span>
+              <span class="mon-info-val" id="mon-docker-ver">–</span>
+            </div>
+          </div>
+
+        </aside><!-- /.monitor-panel -->
+
+      </div><!-- /.admin-layout -->
     </div>
 
     <!-- Modals -->

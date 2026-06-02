@@ -20,21 +20,146 @@ document.getElementById('logout').addEventListener('click', async () => {
   location.href = '/login';
 });
 
-// ---------- System-Leiste ----------
-async function loadSystem() {
-  try {
-    const s = await api('GET', '/api/system');
-    const usedMem = s.memory.total - s.memory.free;
-    document.getElementById('sysbar').innerHTML = `
-      <div class="cell"><div class="k">Host</div><div class="v">${esc(s.hostname)}</div></div>
-      <div class="cell"><div class="k">Container aktiv</div><div class="v">${s.docker.running ?? '–'} / ${s.docker.containers ?? '–'}</div></div>
-      <div class="cell"><div class="k">Images</div><div class="v">${s.docker.images ?? '–'}</div></div>
-      <div class="cell"><div class="k">RAM belegt</div><div class="v">${fmtBytes(usedMem)}</div></div>
-      <div class="cell"><div class="k">Docker</div><div class="v" style="font-size:16px">${esc(s.docker.version || s.docker.error || '–')}</div></div>`;
-  } catch (e) {
-    document.getElementById('sysbar').innerHTML =
-      `<div class="cell"><div class="k">Fehler</div><div class="v" style="font-size:14px;color:var(--danger)">${esc(e.message)}</div></div>`;
+// ---------- Monitoring-Sidebar ----------
+const MON_HISTORY = 60; // Datenpunkte im Chart (je 2s = 2 Minuten)
+const netRxHistory = Array(MON_HISTORY).fill(0);
+const netTxHistory = Array(MON_HISTORY).fill(0);
+
+// Uptime in lesbares Format
+function fmtUptime(secs) {
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// SVG-Liniendiagramm aus einem Wertearray erzeugen
+function buildChartPoints(data, W, H, maxVal) {
+  if (maxVal <= 0) maxVal = 1;
+  const step = W / (data.length - 1);
+  return data.map((v, i) => `${(i * step).toFixed(1)},${(H - (v / maxVal) * H).toFixed(1)}`).join(' ');
+}
+
+function updateNetChart() {
+  const W = 248, H = 52;
+  const maxVal = Math.max(...netRxHistory, ...netTxHistory, 0.01);
+  const rxPts = buildChartPoints(netRxHistory, W, H, maxVal);
+  const txPts = buildChartPoints(netTxHistory, W, H, maxVal);
+
+  document.getElementById('mon-rx-line').setAttribute('points', rxPts);
+  document.getElementById('mon-tx-line').setAttribute('points', txPts);
+
+  // Flächen (polyline → polygon, untere Kante schließen)
+  const rxArea = `${rxPts} ${W},${H} 0,${H}`;
+  const txArea = `${txPts} ${W},${H} 0,${H}`;
+  document.getElementById('mon-rx-area').setAttribute('points', rxArea);
+  document.getElementById('mon-tx-area').setAttribute('points', txArea);
+}
+
+// Disk-Widgets rendern
+let diskData = [];
+let activeDiskTab = 'total';
+
+function renderDisks() {
+  if (!diskData.length) {
+    document.getElementById('mon-disk-total').innerHTML = '<div class="mon-sub">No disk data</div>';
+    document.getElementById('mon-disk-each').innerHTML = '';
+    return;
   }
+
+  // Gesamtansicht: Summe aller Festplatten
+  const totalBytes = diskData.reduce((a, d) => a + d.total, 0);
+  const usedBytes  = diskData.reduce((a, d) => a + d.used, 0);
+  const totalPct   = totalBytes ? Math.round((usedBytes / totalBytes) * 100) : 0;
+  const fillClass  = totalPct > 90 ? 'crit' : totalPct > 75 ? 'warn' : '';
+  document.getElementById('mon-disk-total').innerHTML = `
+    <div class="mon-disk-row">
+      <div class="mon-disk-label">
+        <span>All disks</span>
+        <span>${fmtBytes(usedBytes)} / ${fmtBytes(totalBytes)} · ${totalPct}%</span>
+      </div>
+      <div class="mon-bar"><div class="mon-bar-fill ${fillClass}" style="width:${totalPct}%"></div></div>
+    </div>`;
+
+  // Einzelansicht: jede Partition
+  document.getElementById('mon-disk-each').innerHTML = diskData.map((d) => {
+    const pct = d.total ? Math.round((d.used / d.total) * 100) : 0;
+    const fc  = pct > 90 ? 'crit' : pct > 75 ? 'warn' : '';
+    return `<div class="mon-disk-row">
+      <div class="mon-disk-label">
+        <span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.mount)}</span>
+        <span>${fmtBytes(d.used)} / ${fmtBytes(d.total)} · ${pct}%</span>
+      </div>
+      <div class="mon-bar"><div class="mon-bar-fill ${fc}" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// Disk-Tab-Wechsel
+document.querySelectorAll('[data-disktab]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    activeDiskTab = btn.dataset.disktab;
+    document.querySelectorAll('[data-disktab]').forEach((b) => b.classList.toggle('active', b === btn));
+    document.getElementById('mon-disk-total').style.display = activeDiskTab === 'total' ? '' : 'none';
+    document.getElementById('mon-disk-each').style.display  = activeDiskTab === 'each'  ? '' : 'none';
+  });
+});
+
+// Haupt-Monitoring-Update (wird alle 2s aufgerufen)
+async function updateMonitor() {
+  let m;
+  try { m = await api('GET', '/api/monitor'); } catch (_) { return; }
+
+  // CPU
+  const cpuPct = m.cpu.percent ?? 0;
+  document.getElementById('mon-cpu-pct').textContent   = cpuPct + '%';
+  document.getElementById('mon-cpu-bar').style.width   = cpuPct + '%';
+  document.getElementById('mon-cpu-bar').className     = 'mon-bar-fill' + (cpuPct > 90 ? ' crit' : cpuPct > 75 ? ' warn' : '');
+  document.getElementById('mon-cpu-cores').textContent = `${m.cpu.cores} cores`;
+
+  // RAM
+  const ramPct = Math.round((m.mem.used / m.mem.total) * 100);
+  document.getElementById('mon-ram-pct').textContent    = ramPct + '%';
+  document.getElementById('mon-ram-bar').style.width    = ramPct + '%';
+  document.getElementById('mon-ram-bar').className      = 'mon-bar-fill' + (ramPct > 90 ? ' crit' : ramPct > 75 ? ' warn' : '');
+  document.getElementById('mon-ram-detail').textContent = fmtBytes(m.mem.used) + ' / ' + fmtBytes(m.mem.total);
+
+  // Network
+  const rx = m.net.rxMbps, tx = m.net.txMbps;
+  netRxHistory.push(rx); netRxHistory.shift();
+  netTxHistory.push(tx); netTxHistory.shift();
+  document.getElementById('mon-rx').textContent = '↓ ' + rx.toFixed(2);
+  document.getElementById('mon-tx').textContent = '↑ ' + tx.toFixed(2);
+  updateNetChart();
+
+  // Disks
+  diskData = m.disks || [];
+  renderDisks();
+
+  // Temperaturen
+  const tempsBox = document.getElementById('mon-temps-body');
+  if (m.temps && m.temps.length) {
+    tempsBox.innerHTML = m.temps.map((t) => {
+      const cls = t.value > 80 ? 'hot' : t.value > 60 ? 'warm' : '';
+      return `<div class="mon-temp-row">
+        <span class="mon-temp-key">${esc(t.label)}</span>
+        <span class="mon-temp-val ${cls}">${t.value}°C</span>
+      </div>`;
+    }).join('');
+  } else {
+    tempsBox.innerHTML = '<div class="mon-sub">No sensors found</div>';
+  }
+
+  // System-Info
+  const sys = m.system || {};
+  document.getElementById('mon-hostname').textContent  = sys.hostname || '–';
+  document.getElementById('mon-uptime').textContent    = sys.uptime ? fmtUptime(sys.uptime) : '–';
+  const la = sys.loadavg || [];
+  document.getElementById('mon-load').textContent      = la.length ? la.map((v) => v.toFixed(2)).join(' ') : '–';
+  document.getElementById('mon-ctr-stat').textContent  = sys.running != null ? `${sys.running} / ${sys.containers} running` : '–';
+  document.getElementById('mon-docker-ver').textContent = sys.dockerVersion || '–';
 }
 
 // ---------- Container ----------
@@ -99,7 +224,6 @@ document.getElementById('containers').addEventListener('click', async (e) => {
       toast(t('toast.actionDone', { act }));
     }
     loadContainers();
-    loadSystem();
   } catch (err) {
     toast(err.message, 'error');
     btn.disabled = false;
@@ -108,7 +232,7 @@ document.getElementById('containers').addEventListener('click', async (e) => {
 
 document.getElementById('refresh-containers').addEventListener('click', () => {
   loadContainers();
-  loadSystem();
+  updateMonitor();
 });
 
 // ---------- Logs-Modal ----------
@@ -425,7 +549,6 @@ document.getElementById('c-submit').addEventListener('click', async () => {
     toast(t('toast.containerCreated'));
     closeModal('modal-create');
     loadContainers();
-    loadSystem();
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -529,16 +652,18 @@ document.getElementById('s-restart').addEventListener('click', async () => {
 });
 
 // ---------- Init ----------
-let refreshTimer = null;
 
+// Container-Liste: interval aus Einstellungen (Standard 15s)
+let containerTimer = null;
 function applyRefreshInterval(seconds) {
-  clearInterval(refreshTimer);
-  if (seconds > 0) refreshTimer = setInterval(loadSystem, seconds * 1000);
+  clearInterval(containerTimer);
+  if (seconds > 0) containerTimer = setInterval(loadContainers, seconds * 1000);
 }
-
-// Startwert aus gespeicherter Einstellung laden
 api('GET', '/api/settings').then((s) => applyRefreshInterval(s.refreshInterval ?? 15)).catch(() => {});
 
-loadSystem();
+// Monitoring: immer alle 2s aktualisieren (für Echtzeitgraphen)
+updateMonitor();
+setInterval(updateMonitor, 2000);
+
 loadContainers();
-applyRefreshInterval(15); // Default bis Settings geladen
+applyRefreshInterval(15);
