@@ -180,6 +180,9 @@ async function loadContainers() {
   }
 }
 
+// Update-Cache: { containerId → { hasUpdate, image } }
+let _updateMap = {};
+
 // Container-Zeile: kein Aktionsbutton, nur klickbar
 function containerRow(c) {
   const running = c.state === 'running';
@@ -191,12 +194,17 @@ function containerRow(c) {
          class="btn sm ghost row-open-btn" title="Open in new tab"
          onclick="event.stopPropagation()">↗</a>`
     : '';
+  const upd = _updateMap[c.id];
+  const updateBadge = upd?.hasUpdate
+    ? `<span class="update-dot" title="Update available" onclick="event.stopPropagation();updateContainer('${esc(c.id)}','${esc(c.name)}')">↑</span>`
+    : '';
   return `
     <div class="row row-clickable" data-cid="${esc(c.id)}" data-cname="${esc(c.name)}">
       <div class="main">
         <div class="title">
           ${esc(c.name)}
           <span class="pill ${running ? 'running' : 'stopped'}"><span class="dot"></span>${running ? t('containers.running') : esc(c.state)}</span>
+          ${updateBadge}
         </div>
         <div class="meta">${esc(c.image)} · ${esc(c.status)}</div>
         <div class="ports">${portBadges}</div>
@@ -1088,6 +1096,56 @@ document.addEventListener('paste', (e) => {
   if (image) openQuickInstall(image);
 });
 
+// ---------- Update-Checker ----------
+async function checkUpdates(force = false) {
+  const badge = document.getElementById('topbar-updates');
+  if (badge) badge.textContent = '⟳';
+  try {
+    const data = await api('GET', `/api/updates/check${force ? '?force=true' : ''}`);
+    // Map aufbauen
+    _updateMap = {};
+    let pending = 0;
+    for (const c of data.containers || []) {
+      _updateMap[c.containerId] = c;
+      if (c.hasUpdate) pending++;
+    }
+    // Update-Indikator in Topbar
+    if (badge) {
+      if (pending > 0) {
+        badge.textContent  = `↑ ${pending} update${pending > 1 ? 's' : ''}`;
+        badge.className    = 'btn sm update-available';
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    // Container-Liste neu rendern damit Badges sichtbar werden
+    if (_cdListData) loadContainers();
+    // Hearth-Update-Hinweis
+    const hi = data.hearth;
+    if (hi && document.getElementById('hearth-update-hint')) {
+      document.getElementById('hearth-update-hint').innerHTML = hi.sha
+        ? `Latest GitHub commit: <span class="mono">${esc(hi.sha)}</span> · ${esc(hi.message)}`
+        : '';
+    }
+  } catch (_) {
+    if (badge) badge.style.display = 'none';
+  }
+}
+
+async function updateContainer(id, name) {
+  if (!confirm(`Update "${name}"? The container will be briefly stopped.`)) return;
+  const btn = document.querySelector(`[data-cid="${id}"] .update-dot`);
+  if (btn) btn.textContent = '⟳';
+  try {
+    await api('POST', `/api/updates/container/${id}`);
+    toast(`Updated: ${name}`);
+    _updateMap[id] = { hasUpdate: false };
+    loadContainers();
+    checkUpdates();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // ---------- Reverse Proxy ----------
 async function loadProxyRules() {
   const [status, rules] = await Promise.all([
@@ -1337,3 +1395,7 @@ setInterval(updateMonitor, 2000);
 
 loadContainers();
 applyRefreshInterval(15);
+
+// Update-Check: beim Start und dann alle 30 Minuten
+checkUpdates();
+setInterval(checkUpdates, 30 * 60 * 1000);

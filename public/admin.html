@@ -283,6 +283,27 @@
         margin-bottom: 14px;
       }
 
+      /* Update-Badge auf Container-Zeilen */
+      .update-dot {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        background: var(--warn);
+        color: #0c0e0d;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .update-dot:hover { opacity: 0.8; }
+      .update-available {
+        background: rgba(245,196,81,.15) !important;
+        border-color: var(--warn) !important;
+        color: var(--warn) !important;
+      }
+
       /* ===== Reverse Proxy ===== */
       .proxy-info-bar {
         font-size: 12.5px; color: var(--text-faint);
@@ -763,6 +784,7 @@
           <span>Hearth <small>Admin</small></span>
         </button>
         <div class="spacer"></div>
+        <button class="btn sm" id="topbar-updates" style="display:none;background:rgba(245,196,81,.15);border-color:var(--warn);color:var(--warn)" onclick="checkUpdates(true)"></button>
         <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
