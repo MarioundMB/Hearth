@@ -283,6 +283,54 @@
         margin-bottom: 14px;
       }
 
+      /* ===== Container-Detail-Modal ===== */
+      .row-clickable { cursor: pointer; }
+      .row-clickable:hover { border-color: var(--accent-dim); background: rgba(196,240,66,0.03); }
+      .row-chevron { color: var(--text-faint); font-size: 18px; flex-shrink: 0; padding: 0 2px; transition: color .15s; }
+      .row-clickable:hover .row-chevron { color: var(--accent); }
+
+      .cd-modal { max-width: 620px; }
+
+      /* Info-View */
+      .cd-info-body { padding: 24px; }
+      .cd-status-row {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 18px;
+      }
+      .cd-status-name {
+        font-family: var(--font-display);
+        font-size: 20px; font-weight: 700;
+        flex: 1; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .cd-meta-grid {
+        display: grid; grid-template-columns: 1fr 1fr;
+        gap: 8px; margin-bottom: 22px;
+      }
+      .cd-meta-cell {
+        background: var(--bg-soft); border: 1px solid var(--border);
+        border-radius: var(--radius-sm); padding: 10px 12px;
+      }
+      .cd-meta-k { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 3px; }
+      .cd-meta-v { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .cd-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .cd-action-btn { justify-content: center; padding: 13px; font-size: 14px; }
+      .cd-foot-ops { display: flex; gap: 8px; align-items: center; padding: 14px 24px; border-top: 1px solid var(--border); }
+
+      /* Edit-View */
+      .cd-edit-body { padding: 0 !important; max-height: 68vh; overflow-y: auto; scrollbar-width: thin; }
+      .cd-section { padding: 16px 22px; border-bottom: 1px solid var(--border); }
+      .cd-section:last-child { border-bottom: none; }
+      .cd-section-title {
+        font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em;
+        text-transform: uppercase; color: var(--text-faint); margin-bottom: 12px;
+      }
+      .cd-recreate-note {
+        font-size: 12px; color: var(--text-faint);
+        display: flex; align-items: center; gap: 6px;
+      }
+      .quad { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; }
+
       /* ===== Quick Install – Drop-Overlay ===== */
       #drop-overlay {
         position: fixed;
@@ -1098,6 +1146,134 @@
             <button class="btn primary" id="s-save" data-i18n="settings.save">Speichern</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Container-Detail-Modal -->
+    <div class="modal-backdrop" id="modal-cd">
+      <div class="modal cd-modal">
+        <div class="modal-head">
+          <h3 id="cd-title">Container</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+
+        <!-- ── Info-View ─────────────────────────────────────── -->
+        <div id="cd-info-view">
+          <div class="cd-info-body">
+            <div class="cd-status-row">
+              <span class="pill" id="cd-pill"><span class="dot"></span>–</span>
+              <span class="cd-status-name" id="cd-name-label">–</span>
+            </div>
+            <div class="cd-meta-grid">
+              <div class="cd-meta-cell"><div class="cd-meta-k">Image</div><div class="cd-meta-v" id="cd-m-image">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k">Status</div><div class="cd-meta-v" id="cd-m-status">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k">Ports</div><div class="cd-meta-v" id="cd-m-ports">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k">ID</div><div class="cd-meta-v mono" id="cd-m-id">–</div></div>
+            </div>
+            <div class="cd-action-row">
+              <button class="btn primary cd-action-btn" id="cd-edit-btn">✎ Bearbeiten</button>
+              <button class="btn cd-action-btn" id="cd-open-btn" style="display:none">↗ Öffnen</button>
+            </div>
+          </div>
+          <div class="cd-foot-ops">
+            <button class="btn sm" id="cd-toggle-btn">■ Stop</button>
+            <button class="btn sm ghost" id="cd-restart-btn">⟳ Neustart</button>
+            <button class="btn sm ghost" id="cd-logs-btn">Logs</button>
+            <div class="spacer"></div>
+            <button class="btn sm danger" id="cd-delete-btn">🗑</button>
+          </div>
+        </div>
+
+        <!-- ── Edit-View ──────────────────────────────────────── -->
+        <div id="cd-edit-view" style="display:none">
+          <div class="modal-body cd-edit-body">
+
+            <div class="cd-section">
+              <div class="cd-section-title">Image</div>
+              <div style="display:grid;grid-template-columns:1fr 110px;gap:8px">
+                <div class="field" style="margin:0"><label>Docker Image *</label><input class="input" id="cd-image" placeholder="nginx" /></div>
+                <div class="field" style="margin:0"><label>Tag</label><input class="input" id="cd-tag" placeholder="latest" /></div>
+              </div>
+            </div>
+
+            <div class="cd-section">
+              <div class="cd-section-title">Appearance (Hearth-Labels)</div>
+              <div class="field"><label>Display Name</label><input class="input" id="cd-hearth-name" placeholder="My App" /></div>
+              <div class="field"><label>Icon (Emoji or image URL)</label><input class="input" id="cd-hearth-icon" placeholder="🚀 or https://…" /></div>
+              <div class="field" style="margin-bottom:0"><label>Web URL (overrides auto-detection)</label><input class="input" id="cd-hearth-url" placeholder="http://server:port" /></div>
+            </div>
+
+            <div class="cd-section">
+              <div class="cd-section-title">Network</div>
+              <div class="field">
+                <label>Network Mode</label>
+                <select class="input" id="cd-network">
+                  <option value="bridge">bridge</option>
+                  <option value="host">host</option>
+                  <option value="none">none</option>
+                </select>
+              </div>
+              <div class="field" style="margin-bottom:0">
+                <label>Port Mappings (Host → Container · Protocol)</label>
+                <div class="port-builder" id="cd-ports"></div>
+                <span class="addrow" id="cd-add-port">+ Add port</span>
+              </div>
+            </div>
+
+            <div class="cd-section">
+              <div class="cd-section-title">Storage (Volumes)</div>
+              <div class="vol-builder" id="cd-vols"></div>
+              <span class="addrow" id="cd-add-vol">+ Add volume</span>
+            </div>
+
+            <div class="cd-section">
+              <div class="cd-section-title">Environment Variables</div>
+              <div class="env-builder" id="cd-envs"></div>
+              <span class="addrow" id="cd-add-env">+ Add variable</span>
+            </div>
+
+            <div class="cd-section">
+              <div class="cd-section-title">Advanced</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="field" style="margin:0">
+                  <label>Restart Policy</label>
+                  <select class="input" id="cd-restart">
+                    <option value="unless-stopped">unless-stopped</option>
+                    <option value="always">always</option>
+                    <option value="on-failure">on-failure</option>
+                    <option value="no">no</option>
+                  </select>
+                </div>
+                <div class="field" style="margin:0">
+                  <label>Container Name</label>
+                  <input class="input" id="cd-cname" placeholder="my-container" />
+                </div>
+              </div>
+              <div class="field" style="margin-top:12px">
+                <label>Hostname (optional)</label>
+                <input class="input" id="cd-hostname" placeholder="leave empty for default" />
+              </div>
+              <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:14px">
+                <input type="checkbox" id="cd-privileged" style="width:auto" />
+                <label for="cd-privileged" style="margin:0;font-size:14px">Privileged mode</label>
+              </div>
+              <div class="field" style="margin-bottom:0">
+                <label>Custom Labels</label>
+                <div class="env-builder" id="cd-labels"></div>
+                <span class="addrow" id="cd-add-label">+ Add label</span>
+              </div>
+            </div>
+
+          </div>
+          <div class="modal-foot" style="justify-content:space-between;align-items:center">
+            <span class="cd-recreate-note">⚠ Container will be stopped and recreated.</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" id="cd-edit-cancel">Cancel</button>
+              <button class="btn primary" id="cd-save-btn">💾 Save & Restart</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 

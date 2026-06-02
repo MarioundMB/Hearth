@@ -600,6 +600,62 @@ app.delete(
   })
 );
 
+// Container bearbeiten (stop → remove → neu erstellen mit neuen Einstellungen)
+app.put(
+  '/api/containers/:id',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    if (!b.image) { res.status(400); throw new Error('Image is required'); }
+
+    const oldC = docker.getContainer(req.params.id);
+    const info = await oldC.inspect();
+    const wasRunning = info.State.Running;
+
+    if (wasRunning) await oldC.stop().catch(() => {});
+    await oldC.remove({ force: true });
+
+    // Port-Bindings aufbauen
+    const portBindings = {}, exposedPorts = {};
+    (b.ports || []).forEach((p) => {
+      if (!p.container) return;
+      const proto = (p.proto || 'tcp').toLowerCase();
+      const key = `${p.container}/${proto}`;
+      exposedPorts[key] = {};
+      portBindings[key] = [{ HostPort: String(p.host || '') }];
+    });
+
+    const binds = (b.volumes || [])
+      .filter((v) => v.host && v.container)
+      .map((v) => `${v.host}:${v.container}${v.ro ? ':ro' : ''}`);
+
+    const env = (b.env || []).filter((e) => e.key).map((e) => `${e.key}=${e.value ?? ''}`);
+
+    const labels = {};
+    (b.labels || []).forEach((l) => { if (l.key) labels[l.key] = String(l.value ?? ''); });
+
+    const createOpts = {
+      Image: b.image,
+      name: b.name || undefined,
+      Hostname: b.hostname || undefined,
+      Env: env,
+      Labels: labels,
+      ExposedPorts: exposedPorts,
+      HostConfig: {
+        PortBindings: portBindings,
+        Binds: binds,
+        RestartPolicy: { Name: b.restart || 'unless-stopped' },
+        Privileged: !!b.privileged,
+        NetworkMode: b.network || 'bridge',
+      },
+    };
+
+    const newC = await docker.createContainer(createOpts);
+    if (wasRunning) await newC.start();
+    res.json({ ok: true, id: newC.id });
+  })
+);
+
 app.get(
   '/api/containers/:id/logs',
   requireAuth,

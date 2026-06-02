@@ -167,6 +167,7 @@ async function loadContainers() {
   const box = document.getElementById('containers');
   try {
     const list = await api('GET', '/api/containers');
+    _cdListData = list;
     if (!list.length) {
       box.innerHTML = `<div class="empty"><div class="big">▣</div>${t('containers.empty')}<br><span class="muted">${t('containers.emptyHint')}</span></div>`;
       return;
@@ -177,17 +178,15 @@ async function loadContainers() {
   }
 }
 
+// Container-Zeile: kein Aktionsbutton, nur klickbar
 function containerRow(c) {
   const running = c.state === 'running';
   const ports = c.ports
     .filter((p) => p.publicPort)
     .map((p) => `<span class="port">${p.publicPort}→${p.privatePort}</span>`)
     .join('');
-  const toggle = running
-    ? `<button class="btn sm" data-act="stop" data-id="${c.id}">■ ${t('containers.stop')}</button>`
-    : `<button class="btn sm primary" data-act="start" data-id="${c.id}">▶ ${t('containers.start')}</button>`;
   return `
-    <div class="row">
+    <div class="row row-clickable" data-cid="${esc(c.id)}" data-cname="${esc(c.name)}">
       <div class="main">
         <div class="title">
           ${esc(c.name)}
@@ -196,39 +195,277 @@ function containerRow(c) {
         <div class="meta">${esc(c.image)} · ${esc(c.status)}</div>
         <div class="ports">${ports}</div>
       </div>
-      <div class="actions">
-        ${toggle}
-        <button class="btn sm ghost" data-act="restart" data-id="${c.id}" title="Neustart">⟳</button>
-        <button class="btn sm ghost" data-act="logs" data-id="${c.id}" data-name="${esc(c.name)}">${t('containers.logs')}</button>
-        <button class="btn sm danger" data-act="remove" data-id="${c.id}" data-name="${esc(c.name)}">🗑</button>
-      </div>
+      <span class="row-chevron">›</span>
     </div>`;
 }
 
-document.getElementById('containers').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-act]');
-  if (!btn) return;
-  const { act, id, name } = btn.dataset;
+document.getElementById('containers').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-cid]');
+  if (row) openContainerDetail(row.dataset.cid, row.dataset.cname);
+});
+
+// ---------- Container-Detail-Modal ----------
+let _cdCurrentId = null;
+let _cdListData  = null;
+
+function getContainerWebUrl(c) {
+  const l = c.labels || {};
+  if (l['hearth.url']) return l['hearth.url'];
+  const pub = (c.ports || []).filter((p) => p.publicPort);
+  if (!pub.length) return null;
+  let port = pub[0].publicPort;
+  if (l['hearth.port']) {
+    const m = pub.find((p) => String(p.privatePort) === l['hearth.port']);
+    if (m) port = m.publicPort;
+  }
+  const scheme = l['hearth.scheme'] || 'http';
+  return `${scheme}://${location.hostname}:${port}`;
+}
+
+function openContainerDetail(id, name) {
+  _cdCurrentId = id;
+  // Info aus der Liste nehmen (schnell, kein Extra-Request)
+  const c = (_cdListData || []).find((x) => x.id === id) || { id, name, state: '?', image: '?', status: '?', ports: [], labels: {} };
+  const running = c.state === 'running';
+
+  document.getElementById('cd-title').textContent = c.name;
+  document.getElementById('cd-name-label').textContent = c.name;
+
+  const pill = document.getElementById('cd-pill');
+  pill.className = `pill ${running ? 'running' : 'stopped'}`;
+  pill.innerHTML = `<span class="dot"></span>${running ? 'running' : c.state}`;
+
+  document.getElementById('cd-m-image').textContent  = c.image;
+  document.getElementById('cd-m-status').textContent = c.status;
+  document.getElementById('cd-m-id').textContent     = c.shortId || id.slice(0, 12);
+  const portText = (c.ports || []).filter((p) => p.publicPort).map((p) => `${p.publicPort}→${p.privatePort}`).join(', ') || '–';
+  document.getElementById('cd-m-ports').textContent  = portText;
+
+  // Stop/Start-Button
+  const toggleBtn = document.getElementById('cd-toggle-btn');
+  if (running) { toggleBtn.textContent = '■ Stop'; toggleBtn.className = 'btn sm'; }
+  else         { toggleBtn.textContent = '▶ Start'; toggleBtn.className = 'btn sm primary'; }
+
+  // Öffnen-Button
+  const openBtn = document.getElementById('cd-open-btn');
+  const webUrl  = getContainerWebUrl(c);
+  openBtn.style.display = webUrl ? '' : 'none';
+  openBtn.onclick = () => window.open(webUrl, '_blank');
+
+  // Edit-View ausblenden
+  document.getElementById('cd-info-view').style.display  = '';
+  document.getElementById('cd-edit-view').style.display  = 'none';
+
+  openModal('modal-cd');
+}
+
+// Helfer für Edit-Form-Zeilen (mit Pre-fill)
+function edPortRow(host = '', container = '', proto = 'tcp') {
+  const d = document.createElement('div');
+  d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;margin-bottom:8px';
+  d.innerHTML = `
+    <input class="input" placeholder="Host Port" data-k="host" value="${esc(String(host))}" />
+    <input class="input" placeholder="Container Port" data-k="container" value="${esc(String(container))}" />
+    <select class="input" data-k="proto" style="padding:10px 6px">
+      <option value="tcp" ${proto === 'tcp' ? 'selected' : ''}>TCP</option>
+      <option value="udp" ${proto === 'udp' ? 'selected' : ''}>UDP</option>
+    </select>
+    <button class="iconbtn danger" type="button" onclick="this.parentNode.remove()">✕</button>`;
+  return d;
+}
+
+function edVolRow(host = '', container = '') {
+  const d = document.createElement('div');
+  d.className = 'pair'; d.style.marginBottom = '8px';
+  d.innerHTML = `
+    <input class="input" placeholder="/host/path" data-k="host" value="${esc(host)}" />
+    <input class="input" placeholder="/container/path" data-k="container" value="${esc(container)}" />
+    <button class="iconbtn danger" type="button" onclick="this.parentNode.remove()">✕</button>`;
+  return d;
+}
+
+function edKvRow(k = '', v = '', kPh = 'KEY', vPh = 'value') {
+  const d = document.createElement('div');
+  d.className = 'pair'; d.style.marginBottom = '8px';
+  d.innerHTML = `
+    <input class="input" placeholder="${kPh}" data-k="key" value="${esc(k)}" />
+    <input class="input" placeholder="${vPh}" data-k="value" value="${esc(v)}" />
+    <button class="iconbtn danger" type="button" onclick="this.parentNode.remove()">✕</button>`;
+  return d;
+}
+
+function collectEdit(builderId, mapper) {
+  return [...document.getElementById(builderId).children]
+    .map((row) => { const o = {}; row.querySelectorAll('[data-k]').forEach((i) => (o[i.dataset.k] = i.value.trim())); return mapper(o); })
+    .filter(Boolean);
+}
+
+// "Bearbeiten" — lädt vollständige Container-Inspektion und füllt Formular
+document.getElementById('cd-edit-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('cd-edit-btn');
+  btn.textContent = 'Loading…'; btn.disabled = true;
   try {
-    if (act === 'logs') {
-      openLogs(id, name);
-      return;
-    }
-    if (act === 'remove') {
-      if (!confirm(t('containers.confirmRemove', { name }))) return;
-      await api('DELETE', `/api/containers/${id}?force=true`);
-      toast(t('toast.containerDeleted'));
-    } else {
-      btn.disabled = true;
-      await api('POST', `/api/containers/${id}/${act}`);
-      toast(t('toast.actionDone', { act }));
-    }
-    loadContainers();
-  } catch (err) {
-    toast(err.message, 'error');
-    btn.disabled = false;
+    const inspect = await api('GET', `/api/containers/${_cdCurrentId}`);
+    populateEditForm(inspect);
+    document.getElementById('cd-info-view').style.display = 'none';
+    document.getElementById('cd-edit-view').style.display = '';
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.textContent = '✎ Bearbeiten'; btn.disabled = false;
   }
 });
+
+function populateEditForm(ins) {
+  const [imgName, imgTag] = (ins.Config?.Image || '').split(':');
+  document.getElementById('cd-image').value    = imgName || '';
+  document.getElementById('cd-tag').value      = imgTag  || 'latest';
+  document.getElementById('cd-cname').value    = (ins.Name || '').replace(/^\//, '');
+  document.getElementById('cd-hostname').value = ins.Config?.Hostname || '';
+  document.getElementById('cd-restart').value  = ins.HostConfig?.RestartPolicy?.Name || 'unless-stopped';
+  document.getElementById('cd-privileged').checked = !!ins.HostConfig?.Privileged;
+
+  // Network mode (strip leading / for custom networks)
+  const nm = ins.HostConfig?.NetworkMode || 'bridge';
+  const netSel = document.getElementById('cd-network');
+  const knownNets = ['bridge','host','none'];
+  if (!knownNets.includes(nm)) {
+    // Custom network — add as option if not there
+    if (![...netSel.options].some((o) => o.value === nm)) {
+      const opt = document.createElement('option');
+      opt.value = nm; opt.textContent = nm;
+      netSel.appendChild(opt);
+    }
+  }
+  netSel.value = nm;
+
+  // Hearth-Labels
+  const l = ins.Config?.Labels || {};
+  document.getElementById('cd-hearth-name').value = l['hearth.name'] || '';
+  document.getElementById('cd-hearth-icon').value = l['hearth.icon'] || '';
+  document.getElementById('cd-hearth-url').value  = l['hearth.url']  || '';
+
+  // Ports
+  const portsBox = document.getElementById('cd-ports');
+  portsBox.innerHTML = '';
+  for (const [key, bindings] of Object.entries(ins.HostConfig?.PortBindings || {})) {
+    const [cp, proto] = key.split('/');
+    const hp = bindings?.[0]?.HostPort || '';
+    portsBox.appendChild(edPortRow(hp, cp, proto || 'tcp'));
+  }
+
+  // Volumes
+  const volsBox = document.getElementById('cd-vols');
+  volsBox.innerHTML = '';
+  for (const bind of ins.HostConfig?.Binds || []) {
+    const [h, c] = bind.split(':');
+    volsBox.appendChild(edVolRow(h, c));
+  }
+
+  // Env
+  const envBox = document.getElementById('cd-envs');
+  envBox.innerHTML = '';
+  for (const e of ins.Config?.Env || []) {
+    const idx = e.indexOf('=');
+    envBox.appendChild(edKvRow(idx >= 0 ? e.slice(0, idx) : e, idx >= 0 ? e.slice(idx + 1) : ''));
+  }
+
+  // Custom labels (skip internal Docker/hearth ones)
+  const labelsBox = document.getElementById('cd-labels');
+  labelsBox.innerHTML = '';
+  const skipPrefixes = ['org.opencontainers', 'hearth.', 'maintainer', 'com.docker'];
+  for (const [k, v] of Object.entries(l)) {
+    if (skipPrefixes.some((p) => k.startsWith(p))) continue;
+    labelsBox.appendChild(edKvRow(k, v, 'label key', 'value'));
+  }
+}
+
+// Add-Buttons im Edit-Formular
+document.getElementById('cd-add-port').onclick  = () => document.getElementById('cd-ports').appendChild(edPortRow());
+document.getElementById('cd-add-vol').onclick   = () => document.getElementById('cd-vols').appendChild(edVolRow());
+document.getElementById('cd-add-env').onclick   = () => document.getElementById('cd-envs').appendChild(edKvRow());
+document.getElementById('cd-add-label').onclick = () => document.getElementById('cd-labels').appendChild(edKvRow('', '', 'label key', 'value'));
+
+// Cancel Edit → zurück zur Info-View
+document.getElementById('cd-edit-cancel').addEventListener('click', () => {
+  document.getElementById('cd-info-view').style.display = '';
+  document.getElementById('cd-edit-view').style.display = 'none';
+});
+
+// Speichern & neu starten
+document.getElementById('cd-save-btn').addEventListener('click', async () => {
+  const imgName = document.getElementById('cd-image').value.trim();
+  const imgTag  = document.getElementById('cd-tag').value.trim() || 'latest';
+  if (!imgName) { toast('Image name is required', 'error'); return; }
+
+  // Hearth-Labels aus den Form-Feldern + custom labels
+  const hearthLabels = [];
+  const hn = document.getElementById('cd-hearth-name').value.trim();
+  const hi = document.getElementById('cd-hearth-icon').value.trim();
+  const hu = document.getElementById('cd-hearth-url').value.trim();
+  if (hn) hearthLabels.push({ key: 'hearth.name', value: hn });
+  if (hi) hearthLabels.push({ key: 'hearth.icon', value: hi });
+  if (hu) hearthLabels.push({ key: 'hearth.url',  value: hu });
+
+  const customLabels = collectEdit('cd-labels', (l) => l.key ? l : null);
+  const allLabels = [...hearthLabels, ...customLabels];
+
+  const payload = {
+    image:      `${imgName}:${imgTag}`,
+    name:       document.getElementById('cd-cname').value.trim() || undefined,
+    hostname:   document.getElementById('cd-hostname').value.trim() || undefined,
+    network:    document.getElementById('cd-network').value,
+    restart:    document.getElementById('cd-restart').value,
+    privileged: document.getElementById('cd-privileged').checked,
+    ports:   collectEdit('cd-ports',  (p) => p.container ? p : null),
+    volumes: collectEdit('cd-vols',   (v) => v.host && v.container ? v : null),
+    env:     collectEdit('cd-envs',   (e) => e.key ? e : null),
+    labels:  allLabels,
+  };
+
+  const btn = document.getElementById('cd-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await api('PUT', `/api/containers/${_cdCurrentId}`, payload);
+    toast('Container recreated successfully');
+    closeModal('modal-cd');
+    loadContainers();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 Save & Restart';
+  }
+});
+
+// Stop/Start/Restart/Delete aus dem Info-Footer
+async function cdContainerAction(act) {
+  try {
+    if (act === 'delete') {
+      const name = document.getElementById('cd-name-label').textContent;
+      if (!confirm(t('containers.confirmRemove', { name }))) return;
+      await api('DELETE', `/api/containers/${_cdCurrentId}?force=true`);
+      toast(t('toast.containerDeleted'));
+      closeModal('modal-cd');
+    } else {
+      await api('POST', `/api/containers/${_cdCurrentId}/${act}`);
+      toast(t('toast.actionDone', { act }));
+      closeModal('modal-cd');
+    }
+    loadContainers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('cd-toggle-btn').addEventListener('click', () => {
+  const running = document.getElementById('cd-pill').classList.contains('running');
+  cdContainerAction(running ? 'stop' : 'start');
+});
+document.getElementById('cd-restart-btn').addEventListener('click', () => cdContainerAction('restart'));
+document.getElementById('cd-logs-btn').addEventListener('click', () => {
+  const name = document.getElementById('cd-name-label').textContent;
+  closeModal('modal-cd');
+  openLogs(_cdCurrentId, name);
+});
+document.getElementById('cd-delete-btn').addEventListener('click', () => cdContainerAction('delete'));
 
 document.getElementById('refresh-containers').addEventListener('click', () => {
   loadContainers();
