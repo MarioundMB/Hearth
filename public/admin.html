@@ -283,6 +283,78 @@
         margin-bottom: 14px;
       }
 
+      /* ===== Create-Modal Methoden-Tabs ===== */
+      .cm-head {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding-bottom: 0;
+      }
+      .cm-head > .iconbtn {
+        position: absolute;
+        top: 16px;
+        right: 18px;
+      }
+      .cm-tabs {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding-right: 40px; /* Platz für X-Button */
+      }
+      .cm-tab {
+        padding: 10px 16px;
+        border: none;
+        background: none;
+        color: var(--text-dim);
+        font-size: 13.5px;
+        font-weight: 600;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: all 0.15s;
+      }
+      .cm-tab:hover { color: var(--text); }
+      .cm-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+      .cm-head + * { border-top: 1px solid var(--border); }
+
+      /* Icon-Vorschau */
+      .c-icon-preview {
+        width: 42px; height: 42px;
+        border-radius: var(--radius-sm);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        font-size: 22px;
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+      .c-icon-preview img { width: 100%; height: 100%; object-fit: cover; }
+      .c-icon-preview.loading { animation: iconSpin .8s linear infinite; }
+      @keyframes iconSpin { to { filter: hue-rotate(360deg); } }
+
+      /* App-Details Akkordeon */
+      .c-app-details {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 10px 14px;
+        margin-bottom: 14px;
+        background: var(--bg-soft);
+      }
+      .c-app-details summary {
+        cursor: pointer;
+        font-size: 13.5px;
+        font-weight: 600;
+        color: var(--text-dim);
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .c-app-details summary::before { content: '▶'; font-size: 10px; transition: transform .15s; }
+      .c-app-details[open] summary::before { transform: rotate(90deg); }
+      .c-app-details .field { margin-bottom: 10px; }
+
       /* Update-Badge auf Container-Zeilen */
       .update-dot {
         display: inline-flex;
@@ -993,21 +1065,83 @@
 
     <!-- Modals -->
     <div class="modal-backdrop" id="modal-create">
-      <div class="modal">
-        <div class="modal-head">
-          <h3 data-i18n="modal.createContainer">Neuen Container erstellen</h3>
+      <div class="modal" style="max-width:660px">
+
+        <!-- Header mit Methoden-Tabs -->
+        <div class="modal-head cm-head">
+          <div class="cm-tabs">
+            <button class="cm-tab active" data-ctab="form">🖊 Form</button>
+            <button class="cm-tab" data-ctab="run">▶ docker run</button>
+            <button class="cm-tab" data-ctab="compose">🗋 Compose</button>
+          </div>
           <button class="iconbtn" data-close>✕</button>
         </div>
-        <div class="modal-body">
+
+        <!-- Panel: docker run -->
+        <div class="modal-body" id="ctab-run" style="display:none">
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
+            Paste a <code style="font-family:var(--font-mono)">docker run</code> command — it will be parsed and the form pre-filled.
+          </p>
           <div class="field">
-            <label data-i18n="modal.image">Image *</label>
-            <input class="input" id="c-image" placeholder="z.B. nginx:latest" />
+            <textarea class="input" id="docker-run-input" rows="7"
+              placeholder="docker run -d \&#10;  --name jellyfin \&#10;  -p 8096:8096 \&#10;  -v /data/jellyfin:/config \&#10;  -e TZ=Europe/Berlin \&#10;  --restart unless-stopped \&#10;  jellyfin/jellyfin:latest"
+              style="font-family:var(--font-mono);font-size:12.5px;resize:vertical"></textarea>
           </div>
-          <p class="hint" data-i18n="modal.imageTip">Tipp: Aktiviere „Image vorher ziehen", wenn es lokal noch nicht vorhanden ist.</p>
+          <button class="btn primary" id="parse-run-btn">Parse & open form →</button>
+        </div>
+
+        <!-- Panel: docker-compose -->
+        <div class="modal-body" id="ctab-compose" style="display:none">
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
+            Paste a <code style="font-family:var(--font-mono)">docker-compose.yml</code> service block — the first service will be imported.
+          </p>
+          <div class="field">
+            <textarea class="input" id="compose-input" rows="12"
+              placeholder="services:&#10;  jellyfin:&#10;    image: jellyfin/jellyfin:latest&#10;    ports:&#10;      - '8096:8096'&#10;    volumes:&#10;      - /data/jellyfin:/config&#10;    environment:&#10;      - TZ=Europe/Berlin&#10;    restart: unless-stopped"
+              style="font-family:var(--font-mono);font-size:12.5px;resize:vertical"></textarea>
+          </div>
+          <button class="btn primary" id="parse-compose-btn">Parse & open form →</button>
+        </div>
+
+        <!-- Panel: Form -->
+        <div class="modal-body" id="ctab-form">
+
+          <!-- Image + Icon-Vorschau -->
+          <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:flex-end">
+            <div class="field" style="margin:0">
+              <label data-i18n="modal.image">Image *</label>
+              <input class="input" id="c-image" placeholder="nginx:latest" autocomplete="off" />
+            </div>
+            <div class="c-icon-preview" id="c-icon-preview" title="Auto-fetched from Docker Hub">🐳</div>
+          </div>
+          <p class="hint" style="margin-top:6px">Pull from Docker Hub automatically if not available locally.</p>
+
           <div class="field">
             <label data-i18n="modal.name">Name</label>
             <input class="input" id="c-name" placeholder="meine-app" />
           </div>
+
+          <!-- App-Einstellungen (Hearth-Labels) -->
+          <details class="c-app-details">
+            <summary>App Settings <span style="color:var(--text-faint);font-size:12px">(name, icon, URL for guest view)</span></summary>
+            <div style="padding-top:12px">
+              <div class="field">
+                <label>Display Name</label>
+                <input class="input" id="c-display-name" placeholder="My App" />
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 42px;gap:8px;align-items:flex-end">
+                <div class="field" style="margin:0">
+                  <label>Icon <span style="color:var(--text-faint);font-size:11px">(auto-fetched · emoji or URL)</span></label>
+                  <input class="input" id="c-icon-field" placeholder="auto / 🚀 / https://…" />
+                </div>
+                <div class="c-icon-preview" id="c-icon-preview-sm" title="Preview">🐳</div>
+              </div>
+              <div class="field" style="margin-top:10px;margin-bottom:0">
+                <label>Web URL <span style="color:var(--text-faint);font-size:11px">(overrides auto-detection)</span></label>
+                <input class="input" id="c-web-url" placeholder="http://server:port" />
+              </div>
+            </div>
+          </details>
 
           <div class="field">
             <label data-i18n="modal.ports">Port-Mappings (Host → Container)</label>
@@ -1037,23 +1171,19 @@
             </select>
           </div>
 
-          <div class="field" style="flex-direction: row; align-items: center; gap: 10px">
-            <input type="checkbox" id="c-pull" checked style="width: auto" />
-            <label for="c-pull" style="margin: 0" data-i18n="modal.pullFirst">Image vorher ziehen (docker pull)</label>
+          <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+            <input type="checkbox" id="c-pull" checked style="width:auto" />
+            <label for="c-pull" style="margin:0" data-i18n="modal.pullFirst">Image vorher ziehen (docker pull)</label>
           </div>
 
-          <p class="hint" data-i18n="modal.labelsTip">
-            Optionale Labels für die Gäste-Ansicht kannst du als ENV-ähnliche Labels
-            via <span class="mono">hearth.name</span>, <span class="mono">hearth.icon</span>,
-            <span class="mono">hearth.description</span> setzen (siehe README).
-          </p>
-          <div class="field">
-            <label data-i18n="modal.labels">Labels (für hübsche Gäste-Kacheln)</label>
+          <div class="field" style="margin-bottom:0">
+            <label data-i18n="modal.labels">Custom Labels</label>
             <div class="env-builder" id="c-labels"></div>
             <span class="addrow" id="add-label" data-i18n="modal.addLabel">+ Label hinzufügen</span>
           </div>
         </div>
-        <div class="modal-foot">
+
+        <div class="modal-foot" id="create-modal-foot">
           <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
           <button class="btn primary" id="c-submit" data-i18n="modal.createStart">Erstellen & starten</button>
         </div>
