@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hearth · Admin</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      .sysbar {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        margin: 24px 0;
+      }
+      .sysbar .cell {
+        background: var(--panel);
+        padding: 16px 18px;
+      }
+      .sysbar .k {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-faint);
+        font-family: var(--font-mono);
+      }
+      .sysbar .v {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 21px;
+        margin-top: 3px;
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 22px;
+      }
+      .tab {
+        padding: 11px 18px;
+        cursor: pointer;
+        color: var(--text-dim);
+        font-weight: 600;
+        font-size: 14.5px;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: all 0.15s ease;
+      }
+      .tab:hover {
+        color: var(--text);
+      }
+      .tab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+      .view {
+        display: none;
+        padding-bottom: 70px;
+      }
+      .view.active {
+        display: block;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .toolbar h2 {
+        font-family: var(--font-display);
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      /* Tabelle / Listen */
+      .list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 15px 18px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        transition: border-color 0.15s ease;
+      }
+      .row:hover {
+        border-color: var(--border-bright);
+      }
+      .row .main {
+        flex: 1;
+        min-width: 0;
+      }
+      .row .title {
+        font-weight: 700;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .row .meta {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-top: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row .actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .ports {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-top: 5px;
+      }
+      .port {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        padding: 1px 7px;
+        border-radius: 5px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+      }
+
+      /* Dateimanager */
+      .crumbs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        margin-bottom: 14px;
+        color: var(--text-dim);
+      }
+      .crumbs a {
+        padding: 3px 8px;
+        border-radius: 6px;
+      }
+      .crumbs a:hover {
+        background: var(--panel-2);
+        color: var(--accent);
+      }
+      .file-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid transparent;
+        cursor: default;
+      }
+      .file-row:hover {
+        background: var(--panel);
+        border-color: var(--border);
+      }
+      .file-row .fname {
+        flex: 1;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .file-row .fname .ficon {
+        font-size: 18px;
+      }
+      .file-row .fname.dir {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .file-row .fname.dir:hover {
+        color: var(--accent);
+      }
+      .file-row .fmeta {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text-faint);
+        white-space: nowrap;
+      }
+      .fileops {
+        display: flex;
+        gap: 6px;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      .file-row:hover .fileops {
+        opacity: 1;
+      }
+      .iconbtn {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        padding: 5px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+      }
+      .iconbtn:hover {
+        background: var(--panel-2);
+        color: var(--text);
+      }
+      .iconbtn.danger:hover {
+        color: var(--danger);
+      }
+      .dropzone {
+        border: 1.5px dashed var(--border-bright);
+        border-radius: var(--radius);
+        padding: 18px;
+        text-align: center;
+        color: var(--text-faint);
+        margin-bottom: 16px;
+        transition: all 0.15s ease;
+        cursor: pointer;
+        font-size: 13.5px;
+      }
+      .dropzone.drag {
+        border-color: var(--accent);
+        background: var(--accent-glow);
+        color: var(--accent);
+      }
+
+      .port-builder,
+      .vol-builder,
+      .env-builder {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .triple {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 8px;
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 8px;
+      }
+      .addrow {
+        font-size: 12.5px;
+        color: var(--accent);
+        cursor: pointer;
+        font-weight: 600;
+        width: fit-content;
+        margin-top: 2px;
+      }
+      pre.logs {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 16px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.55;
+        max-height: 440px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--text-dim);
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--text-faint);
+        margin-top: -8px;
+        margin-bottom: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <div class="brand">
+          <span class="flame">▲</span>
+          <span>Hearth <small>Admin</small></span>
+        </div>
+        <div class="spacer"></div>
+        <a class="btn ghost sm" href="/" target="_blank">Gäste-Ansicht ↗</a>
+        <button class="btn sm" id="logout">Abmelden</button>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <div class="sysbar" id="sysbar"></div>
+
+      <div class="tabs">
+        <div class="tab active" data-view="containers">Container</div>
+        <div class="tab" data-view="images">Images</div>
+        <div class="tab" data-view="files">Dateimanager</div>
+      </div>
+
+      <!-- Container -->
+      <section class="view active" id="view-containers">
+        <div class="toolbar">
+          <h2>Container</h2>
+          <div class="spacer"></div>
+          <button class="btn sm ghost" id="refresh-containers">⟳ Aktualisieren</button>
+          <button class="btn primary sm" id="new-container">+ Neuer Container</button>
+        </div>
+        <div class="list" id="containers"></div>
+      </section>
+
+      <!-- Images -->
+      <section class="view" id="view-images">
+        <div class="toolbar">
+          <h2>Images</h2>
+          <div class="spacer"></div>
+          <button class="btn primary sm" id="pull-image">↓ Image ziehen</button>
+        </div>
+        <div class="list" id="images"></div>
+      </section>
+
+      <!-- Dateimanager -->
+      <section class="view" id="view-files">
+        <div class="toolbar">
+          <h2>Dateimanager</h2>
+          <div class="spacer"></div>
+          <button class="btn sm" id="mkdir">+ Ordner</button>
+        </div>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="dropzone" id="dropzone">
+          Dateien hierher ziehen oder klicken zum Hochladen
+          <input type="file" id="fileinput" multiple style="display: none" />
+        </div>
+        <div class="list" id="files"></div>
+      </section>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-backdrop" id="modal-create">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>Neuen Container erstellen</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>Image *</label>
+            <input class="input" id="c-image" placeholder="z.B. nginx:latest" />
+          </div>
+          <p class="hint">Tipp: Aktiviere „Image vorher ziehen", wenn es lokal noch nicht vorhanden ist.</p>
+          <div class="field">
+            <label>Name</label>
+            <input class="input" id="c-name" placeholder="meine-app" />
+          </div>
+
+          <div class="field">
+            <label>Port-Mappings (Host → Container)</label>
+            <div class="port-builder" id="c-ports"></div>
+            <span class="addrow" id="add-port">+ Port hinzufügen</span>
+          </div>
+
+          <div class="field">
+            <label>Volumes (Host-Pfad → Container-Pfad)</label>
+            <div class="vol-builder" id="c-vols"></div>
+            <span class="addrow" id="add-vol">+ Volume hinzufügen</span>
+          </div>
+
+          <div class="field">
+            <label>Umgebungsvariablen</label>
+            <div class="env-builder" id="c-envs"></div>
+            <span class="addrow" id="add-env">+ Variable hinzufügen</span>
+          </div>
+
+          <div class="field">
+            <label>Neustart-Richtlinie</label>
+            <select class="input" id="c-restart">
+              <option value="unless-stopped">unless-stopped (empfohlen)</option>
+              <option value="always">always</option>
+              <option value="on-failure">on-failure</option>
+              <option value="no">no</option>
+            </select>
+          </div>
+
+          <div class="field" style="flex-direction: row; align-items: center; gap: 10px">
+            <input type="checkbox" id="c-pull" checked style="width: auto" />
+            <label for="c-pull" style="margin: 0">Image vorher ziehen (docker pull)</label>
+          </div>
+
+          <p class="hint">
+            Optionale Labels für die Gäste-Ansicht kannst du als ENV-ähnliche Labels
+            via <span class="mono">hearth.name</span>, <span class="mono">hearth.icon</span>,
+            <span class="mono">hearth.description</span> setzen (siehe README).
+          </p>
+          <div class="field">
+            <label>Labels (für hübsche Gäste-Kacheln)</label>
+            <div class="env-builder" id="c-labels"></div>
+            <span class="addrow" id="add-label">+ Label hinzufügen</span>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close>Abbrechen</button>
+          <button class="btn primary" id="c-submit">Erstellen & starten</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="modal-logs">
+      <div class="modal" style="max-width: 760px">
+        <div class="modal-head">
+          <h3 id="logs-title">Logs</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body"><pre class="logs" id="logs-body">…</pre></div>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+    <script src="/js/common.js"></script>
+    <script src="/js/admin.js"></script>
+  </body>
+</html>
