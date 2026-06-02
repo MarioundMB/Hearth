@@ -431,7 +431,106 @@ document.getElementById('c-submit').addEventListener('click', async () => {
   }
 });
 
+// ---------- Hearth-Einstellungen ----------
+function openSettings() {
+  openModal('modal-settings');
+  loadSettings();
+}
+document.getElementById('open-settings').addEventListener('click', openSettings);
+document.getElementById('btn-settings').addEventListener('click', openSettings);
+
+document.getElementById('pw-toggle').addEventListener('click', () => {
+  const fields = document.getElementById('pw-fields');
+  const btn = document.getElementById('pw-toggle');
+  const open = fields.style.display === 'none';
+  fields.style.display = open ? 'block' : 'none';
+  btn.textContent = open ? '− Passwort ändern' : '+ Passwort ändern';
+  if (!open) ['s-curpw', 's-newpw', 's-newpw2'].forEach((id) => (document.getElementById(id).value = ''));
+});
+
+async function loadSettings() {
+  // Passwort-Bereich zurücksetzen
+  document.getElementById('pw-fields').style.display = 'none';
+  document.getElementById('pw-toggle').textContent = '+ Passwort ändern';
+  ['s-curpw', 's-newpw', 's-newpw2'].forEach((id) => (document.getElementById(id).value = ''));
+
+  try {
+    const s = await api('GET', '/api/settings');
+    document.getElementById('s-servername').value = s.serverName;
+    document.getElementById('s-username').value = s.adminUser;
+    document.getElementById('s-lang').value = s.lang || 'de';
+    document.getElementById('s-showoffline').checked = !!s.showOfflineApps;
+    document.getElementById('s-refresh').value = String(s.refreshInterval ?? 15);
+    document.getElementById('s-port').textContent = s.port;
+    document.getElementById('s-docker-socket').textContent = s.dockerSocket;
+    document.getElementById('s-filesroot').textContent = s.filesRoot;
+    document.getElementById('s-version').textContent = 'v' + s.version;
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+document.getElementById('s-save').addEventListener('click', async () => {
+  const serverName = document.getElementById('s-servername').value.trim();
+  const adminUser = document.getElementById('s-username').value.trim();
+  const lang = document.getElementById('s-lang').value;
+  const showOfflineApps = document.getElementById('s-showoffline').checked;
+  const refreshInterval = Number(document.getElementById('s-refresh').value);
+  const curpw = document.getElementById('s-curpw').value;
+  const newpw = document.getElementById('s-newpw').value;
+  const newpw2 = document.getElementById('s-newpw2').value;
+
+  if (!adminUser) { toast('Benutzername darf nicht leer sein', 'error'); return; }
+
+  const pwOpen = document.getElementById('pw-fields').style.display !== 'none';
+  if (pwOpen && newpw) {
+    if (newpw.length < 8) { toast('Neues Passwort muss mindestens 8 Zeichen haben', 'error'); return; }
+    if (newpw !== newpw2) { toast('Passwörter stimmen nicht überein', 'error'); return; }
+    if (!curpw) { toast('Bitte aktuelles Passwort eingeben', 'error'); return; }
+  }
+
+  const payload = { serverName, adminUser, lang, showOfflineApps, refreshInterval };
+  if (pwOpen && newpw) { payload.newPassword = newpw; payload.currentPassword = curpw; }
+
+  const btn = document.getElementById('s-save');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/settings', payload);
+    toast('Einstellungen gespeichert');
+    closeModal('modal-settings');
+    // Auto-Refresh neu starten mit neuem Intervall
+    applyRefreshInterval(refreshInterval);
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('s-restart').addEventListener('click', async () => {
+  if (!confirm('Hearth jetzt neu starten? Du wirst kurz getrennt.')) return;
+  try {
+    await api('POST', '/api/system/restart');
+    toast('Hearth startet neu… Seite lädt in 4 Sekunden neu.', 'info');
+    setTimeout(() => location.reload(), 4000);
+  } catch (e) {
+    // Verbindungsfehler ist erwartet, da der Server neu startet
+    toast('Hearth startet neu… Seite lädt in 4 Sekunden neu.', 'info');
+    setTimeout(() => location.reload(), 4000);
+  }
+});
+
 // ---------- Init ----------
+let refreshTimer = null;
+
+function applyRefreshInterval(seconds) {
+  clearInterval(refreshTimer);
+  if (seconds > 0) refreshTimer = setInterval(loadSystem, seconds * 1000);
+}
+
+// Startwert aus gespeicherter Einstellung laden
+api('GET', '/api/settings').then((s) => applyRefreshInterval(s.refreshInterval ?? 15)).catch(() => {});
+
 loadSystem();
 loadContainers();
-setInterval(loadSystem, 15000);
+applyRefreshInterval(15); // Default bis Settings geladen

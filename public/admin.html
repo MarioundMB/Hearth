@@ -281,17 +281,154 @@
         margin-top: -8px;
         margin-bottom: 14px;
       }
+
+      /* Brand als Klick-Ziel (sekundärer Weg zu Einstellungen) */
+      button.brand {
+        appearance: none;
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 5px 10px;
+        margin-left: -10px;
+        border-radius: var(--radius-sm);
+        transition: background 0.15s ease;
+      }
+      button.brand:hover { background: rgba(196, 240, 66, 0.06); }
+      button.brand:hover .flame { box-shadow: 0 0 28px rgba(196, 240, 66, 0.3); }
+
+      /* ===== Einstellungs-Modal ===== */
+      .settings-modal { max-width: 560px; }
+      .settings-body {
+        padding: 0 !important;
+        max-height: 66vh;
+        overflow-y: auto;
+      }
+
+      /* Gruppen */
+      .s-group {
+        padding: 0 22px 4px;
+        border-bottom: 1px solid var(--border);
+      }
+      .s-group:last-child { border-bottom: none; }
+      .s-group-title {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        padding: 14px 0 8px;
+      }
+
+      /* Zeilen */
+      .s-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--border);
+        min-height: 54px;
+      }
+      .s-row:last-child { border-bottom: none; }
+      .s-row-l {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        flex: 1;
+        min-width: 0;
+      }
+      .s-icon {
+        font-size: 19px;
+        width: 24px;
+        text-align: center;
+        flex-shrink: 0;
+        opacity: 0.85;
+      }
+      .s-label { font-size: 13.5px; font-weight: 500; }
+      .s-sub {
+        font-size: 11.5px;
+        color: var(--text-faint);
+        margin-top: 1px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 280px;
+      }
+      .s-input {
+        width: 150px;
+        flex-shrink: 0;
+        font-size: 13px !important;
+        padding: 7px 10px !important;
+      }
+      .s-select {
+        flex-shrink: 0;
+        font-size: 13px !important;
+        padding: 7px 10px !important;
+        width: auto;
+      }
+      .s-badge {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* Toggle Switch */
+      .toggle {
+        position: relative;
+        width: 42px;
+        height: 24px;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+      .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+      .toggle-track {
+        position: absolute;
+        inset: 0;
+        background: var(--border-bright);
+        border-radius: 24px;
+        transition: background 0.2s ease;
+      }
+      .toggle input:checked + .toggle-track { background: var(--accent); }
+      .toggle-track::after {
+        content: '';
+        position: absolute;
+        top: 3px; left: 3px;
+        width: 18px; height: 18px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.2s ease;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+      }
+      .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
+
+      /* Passwort-Sektion */
+      .pw-toggle {
+        font-size: 13px;
+        color: var(--accent);
+        font-weight: 600;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+      }
+      .pw-toggle:hover { opacity: 0.8; }
     </style>
   </head>
   <body>
     <header class="topbar">
       <div class="wrap topbar-inner">
-        <div class="brand">
+        <button class="brand" id="open-settings" title="Hearth-Einstellungen">
           <span class="flame">▲</span>
           <span>Hearth <small>Admin</small></span>
-        </div>
+        </button>
         <div class="spacer"></div>
         <a class="btn ghost sm" href="/" target="_blank">Gäste-Ansicht ↗</a>
+        <button class="btn sm" id="btn-settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout">Abmelden</button>
       </div>
     </header>
@@ -418,6 +555,181 @@
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body"><pre class="logs" id="logs-body">…</pre></div>
+      </div>
+    </div>
+
+    <!-- Einstellungs-Modal -->
+    <div class="modal-backdrop" id="modal-settings">
+      <div class="modal settings-modal">
+        <div class="modal-head">
+          <h3 style="display:flex;align-items:center;gap:10px">
+            <span class="flame" style="width:26px;height:26px;font-size:14px">▲</span>
+            Hearth · Einstellungen
+          </h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+
+        <div class="modal-body settings-body">
+
+          <!-- Allgemein -->
+          <div class="s-group">
+            <div class="s-group-title">Allgemein</div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🏠</span>
+                <div>
+                  <div class="s-label">Server-Name</div>
+                  <div class="s-sub">Wird in der Gäste-Ansicht angezeigt</div>
+                </div>
+              </div>
+              <input class="input s-input" id="s-servername" placeholder="Hearth" />
+            </div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🌐</span>
+                <div>
+                  <div class="s-label">Sprache</div>
+                  <div class="s-sub">Interface-Sprache (weitere Sprachen folgen)</div>
+                </div>
+              </div>
+              <select class="input s-select" id="s-lang">
+                <option value="de">Deutsch</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🔌</span>
+                <div>
+                  <div class="s-label">WebUI Port</div>
+                  <div class="s-sub">Änderbar über ENV-Variable PORT</div>
+                </div>
+              </div>
+              <span class="s-badge" id="s-port">—</span>
+            </div>
+          </div>
+
+          <!-- Gäste-Ansicht -->
+          <div class="s-group">
+            <div class="s-group-title">Gäste-Ansicht</div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">📴</span>
+                <div>
+                  <div class="s-label">Offline-Dienste anzeigen</div>
+                  <div class="s-sub">Gestoppte Container als inaktive Kacheln zeigen</div>
+                </div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="s-showoffline">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Verhalten -->
+          <div class="s-group">
+            <div class="s-group-title">Verhalten</div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🔄</span>
+                <div>
+                  <div class="s-label">Auto-Refresh Intervall</div>
+                  <div class="s-sub">System-Info im Admin-Bereich automatisch aktualisieren</div>
+                </div>
+              </div>
+              <select class="input s-select" id="s-refresh">
+                <option value="0">Aus</option>
+                <option value="10">10 Sekunden</option>
+                <option value="15">15 Sekunden</option>
+                <option value="30">30 Sekunden</option>
+                <option value="60">60 Sekunden</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Sicherheit -->
+          <div class="s-group">
+            <div class="s-group-title">Sicherheit</div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">👤</span>
+                <div><div class="s-label">Admin-Benutzername</div></div>
+              </div>
+              <input class="input s-input" id="s-username" autocomplete="username" />
+            </div>
+
+            <div class="s-row" style="flex-direction:column;align-items:stretch;gap:0;min-height:auto;padding:12px 0">
+              <div style="display:flex;align-items:center;gap:13px">
+                <span class="s-icon">🔑</span>
+                <button class="pw-toggle" id="pw-toggle">+ Passwort ändern</button>
+              </div>
+              <div id="pw-fields" style="display:none;margin-top:14px;padding-left:37px">
+                <div class="field">
+                  <label>Aktuelles Passwort</label>
+                  <input class="input" id="s-curpw" type="password" autocomplete="current-password" />
+                </div>
+                <div class="field">
+                  <label>Neues Passwort</label>
+                  <input class="input" id="s-newpw" type="password" autocomplete="new-password"
+                    placeholder="Mindestens 8 Zeichen" />
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label>Neues Passwort bestätigen</label>
+                  <input class="input" id="s-newpw2" type="password" autocomplete="new-password" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- System-Info -->
+          <div class="s-group">
+            <div class="s-group-title">System</div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🐳</span>
+                <div>
+                  <div class="s-label">Docker Socket</div>
+                  <div class="s-sub mono" id="s-docker-socket">—</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">📁</span>
+                <div>
+                  <div class="s-label">Dateimanager-Root</div>
+                  <div class="s-sub mono" id="s-filesroot">—</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">ℹ️</span>
+                <div><div class="s-label">Version</div></div>
+              </div>
+              <span class="s-badge" id="s-version">—</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-foot" style="justify-content:space-between">
+          <button class="btn danger sm" id="s-restart">⟳ Hearth neu starten</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn ghost" data-close>Abbrechen</button>
+            <button class="btn primary" id="s-save">Speichern</button>
+          </div>
+        </div>
       </div>
     </div>
 
