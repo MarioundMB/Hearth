@@ -320,6 +320,41 @@ function getTemperatures() {
 }
 
 // ---------------------------------------------------------------------------
+// Docker Hub Metadaten-Proxy (vermeidet CORS im Browser)
+// ---------------------------------------------------------------------------
+app.get(
+  '/api/dockerhub/info',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const raw = (req.query.image || '').trim().split(':')[0]; // Tag abschneiden
+    if (!raw) return res.status(400).json({ error: 'image required' });
+
+    const parts = raw.split('/');
+    const [ns, name] = parts.length === 1 ? ['library', parts[0]] : [parts[0], parts[1]];
+
+    try {
+      const r = await fetch(
+        `https://hub.docker.com/v2/repositories/${ns}/${name}/`,
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }
+      );
+      if (!r.ok) return res.json({ found: false });
+      const d = await r.json();
+      res.json({
+        found: true,
+        image: ns === 'library' ? name : `${ns}/${name}`,
+        description: (d.description || '').slice(0, 280),
+        pullCount: d.pull_count || 0,
+        starCount: d.star_count || 0,
+        isOfficial: !!d.is_official,
+        logoUrl: d.logo_url?.large || null,
+      });
+    } catch (_) {
+      res.json({ found: false });
+    }
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Monitor-Endpoint (Admin)
 // ---------------------------------------------------------------------------
 app.get(

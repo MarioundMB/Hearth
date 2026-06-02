@@ -686,6 +686,164 @@ document.getElementById('s-restart').addEventListener('click', async () => {
   }
 });
 
+// ---------- Quick Install (Drag & Drop / Paste) ----------
+
+function parseDockerInput(text) {
+  text = (text || '').trim();
+  // Docker Hub URL: hub.docker.com/_/nginx oder hub.docker.com/r/ns/name
+  try {
+    const u = new URL(text);
+    if (u.hostname === 'hub.docker.com') {
+      const m1 = u.pathname.match(/^\/_\/([a-z0-9_.-]+)/i);
+      if (m1) return m1[1];
+      const m2 = u.pathname.match(/^\/r\/([a-z0-9_.-]+\/[a-z0-9_.-]+)/i);
+      if (m2) return m2[1];
+    }
+  } catch (_) {}
+  // Einfacher Image-Name (nginx, nginx:latest, ns/name, ns/name:tag)
+  if (/^[a-z0-9._/-]+(:[a-z0-9._-]+)?$/i.test(text) && !text.includes('://')) {
+    return text.replace(/^docker\.io\//, '').replace(/^library\//, '');
+  }
+  return null;
+}
+
+function imageToName(image) {
+  return image.split(':')[0].split('/').pop().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+}
+
+function fmtPulls(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(0) + 'B+';
+  if (n >= 1e6) return (n / 1e6).toFixed(0) + 'M+';
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K+';
+  return String(n);
+}
+
+async function openQuickInstall(image) {
+  // Overlay schließen, falls noch sichtbar
+  document.getElementById('drop-overlay').classList.remove('active');
+
+  // Modal öffnen, Ladestate zeigen
+  document.getElementById('qi-loading').style.display = 'flex';
+  document.getElementById('qi-info').style.display    = 'none';
+  document.getElementById('qi-image').value           = image;
+  document.getElementById('qi-name').value            = imageToName(image);
+  document.getElementById('qi-install').disabled      = false;
+  document.getElementById('qi-install').textContent   = '⚡ Install';
+  openModal('modal-qi');
+
+  // Metadaten von Docker Hub holen
+  try {
+    const info = await api('GET', `/api/dockerhub/info?image=${encodeURIComponent(image)}`);
+    document.getElementById('qi-loading').style.display = 'none';
+    if (info.found) {
+      document.getElementById('qi-info').style.display   = 'flex';
+      document.getElementById('qi-meta-name').textContent = info.image;
+      document.getElementById('qi-meta-desc').textContent = info.description || '';
+      document.getElementById('qi-official').style.display = info.isOfficial ? '' : 'none';
+      document.getElementById('qi-stats').textContent =
+        `↓ ${fmtPulls(info.pullCount)} pulls  ⭐ ${fmtPulls(info.starCount)} stars`;
+      const logoEl = document.getElementById('qi-logo');
+      if (info.logoUrl) {
+        logoEl.innerHTML = `<img src="${esc(info.logoUrl)}" alt="" onerror="this.parentNode.textContent='🐳'">`;
+      } else {
+        logoEl.textContent = '🐳';
+      }
+      // Image-Feld auf kanonischen Namen aktualisieren
+      if (!document.getElementById('qi-image').value.includes(':')) {
+        document.getElementById('qi-image').value = info.image;
+        document.getElementById('qi-name').value  = imageToName(info.image);
+      }
+    }
+  } catch (_) {
+    document.getElementById('qi-loading').style.display = 'none';
+  }
+}
+
+document.getElementById('qi-install').addEventListener('click', async () => {
+  const image = document.getElementById('qi-image').value.trim();
+  if (!image) { toast('Image name required', 'error'); return; }
+  const name  = document.getElementById('qi-name').value.trim();
+  const btn   = document.getElementById('qi-install');
+  btn.disabled = true;
+  btn.textContent = 'Installing…';
+  try {
+    await api('POST', '/api/containers', {
+      image, name: name || undefined,
+      pull: true, restart: 'unless-stopped',
+      ports: [], volumes: [], env: [], labels: [],
+    });
+    toast('Installed: ' + (name || image));
+    closeModal('modal-qi');
+    loadContainers();
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '⚡ Install';
+  }
+});
+
+document.getElementById('qi-open-full').addEventListener('click', () => {
+  const image = document.getElementById('qi-image').value.trim();
+  const name  = document.getElementById('qi-name').value.trim();
+  closeModal('modal-qi');
+  // Existierendes Create-Modal mit Werten vorausfüllen
+  document.getElementById('c-image').value = image;
+  document.getElementById('c-name').value  = name;
+  ['c-ports','c-vols','c-envs','c-labels'].forEach((id) => (document.getElementById(id).innerHTML = ''));
+  document.getElementById('c-ports').appendChild(portRow());
+  document.getElementById('c-pull').checked = true;
+  openModal('modal-create');
+});
+
+// Live-Update des Container-Namens wenn Image geändert wird
+document.getElementById('qi-image').addEventListener('input', function () {
+  const parsed = parseDockerInput(this.value);
+  if (parsed) document.getElementById('qi-name').value = imageToName(parsed);
+});
+
+// ── Drag & Drop ──────────────────────────────────────────────────────────────
+let _dragActive = false;
+
+document.addEventListener('dragover', (e) => {
+  const types = Array.from(e.dataTransfer?.types || []);
+  if (types.includes('text/uri-list') || types.includes('text/plain')) {
+    e.preventDefault();
+    if (!_dragActive) {
+      _dragActive = true;
+      document.getElementById('drop-overlay').classList.add('active');
+    }
+  }
+});
+
+document.addEventListener('dragleave', (e) => {
+  if (!e.relatedTarget) {
+    _dragActive = false;
+    document.getElementById('drop-overlay').classList.remove('active');
+  }
+});
+
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  _dragActive = false;
+  document.getElementById('drop-overlay').classList.remove('active');
+  const raw = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '';
+  const image = parseDockerInput(raw.split('\n')[0].trim());
+  if (image) {
+    openQuickInstall(image);
+  } else {
+    toast('No Docker image found in dropped content', 'error');
+  }
+});
+
+// ── Paste (Ctrl+V außerhalb von Inputs) ──────────────────────────────────────
+document.addEventListener('paste', (e) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  const text = e.clipboardData?.getData('text') || '';
+  const image = parseDockerInput(text.split('\n')[0].trim());
+  if (image) openQuickInstall(image);
+});
+
 // ---------- Init ----------
 
 // Container-Liste: interval aus Einstellungen (Standard 15s)
