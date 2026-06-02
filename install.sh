@@ -35,12 +35,35 @@ echo -e "${DIM}  ─────────────────────
 echo ""
 
 # ── Download helper (curl or wget) ────────────────────────────────────────
-if command -v curl &>/dev/null; then
-  FETCH="curl -fsSL"
+# IMPORTANT: The Snap version of curl writes warnings to stdout, which
+# corrupts any pipe-to-bash pattern. Always prefer the native apt curl
+# (/usr/bin/curl) or wget over snap curl (/snap/bin/curl).
+FETCH=""
+
+# Prefer native /usr/bin/curl over snap curl
+if [ -x /usr/bin/curl ]; then
+  FETCH="/usr/bin/curl -fsSL"
+elif command -v curl &>/dev/null; then
+  _CURL_PATH="$(command -v curl)"
+  if [[ "$_CURL_PATH" == /snap/* ]]; then
+    # snap curl detected — it injects warnings into stdout and breaks pipes.
+    # Try to install the native package instead.
+    warn "Snap version of curl detected — it is incompatible with pipe installs."
+    if command -v apt-get &>/dev/null; then
+      info "Installing native curl via apt…"
+      apt-get install -y -qq curl 2>/dev/null && FETCH="/usr/bin/curl -fsSL" || true
+    fi
+    # If apt install failed or unavailable, fall through to wget
+    if [ -z "$FETCH" ] && command -v wget &>/dev/null; then
+      warn "Falling back to wget."
+      FETCH="wget -qO-"
+    fi
+    [ -z "$FETCH" ] && err "Could not get a working download tool.\n  Run: sudo apt install curl\n  Then re-run this installer."
+  else
+    FETCH="$_CURL_PATH -fsSL"
+  fi
 elif command -v wget &>/dev/null; then
   FETCH="wget -qO-"
-else
-  FETCH=""
 fi
 
 # ── Detect package manager ────────────────────────────────────────────────
@@ -55,12 +78,12 @@ _pkg_install() {
 }
 _apt_update() { command -v apt-get &>/dev/null && apt-get update -qq 2>/dev/null || true; }
 
-# ── Auto-install curl/wget ────────────────────────────────────────────────
+# ── Last resort: no usable download tool found ───────────────────────────
 if [ -z "$FETCH" ]; then
-  info "Neither curl nor wget found. Installing curl…"
+  info "No usable download tool found. Installing native curl via apt…"
   _apt_update
   _pkg_install curl || err "Could not install curl. Please install curl or wget manually and re-run."
-  command -v curl &>/dev/null && FETCH="curl -fsSL" || err "curl installation failed."
+  [ -x /usr/bin/curl ] && FETCH="/usr/bin/curl -fsSL" || err "curl installation failed."
   ok "curl installed"
 fi
 
