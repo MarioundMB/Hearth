@@ -20,14 +20,20 @@ A lightweight, self-hosted Docker management panel — a clean alternative to Ca
 
 ### One-Line Install (Recommended)
 
+**With curl** (native apt package):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
 ```
 
-**If `curl` is not available:**
+**With wget** (equally supported, use this if curl gives errors):
 ```bash
 wget -qO- https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
 ```
+
+> **⚠ Important:** Do **not** install curl via `snap` (`sudo snap install curl`).  
+> The Snap version writes warnings to stdout, which corrupts the pipe and causes  
+> `curl: (23) Failure writing output to destination`.  
+> Use the native package instead: `sudo apt install curl`
 
 The installer **automatically handles everything**:
 - Installs `curl` / `wget` if neither is present
