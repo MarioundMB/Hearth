@@ -307,6 +307,41 @@ document.getElementById('pull-image').addEventListener('click', async () => {
 // ---------- Dateimanager ----------
 let currentPath = '/';
 
+// Navigationsverlauf für Maus-Zurück/Vorwärts-Tasten
+const fileNav = { history: ['/'], idx: 0 };
+
+function navigate(path) {
+  if (path === currentPath) return;
+  fileNav.history = fileNav.history.slice(0, fileNav.idx + 1);
+  fileNav.history.push(path);
+  fileNav.idx = fileNav.history.length - 1;
+  loadFiles(path);
+}
+
+function navigateBack() {
+  if (fileNav.idx <= 0) return;
+  fileNav.idx--;
+  loadFiles(fileNav.history[fileNav.idx]);
+}
+
+function navigateForward() {
+  if (fileNav.idx >= fileNav.history.length - 1) return;
+  fileNav.idx++;
+  loadFiles(fileNav.history[fileNav.idx]);
+}
+
+// Maus-Seitentasten (Button 3 = Zurück, Button 4 = Vorwärts)
+// nur wenn der Dateimanager-Tab aktiv ist
+document.addEventListener('mousedown', (e) => {
+  if (!document.getElementById('view-files').classList.contains('active')) return;
+  if (e.button === 3 || e.button === 4) e.preventDefault();
+});
+document.addEventListener('mouseup', (e) => {
+  if (!document.getElementById('view-files').classList.contains('active')) return;
+  if (e.button === 3) { e.preventDefault(); navigateBack(); }
+  if (e.button === 4) { e.preventDefault(); navigateForward(); }
+});
+
 function renderCrumbs() {
   const parts = currentPath.split('/').filter(Boolean);
   let acc = '';
@@ -322,7 +357,7 @@ document.getElementById('crumbs').addEventListener('click', (e) => {
   const a = e.target.closest('[data-path]');
   if (!a) return;
   e.preventDefault();
-  loadFiles(a.dataset.path);
+  navigate(a.dataset.path);
 });
 
 async function loadFiles(p) {
@@ -365,7 +400,7 @@ function fileRow(f) {
 
 document.getElementById('files').addEventListener('click', async (e) => {
   const dir = e.target.closest('[data-dir]');
-  if (dir) return loadFiles(dir.dataset.dir);
+  if (dir) return navigate(dir.dataset.dir);
 
   const dl = e.target.closest('[data-dl]');
   if (dl) {
