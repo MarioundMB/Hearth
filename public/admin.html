@@ -7,33 +7,6 @@
     <link rel="stylesheet" href="/css/style.css" />
     <script src="/js/i18n.js"></script>
     <style>
-      .sysbar {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 1px;
-        background: var(--border);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        overflow: hidden;
-        margin: 24px 0;
-      }
-      .sysbar .cell {
-        background: var(--panel);
-        padding: 16px 18px;
-      }
-      .sysbar .k {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--text-faint);
-        font-family: var(--font-mono);
-      }
-      .sysbar .v {
-        font-family: var(--font-display);
-        font-weight: 700;
-        font-size: 21px;
-        margin-top: 3px;
-      }
       .tabs {
         display: flex;
         gap: 4px;
@@ -59,7 +32,7 @@
       }
       .view {
         display: none;
-        padding-bottom: 70px;
+        padding-bottom: 32px;
       }
       .view.active {
         display: block;
@@ -242,17 +215,20 @@
       .env-builder {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 0;
+        margin-bottom: 6px;
       }
       .triple {
         display: grid;
         grid-template-columns: 1fr 1fr auto;
         gap: 8px;
+        margin-bottom: 8px;
       }
       .pair {
         display: grid;
         grid-template-columns: 1fr 1fr auto;
         gap: 8px;
+        margin-bottom: 8px;
       }
       .addrow {
         font-size: 12.5px;
@@ -462,6 +438,10 @@
       .fw-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
       .fw-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
       .fw-mode-toggle { display: flex; gap: 4px; margin-right: 8px; }
+      .fw-mode-btn { background: var(--panel-2); border-color: var(--border-bright); color: var(--text-dim); }
+      .fw-mode-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+      .fw-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #0c0e0d; font-weight: 700; }
+      .fw-mode-btn.active:hover { box-shadow: 0 0 16px var(--accent-glow); }
 
       /* ===== Container-Detail-Modal ===== */
       .row-clickable { cursor: pointer; }
@@ -801,7 +781,7 @@
       .s-group-title {
         font-family: var(--font-mono);
         font-size: 10px;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
         color: var(--text-faint);
         padding: 14px 0 8px;
@@ -915,7 +895,7 @@
           <span>Hearth <small>Admin</small></span>
         </button>
         <div class="spacer"></div>
-        <button class="btn sm" id="topbar-updates" style="display:none;background:rgba(245,196,81,.15);border-color:var(--warn);color:var(--warn)" onclick="checkUpdates(true)"></button>
+        <button class="btn sm update-available" id="topbar-updates" style="display:none" onclick="checkUpdates(true)"></button>
         <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
@@ -991,8 +971,8 @@
               <h2>Firewall</h2>
               <div class="spacer"></div>
               <div class="fw-mode-toggle">
-                <button class="mon-tab active" id="fw-mode-normal">Normal</button>
-                <button class="mon-tab" id="fw-mode-advanced">Advanced</button>
+                <button class="btn sm fw-mode-btn active" id="fw-mode-normal">Normal</button>
+                <button class="btn sm fw-mode-btn" id="fw-mode-advanced">Expert</button>
               </div>
               <div class="fw-status-badge" id="fw-status-badge"></div>
             </div>
@@ -1000,8 +980,11 @@
             <!-- Normal Mode -->
             <div id="fw-normal">
               <div class="fw-unavail" id="fw-unavail" style="display:none">
-                <div class="empty"><div class="big">🛡</div>Firewall container not running.<br>
-                <span class="muted" style="font-size:13px">Start the <code>hearth-firewall</code> container or add it to your docker-compose.yml.</span></div>
+                <div class="empty">
+                  <div class="big">🛡</div>
+                  Firewall container not running.
+                  <div class="muted" style="margin-top:8px;font-size:13px">Start the <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">hearth-firewall</code> container or add it to your docker-compose.yml.</div>
+                </div>
               </div>
               <div id="fw-normal-content">
                 <div class="fw-quick-ports" id="fw-quick-ports"></div>
@@ -1432,7 +1415,7 @@
         </div>
 
         <div class="modal-foot" style="justify-content:space-between">
-          <button class="btn danger sm" id="s-restart" data-i18n="settings.restart">⟳ Hearth neu starten</button>
+          <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Hearth neu starten</button>
           <div style="display:flex;gap:8px">
             <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
             <button class="btn primary" id="s-save" data-i18n="settings.save">Speichern</button>
@@ -1667,7 +1650,7 @@
           </a>
           <div style="display:flex;gap:8px;margin-left:auto">
             <a id="err-search-link" href="#" target="_blank" rel="noopener" class="btn ghost sm">🔍 Search fix</a>
-            <button class="btn ghost" data-close>Close</button>
+            <button class="btn ghost sm" data-close>Close</button>
           </div>
         </div>
       </div>
