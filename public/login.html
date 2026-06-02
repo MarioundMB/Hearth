@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hearth · Anmelden</title>
     <link rel="stylesheet" href="/css/style.css" />
+    <script src="/js/i18n.js"></script>
     <style>
       body {
         display: grid;
@@ -51,25 +52,28 @@
         <span class="flame">▲</span>
         <span>Hearth</span>
       </div>
-      <div class="sub">Admin-Anmeldung</div>
+      <div class="sub" data-i18n="login.subtitle">Admin-Anmeldung</div>
 
       <form id="form">
         <div class="field">
-          <label for="u">Benutzername</label>
+          <label for="u" data-i18n="login.username">Benutzername</label>
           <input class="input" id="u" autocomplete="username" value="admin" />
         </div>
         <div class="field">
-          <label for="p">Passwort</label>
+          <label for="p" data-i18n="login.password">Passwort</label>
           <input class="input" id="p" type="password" autocomplete="current-password" />
         </div>
-        <button class="btn primary" type="submit">Anmelden</button>
+        <button class="btn primary" type="submit" data-i18n="login.submit">Anmelden</button>
       </form>
 
-      <a class="back" href="/">← Zurück zur Dienste-Übersicht</a>
+      <a class="back" href="/" data-i18n="login.back">← Zurück zur Dienste-Übersicht</a>
     </div>
 
     <div id="toast"></div>
     <script src="/js/common.js"></script>
+    <script>
+      api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
+    </script>
     <script>
       document.getElementById('form').addEventListener('submit', async (e) => {
         e.preventDefault();

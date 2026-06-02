@@ -208,6 +208,10 @@ function asyncHandler(fn) {
 // ---------------------------------------------------------------------------
 // Einstellungen (Admin)
 // ---------------------------------------------------------------------------
+app.get('/api/lang', (req, res) => {
+  res.json({ lang: runtimeConfig.lang || 'de' });
+});
+
 app.get('/api/settings', requireAuth, (req, res) => {
   res.json({
     // Bearbeitbar

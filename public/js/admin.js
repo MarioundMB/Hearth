@@ -1,5 +1,8 @@
 /* Hearth – Admin-Logik */
 
+// Sprache sofort aus localStorage anwenden (verhindert Flackern)
+if (typeof applyLang === 'function') applyLang(localStorage.getItem('hearth-lang') || 'de');
+
 // ---------- Tabs ----------
 document.querySelectorAll('.tab').forEach((t) => {
   t.addEventListener('click', () => {
@@ -40,7 +43,7 @@ async function loadContainers() {
   try {
     const list = await api('GET', '/api/containers');
     if (!list.length) {
-      box.innerHTML = `<div class="empty"><div class="big">▣</div>Noch keine Container.<br><span class="muted">Erstelle deinen ersten mit „+ Neuer Container".</span></div>`;
+      box.innerHTML = `<div class="empty"><div class="big">▣</div>${t('containers.empty')}<br><span class="muted">${t('containers.emptyHint')}</span></div>`;
       return;
     }
     box.innerHTML = list.map(containerRow).join('');
@@ -56,14 +59,14 @@ function containerRow(c) {
     .map((p) => `<span class="port">${p.publicPort}→${p.privatePort}</span>`)
     .join('');
   const toggle = running
-    ? `<button class="btn sm" data-act="stop" data-id="${c.id}">■ Stopp</button>`
-    : `<button class="btn sm primary" data-act="start" data-id="${c.id}">▶ Start</button>`;
+    ? `<button class="btn sm" data-act="stop" data-id="${c.id}">■ ${t('containers.stop')}</button>`
+    : `<button class="btn sm primary" data-act="start" data-id="${c.id}">▶ ${t('containers.start')}</button>`;
   return `
     <div class="row">
       <div class="main">
         <div class="title">
           ${esc(c.name)}
-          <span class="pill ${running ? 'running' : 'stopped'}"><span class="dot"></span>${running ? 'läuft' : esc(c.state)}</span>
+          <span class="pill ${running ? 'running' : 'stopped'}"><span class="dot"></span>${running ? t('containers.running') : esc(c.state)}</span>
         </div>
         <div class="meta">${esc(c.image)} · ${esc(c.status)}</div>
         <div class="ports">${ports}</div>
@@ -71,7 +74,7 @@ function containerRow(c) {
       <div class="actions">
         ${toggle}
         <button class="btn sm ghost" data-act="restart" data-id="${c.id}" title="Neustart">⟳</button>
-        <button class="btn sm ghost" data-act="logs" data-id="${c.id}" data-name="${esc(c.name)}">Logs</button>
+        <button class="btn sm ghost" data-act="logs" data-id="${c.id}" data-name="${esc(c.name)}">${t('containers.logs')}</button>
         <button class="btn sm danger" data-act="remove" data-id="${c.id}" data-name="${esc(c.name)}">🗑</button>
       </div>
     </div>`;
@@ -87,13 +90,13 @@ document.getElementById('containers').addEventListener('click', async (e) => {
       return;
     }
     if (act === 'remove') {
-      if (!confirm(`Container „${name}" wirklich löschen?`)) return;
+      if (!confirm(t('containers.confirmRemove', { name }))) return;
       await api('DELETE', `/api/containers/${id}?force=true`);
-      toast('Container gelöscht');
+      toast(t('toast.containerDeleted'));
     } else {
       btn.disabled = true;
       await api('POST', `/api/containers/${id}/${act}`);
-      toast(`Aktion „${act}" ausgeführt`);
+      toast(t('toast.actionDone', { act }));
     }
     loadContainers();
     loadSystem();
@@ -129,7 +132,7 @@ async function loadImages() {
   try {
     const list = await api('GET', '/api/images');
     if (!list.length) {
-      box.innerHTML = `<div class="empty"><div class="big">◳</div>Keine Images vorhanden.</div>`;
+      box.innerHTML = `<div class="empty"><div class="big">◳</div>${t('images.empty')}</div>`;
       return;
     }
     box.innerHTML = list
@@ -154,10 +157,10 @@ async function loadImages() {
 document.getElementById('images').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-img]');
   if (!btn) return;
-  if (!confirm('Image löschen?')) return;
+  if (!confirm(t('images.confirmRemove'))) return;
   try {
     await api('DELETE', `/api/images/${encodeURIComponent(btn.dataset.img)}?force=true`);
-    toast('Image gelöscht');
+    toast(t('toast.imageDeleted'));
     loadImages();
   } catch (err) {
     toast(err.message, 'error');
@@ -165,12 +168,12 @@ document.getElementById('images').addEventListener('click', async (e) => {
 });
 
 document.getElementById('pull-image').addEventListener('click', async () => {
-  const image = prompt('Image-Name (z.B. nginx:latest):');
+  const image = prompt(t('images.pullPrompt'));
   if (!image) return;
-  toast('Ziehe ' + image + ' … (kann dauern)', 'info');
+  toast(t('toast.imagePulling', { image }), 'info');
   try {
     await api('POST', '/api/images/pull', { image });
-    toast('Image gezogen: ' + image);
+    toast(t('toast.imagePulled', { image }));
     loadImages();
   } catch (err) {
     toast(err.message, 'error');
@@ -205,7 +208,7 @@ async function loadFiles(p) {
   try {
     const data = await api('GET', '/api/files?path=' + encodeURIComponent(currentPath));
     if (!data.items.length) {
-      box.innerHTML = `<div class="empty"><div class="big">∅</div>Dieser Ordner ist leer.</div>`;
+      box.innerHTML = `<div class="empty"><div class="big">∅</div>${t('files.empty')}</div>`;
       return;
     }
     box.innerHTML = data.items.map(fileRow).join('');
@@ -217,7 +220,7 @@ async function loadFiles(p) {
 function fileRow(f) {
   const full = (currentPath === '/' ? '' : currentPath) + '/' + f.name;
   const icon = f.isDir ? '📁' : '📄';
-  const meta = f.isDir ? 'Ordner' : fmtBytes(f.size);
+  const meta = f.isDir ? t('files.folder') : fmtBytes(f.size);
   return `
     <div class="file-row">
       <div class="fname ${f.isDir ? 'dir' : ''}" ${f.isDir ? `data-dir="${esc(full)}"` : ''}>
@@ -248,13 +251,13 @@ document.getElementById('files').addEventListener('click', async (e) => {
 
   const rn = e.target.closest('[data-rn]');
   if (rn) {
-    const newName = prompt('Neuer Name:', rn.dataset.name);
+    const newName = prompt(t('files.renamePrompt'), rn.dataset.name);
     if (!newName || newName === rn.dataset.name) return;
     const to =
       (currentPath === '/' ? '' : currentPath) + '/' + newName;
     try {
       await api('POST', '/api/files/rename', { from: rn.dataset.rn, to });
-      toast('Umbenannt');
+      toast(t('toast.renamed'));
       loadFiles(currentPath);
     } catch (err) {
       toast(err.message, 'error');
@@ -264,10 +267,10 @@ document.getElementById('files').addEventListener('click', async (e) => {
 
   const del = e.target.closest('[data-del]');
   if (del) {
-    if (!confirm(`„${del.dataset.name}" löschen?`)) return;
+    if (!confirm(t('files.confirmRemove', { name: del.dataset.name }))) return;
     try {
       await api('DELETE', '/api/files?path=' + encodeURIComponent(del.dataset.del));
-      toast('Gelöscht');
+      toast(t('toast.fileDeleted'));
       loadFiles(currentPath);
     } catch (err) {
       toast(err.message, 'error');
@@ -276,11 +279,11 @@ document.getElementById('files').addEventListener('click', async (e) => {
 });
 
 document.getElementById('mkdir').addEventListener('click', async () => {
-  const name = prompt('Name des neuen Ordners:');
+  const name = prompt(t('files.newFolderPrompt'));
   if (!name) return;
   try {
     await api('POST', '/api/files/mkdir', { path: currentPath, name });
-    toast('Ordner erstellt');
+    toast(t('toast.folderCreated'));
     loadFiles(currentPath);
   } catch (err) {
     toast(err.message, 'error');
@@ -311,10 +314,10 @@ async function uploadFiles(fileList) {
   const fd = new FormData();
   fd.append('path', currentPath);
   [...fileList].forEach((f) => fd.append('files', f));
-  toast(`Lade ${fileList.length} Datei(en) hoch…`, 'info');
+  toast(t('files.uploading', { count: fileList.length }), 'info');
   try {
     const r = await api('POST', '/api/files/upload', fd, true);
-    toast(`${r.count} Datei(en) hochgeladen`);
+    toast(t('toast.filesUploaded', { count: r.count }));
     loadFiles(currentPath);
   } catch (err) {
     toast(err.message, 'error');
@@ -416,10 +419,10 @@ document.getElementById('c-submit').addEventListener('click', async () => {
 
   const btn = document.getElementById('c-submit');
   btn.disabled = true;
-  btn.textContent = 'Erstelle…';
+  btn.textContent = t('modal.creating');
   try {
     await api('POST', '/api/containers', payload);
-    toast('Container erstellt & gestartet');
+    toast(t('toast.containerCreated'));
     closeModal('modal-create');
     loadContainers();
     loadSystem();
@@ -427,7 +430,7 @@ document.getElementById('c-submit').addEventListener('click', async () => {
     toast(err.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Erstellen & starten';
+    btn.textContent = t('modal.createStart');
   }
 });
 
@@ -438,6 +441,10 @@ function openSettings() {
 }
 document.getElementById('open-settings').addEventListener('click', openSettings);
 document.getElementById('btn-settings').addEventListener('click', openSettings);
+
+document.getElementById('s-lang').addEventListener('change', function () {
+  applyLang(this.value);
+});
 
 document.getElementById('pw-toggle').addEventListener('click', () => {
   const fields = document.getElementById('pw-fields');
@@ -456,6 +463,7 @@ async function loadSettings() {
 
   try {
     const s = await api('GET', '/api/settings');
+    applyLang(s.lang || 'de');
     document.getElementById('s-servername').value = s.serverName;
     document.getElementById('s-username').value = s.adminUser;
     document.getElementById('s-lang').value = s.lang || 'de';
@@ -496,8 +504,8 @@ document.getElementById('s-save').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     await api('POST', '/api/settings', payload);
-    toast('Einstellungen gespeichert');
     closeModal('modal-settings');
+    toast(t('toast.settingsSaved'));
     // Auto-Refresh neu starten mit neuem Intervall
     applyRefreshInterval(refreshInterval);
   } catch (e) {
@@ -508,14 +516,14 @@ document.getElementById('s-save').addEventListener('click', async () => {
 });
 
 document.getElementById('s-restart').addEventListener('click', async () => {
-  if (!confirm('Hearth jetzt neu starten? Du wirst kurz getrennt.')) return;
+  if (!confirm(t('settings.restart') + '?')) return;
   try {
     await api('POST', '/api/system/restart');
-    toast('Hearth startet neu… Seite lädt in 4 Sekunden neu.', 'info');
+    toast(t('toast.restarting'), 'info');
     setTimeout(() => location.reload(), 4000);
   } catch (e) {
     // Verbindungsfehler ist erwartet, da der Server neu startet
-    toast('Hearth startet neu… Seite lädt in 4 Sekunden neu.', 'info');
+    toast(t('toast.restarting'), 'info');
     setTimeout(() => location.reload(), 4000);
   }
 });

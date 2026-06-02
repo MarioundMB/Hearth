@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hearth · Dienste</title>
     <link rel="stylesheet" href="/css/style.css" />
+    <script src="/js/i18n.js"></script>
     <style>
       .hero {
         padding: 54px 0 30px;
@@ -139,18 +140,18 @@
           <span>Hearth <small>Home Server</small></span>
         </div>
         <div class="spacer"></div>
-        <button class="btn ghost sm reload" id="reload" title="Aktualisieren">
+        <button class="btn ghost sm reload" id="reload" title="Aktualisieren" data-i18n-title="nav.refresh">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v4h-4"/></svg>
-          Aktualisieren
+          <span data-i18n="nav.refresh">Aktualisieren</span>
         </button>
-        <a class="btn sm" href="/admin">Admin-Login →</a>
+        <a class="btn sm" href="/admin" data-i18n="nav.adminLogin">Admin-Login →</a>
       </div>
     </header>
 
     <div class="wrap">
       <section class="hero">
         <h1>Deine <span class="accent">Dienste.</span><br />Ein Klick entfernt.</h1>
-        <p>
+        <p data-i18n="hero.subtitle">
           Übersicht aller laufenden Anwendungen auf diesem Home Server. Kein Login
           nötig – einfach die gewünschte App anklicken.
         </p>
@@ -164,6 +165,9 @@
 
     <div id="toast"></div>
     <script src="/js/common.js"></script>
+    <script>
+      api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
+    </script>
     <script src="/js/guest.js"></script>
   </body>
 </html>
