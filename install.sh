@@ -4,15 +4,18 @@
 # ║  https://github.com/MarioundMB/Hearth           ║
 # ╚══════════════════════════════════════════════════╝
 #
-# Nutzung (einzeiliger Install-Befehl):
+# One-line install:
 #   curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
 #
-# Oder herunterladen und ausführen (empfohlen für interaktive Eingaben):
+# If curl is not available:
+#   wget -qO- https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
+#
+# Download and run (recommended for interactive input):
 #   curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh -o install.sh && bash install.sh
 
 set -euo pipefail
 
-# ── Farben ────────────────────────────────────────────────────────────────────
+# Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
@@ -22,89 +25,164 @@ info() { echo -e "${CYAN}→${NC}  $*"; }
 warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 ask()  { echo -e "${BOLD}?${NC}  $*"; }
 
-# Stdin-Umleitung für den Fall, dass das Script via curl | bash läuft
+# Redirect stdin for interactive prompts when running via pipe
 [ -t 0 ] || exec </dev/tty 2>/dev/null || true
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# Banner
 echo ""
 echo -e "${GREEN}${BOLD}  ▲  Hearth – Home Server Panel${NC}"
 echo -e "${DIM}  ──────────────────────────────────────────────${NC}"
 echo ""
 
-# ── Voraussetzungen prüfen ────────────────────────────────────────────────────
-info "Prüfe Voraussetzungen…"
-
-command -v docker &>/dev/null \
-  || err "Docker ist nicht installiert.\n  → https://docs.docker.com/get-docker/"
-
-docker info &>/dev/null 2>&1 \
-  || err "Docker läuft nicht oder du hast keine Berechtigung.\n  Tipp: Füge deinen Nutzer zur docker-Gruppe hinzu: sudo usermod -aG docker \$USER"
-
-command -v git &>/dev/null \
-  || err "Git ist nicht installiert.\n  Ubuntu/Debian: sudo apt install git\n  Fedora/RHEL:   sudo dnf install git"
-
-# Docker Compose Plugin oder standalone ermitteln
-if docker compose version &>/dev/null 2>&1; then
-  DC="docker compose"
-elif command -v docker-compose &>/dev/null; then
-  DC="docker-compose"
+# ── Download helper (curl or wget) ────────────────────────────────────────
+if command -v curl &>/dev/null; then
+  FETCH="curl -fsSL"
+elif command -v wget &>/dev/null; then
+  FETCH="wget -qO-"
 else
-  err "Docker Compose fehlt. Installiere Docker >= 20.10 oder das Compose-Plugin."
+  FETCH=""
+fi
+
+# ── Detect package manager ────────────────────────────────────────────────
+_pkg_install() {
+  if   command -v apt-get &>/dev/null; then apt-get install -y -qq "$@" 2>/dev/null
+  elif command -v dnf     &>/dev/null; then dnf     install -y -q  "$@" 2>/dev/null
+  elif command -v yum     &>/dev/null; then yum     install -y -q  "$@" 2>/dev/null
+  elif command -v pacman  &>/dev/null; then pacman  -Sy --noconfirm "$@" 2>/dev/null
+  elif command -v apk     &>/dev/null; then apk     add --quiet     "$@" 2>/dev/null
+  else return 1
+  fi
+}
+_apt_update() { command -v apt-get &>/dev/null && apt-get update -qq 2>/dev/null || true; }
+
+# ── Auto-install curl/wget ────────────────────────────────────────────────
+if [ -z "$FETCH" ]; then
+  info "Neither curl nor wget found. Installing curl…"
+  _apt_update
+  _pkg_install curl || err "Could not install curl. Please install curl or wget manually and re-run."
+  command -v curl &>/dev/null && FETCH="curl -fsSL" || err "curl installation failed."
+  ok "curl installed"
+fi
+
+info "Checking prerequisites…"
+
+# ── Auto-install Git ──────────────────────────────────────────────────────
+if ! command -v git &>/dev/null; then
+  info "Installing Git…"
+  _apt_update
+  _pkg_install git || err "Could not install Git automatically.\n  Ubuntu/Debian: sudo apt install git\n  Fedora/RHEL:   sudo dnf install git"
+  command -v git &>/dev/null && ok "Git installed" || err "Git installation failed."
+fi
+
+# ── Auto-install Docker ───────────────────────────────────────────────────
+if ! command -v docker &>/dev/null; then
+  info "Installing Docker (this may take a minute)…"
+  $FETCH https://get.docker.com | sh
+
+  # Enable and start the service
+  if command -v systemctl &>/dev/null; then
+    systemctl enable docker 2>/dev/null || true
+    systemctl start  docker 2>/dev/null || true
+  fi
+
+  # Add the current user to the docker group
+  _TARGET_USER="${SUDO_USER:-${USER:-}}"
+  if [ -n "$_TARGET_USER" ] && [ "$_TARGET_USER" != "root" ]; then
+    usermod -aG docker "$_TARGET_USER" 2>/dev/null || true
+    warn "Added $_TARGET_USER to the docker group."
+    warn "You may need to log out and back in before running Docker without sudo."
+  fi
+
+  ok "Docker installed"
+fi
+
+# Verify Docker daemon is reachable
+if ! docker info &>/dev/null 2>&1; then
+  # One retry via sg in case the user was just added to the docker group
+  sg docker "docker info" &>/dev/null 2>&1 \
+    || err "Docker is installed but not reachable.\n  Try: sudo systemctl start docker\n  Or log out and back in if you were just added to the docker group."
+fi
+
+# ── Auto-install Docker Compose ───────────────────────────────────────────
+DC=""
+if   docker compose version &>/dev/null 2>&1; then DC="docker compose"
+elif command -v docker-compose &>/dev/null;   then DC="docker-compose"
+fi
+
+if [ -z "$DC" ]; then
+  info "Installing Docker Compose plugin…"
+
+  # Try the official apt package first
+  if command -v apt-get &>/dev/null; then
+    _apt_update
+    _pkg_install docker-compose-plugin 2>/dev/null || true
+  fi
+
+  # Fallback: download the standalone binary
+  if ! docker compose version &>/dev/null 2>&1 && ! command -v docker-compose &>/dev/null; then
+    _COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+    $FETCH "$_COMPOSE_URL" -o /usr/local/bin/docker-compose \
+      && chmod +x /usr/local/bin/docker-compose 2>/dev/null || true
+  fi
+
+  if   docker compose version &>/dev/null 2>&1; then DC="docker compose"
+  elif command -v docker-compose &>/dev/null;   then DC="docker-compose"
+  else
+    err "Docker Compose could not be installed automatically.\n  See: https://docs.docker.com/compose/install/"
+  fi
+  ok "Docker Compose installed"
 fi
 
 DOCKER_VER=$(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 ok "Docker ${DOCKER_VER}"
-ok "Docker Compose (${DC})"
+ok "Docker Compose ($DC)"
 echo ""
 
-# ── Installationsverzeichnis ──────────────────────────────────────────────────
+# ── Directories ───────────────────────────────────────────────────────────
 INSTALL_DIR="${HOME}/hearth"
 IS_UPDATE=false
 
 if [ -d "${INSTALL_DIR}/.git" ]; then
   IS_UPDATE=true
-  warn "Hearth ist bereits in ${INSTALL_DIR} installiert – führe Update durch."
+  warn "Hearth is already installed at ${INSTALL_DIR} — running update."
 fi
 
-# ── Konfiguration abfragen ────────────────────────────────────────────────────
 if [ "${IS_UPDATE}" = false ]; then
-  ask "Installationsverzeichnis [${INSTALL_DIR}]:"
+  ask "Installation directory [${INSTALL_DIR}]:"
   read -rp "  → " INPUT_DIR
   INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
 
-  ask "Datenpfad für den Dateimanager [/srv/hearth-data]:"
+  ask "Data directory for the file manager [/srv/hearth-data]:"
   read -rp "  → " INPUT_DATA
   DATA_DIR="${INPUT_DATA:-/srv/hearth-data}"
 
   ask "Port [4500]:"
   read -rp "  → " INPUT_PORT
   PORT="${INPUT_PORT:-4500}"
-
   echo ""
 fi
 
-# ── Repo klonen oder aktualisieren ────────────────────────────────────────────
+# ── Clone / update repository ─────────────────────────────────────────────
 if [ "${IS_UPDATE}" = true ]; then
-  info "Aktualisiere Hearth…"
+  info "Updating Hearth…"
   git -C "${INSTALL_DIR}" pull --ff-only
 else
-  info "Lade Hearth herunter…"
+  info "Downloading Hearth…"
   git clone https://github.com/MarioundMB/Hearth.git "${INSTALL_DIR}"
 fi
 
 cd "${INSTALL_DIR}"
-ok "Quellcode: ${INSTALL_DIR}"
+ok "Source code: ${INSTALL_DIR}"
 
-# ── Datenpfad anlegen ─────────────────────────────────────────────────────────
+# ── Create data directory ─────────────────────────────────────────────────
 if [ "${IS_UPDATE}" = false ]; then
   if ! mkdir -p "${DATA_DIR}" 2>/dev/null; then
-    sudo mkdir -p "${DATA_DIR}"
-    sudo chown "$(id -u):$(id -g)" "${DATA_DIR}"
+    sudo mkdir -p "${DATA_DIR}" && sudo chown "$(id -u):$(id -g)" "${DATA_DIR}"
   fi
-  ok "Datenpfad: ${DATA_DIR}"
+  ok "Data directory: ${DATA_DIR}"
 fi
 
-# ── .env schreiben (nur bei Erstinstallation) ─────────────────────────────────
+# ── Write .env (fresh install only) ──────────────────────────────────────
 if [ "${IS_UPDATE}" = false ]; then
   SESSION_SECRET=$(openssl rand -hex 32 2>/dev/null \
     || tr -dc 'a-f0-9' < /dev/urandom | head -c 64)
@@ -114,18 +192,18 @@ PORT=${PORT}
 DATA_DIR=${DATA_DIR}
 SESSION_SECRET=${SESSION_SECRET}
 EOF
-  ok ".env erstellt (Session-Secret generiert)"
+  ok ".env created (session secret generated)"
 else
-  # Beim Update .env nicht überschreiben
-  [ -f .env ] && ok ".env beibehalten" || warn ".env fehlt – bitte manuell anlegen (siehe .env.example)"
+  [ -f .env ] && ok ".env preserved" \
+    || warn ".env missing — please create it manually (see .env.example)"
 fi
 
-# ── Container bauen und starten ───────────────────────────────────────────────
+# ── Build and start ────────────────────────────────────────────────────────
 echo ""
-info "Baue und starte Hearth…"
+info "Building and starting Hearth…"
 ${DC} up -d --build
 
-# ── Fertig ────────────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────
 PORT_DISPLAY=$(grep '^PORT=' .env 2>/dev/null | cut -d= -f2 || echo "4500")
 IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
@@ -133,25 +211,25 @@ echo ""
 echo -e "${GREEN}${BOLD}  ──────────────────────────────────────────────${NC}"
 
 if [ "${IS_UPDATE}" = true ]; then
-  echo -e "${GREEN}${BOLD}  ▲  Hearth wurde erfolgreich aktualisiert!${NC}"
+  echo -e "${GREEN}${BOLD}  ▲  Hearth updated successfully!${NC}"
 else
-  echo -e "${GREEN}${BOLD}  ▲  Hearth wurde erfolgreich installiert!${NC}"
+  echo -e "${GREEN}${BOLD}  ▲  Hearth installed successfully!${NC}"
 fi
 
 echo ""
-echo -e "  Browser öffnen:  ${BOLD}http://${IP}:${PORT_DISPLAY}${NC}"
+echo -e "  Open in browser:  ${BOLD}http://${IP}:${PORT_DISPLAY}${NC}"
 echo ""
 
 if [ "${IS_UPDATE}" = false ]; then
-  echo -e "  ${DIM}Beim ersten Aufruf startet der Setup-Wizard."
-  echo -e "  Dort vergibst du Benutzername und Passwort.${NC}"
+  echo -e "  ${DIM}A setup wizard will guide you through the initial configuration"
+  echo -e "  (create admin account, set server name).${NC}"
   echo ""
 fi
 
-echo -e "  Verzeichnis: ${INSTALL_DIR}"
-echo -e "  Daten:       $(grep '^DATA_DIR=' .env 2>/dev/null | cut -d= -f2 || echo '/srv/hearth-data')"
+echo -e "  Directory: ${INSTALL_DIR}"
+echo -e "  Data:      $(grep '^DATA_DIR=' .env 2>/dev/null | cut -d= -f2 || echo '/srv/hearth-data')"
 echo ""
-echo -e "  Aktualisieren:  ${DIM}curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash${NC}"
-echo -e "  Stoppen:        ${DIM}cd ${INSTALL_DIR} && ${DC} down${NC}"
+echo -e "  Update:  ${DIM}curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash${NC}"
+echo -e "  Stop:    ${DIM}cd ${INSTALL_DIR} && ${DC} down${NC}"
 echo -e "${GREEN}${BOLD}  ──────────────────────────────────────────────${NC}"
 echo ""
