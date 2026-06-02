@@ -25,8 +25,29 @@ info() { echo -e "${CYAN}→${NC}  $*"; }
 warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 ask()  { echo -e "${BOLD}?${NC}  $*"; }
 
-# Redirect stdin for interactive prompts when running via pipe
-[ -t 0 ] || exec </dev/tty 2>/dev/null || true
+# ── Pipe detection ────────────────────────────────────────────────────────
+# When running via "cmd | bash", stdin is the script pipe — not the terminal.
+# Interactive `read` calls immediately get EOF and the script exits silently.
+# Fix: if we are NOT in a tty, download the script to a temp file and re-run
+# it directly so stdin stays connected to the terminal.
+if [ ! -t 0 ]; then
+  _TMP="$(mktemp /tmp/hearth-install-XXXX.sh)"
+  # The script content is already being streamed to bash, so we download a
+  # fresh copy rather than trying to re-read stdin.
+  _SELF_URL="https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh"
+  if command -v curl &>/dev/null && [[ "$(command -v curl)" != /snap/* ]]; then
+    curl -fsSL "$_SELF_URL" -o "$_TMP"
+  elif [ -x /usr/bin/curl ]; then
+    /usr/bin/curl -fsSL "$_SELF_URL" -o "$_TMP"
+  elif command -v wget &>/dev/null; then
+    wget -qO "$_TMP" "$_SELF_URL"
+  else
+    echo "Could not download installer. Please run: bash install.sh (after downloading)" >&2
+    exit 1
+  fi
+  chmod +x "$_TMP"
+  exec bash "$_TMP"   # replace this process — interactive from here
+fi
 
 # Banner
 echo ""
@@ -172,15 +193,15 @@ fi
 
 if [ "${IS_UPDATE}" = false ]; then
   ask "Installation directory [${INSTALL_DIR}]:"
-  read -rp "  → " INPUT_DIR
+  read -rp "  → " INPUT_DIR  || INPUT_DIR=""
   INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
 
   ask "Data directory for the file manager [/srv/hearth-data]:"
-  read -rp "  → " INPUT_DATA
+  read -rp "  → " INPUT_DATA || INPUT_DATA=""
   DATA_DIR="${INPUT_DATA:-/srv/hearth-data}"
 
   ask "Port [4500]:"
-  read -rp "  → " INPUT_PORT
+  read -rp "  → " INPUT_PORT || INPUT_PORT=""
   PORT="${INPUT_PORT:-4500}"
   echo ""
 fi
