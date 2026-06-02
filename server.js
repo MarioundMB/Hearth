@@ -467,11 +467,15 @@ app.get(
   '/api/monitor',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const [disks, containers] = await Promise.all([
+    const [disks, allContainers] = await Promise.all([
       getDiskInfo(),
       docker.listContainers({ all: true }).catch(() => []),
     ]);
     const dockerInfo = await docker.info().catch(() => ({}));
+    // Interne Hearth-Container aus der Zählung ausschließen
+    const userContainers = allContainers.filter(
+      (c) => String((c.Labels || {})['hearth.self']).toLowerCase() !== 'true'
+    );
 
     res.json({
       mem: { total: os.totalmem(), free: os.freemem(), used: os.totalmem() - os.freemem() },
@@ -483,8 +487,8 @@ app.get(
         hostname: os.hostname(),
         uptime: os.uptime(),
         loadavg: os.loadavg(),
-        containers: containers.length,
-        running: containers.filter((c) => c.State === 'running').length,
+        containers: userContainers.length,
+        running: userContainers.filter((c) => c.State === 'running').length,
         dockerVersion: dockerInfo.ServerVersion || null,
         platform: os.platform(),
       },
@@ -765,6 +769,147 @@ app.get(
 );
 
 // ---------------------------------------------------------------------------
+// Update-Checker
+// ---------------------------------------------------------------------------
+
+// Hilfsfunktion: prüft Docker Hub ob ein neueres Image vorliegt
+async function checkImageUpdate(image) {
+  try {
+    const [ref] = image.split(':');
+    const tag   = image.includes(':') ? image.split(':')[1] : 'latest';
+    const parts = ref.split('/');
+    const [ns, name] = parts.length === 1 ? ['library', parts[0]] : [parts[0], parts[1]];
+
+    // Lokales Image-Erstelldatum
+    const localInfo = await docker.getImage(image).inspect().catch(() => null);
+    if (!localInfo) return { hasUpdate: null };
+    const localTs = new Date(localInfo.Created).getTime();
+
+    // Remote last_updated von Docker Hub
+    const r = await fetch(
+      `https://hub.docker.com/v2/repositories/${ns}/${name}/tags/${tag}/`,
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }
+    );
+    if (!r.ok) return { hasUpdate: null };
+    const data = await r.json();
+    const remoteTs = new Date(data.last_updated).getTime();
+
+    return {
+      hasUpdate: remoteTs > localTs,
+      remoteDate: data.last_updated,
+      localDate: localInfo.Created,
+      remoteDigest: data.images?.[0]?.digest || null,
+    };
+  } catch (_) {
+    return { hasUpdate: null };
+  }
+}
+
+// Update-Cache (verhindert zu häufige Docker Hub Anfragen)
+let _updateCache = { ts: 0, data: null };
+const UPDATE_CACHE_TTL = 15 * 60 * 1000; // 15 Minuten
+
+app.get(
+  '/api/updates/check',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const force = req.query.force === 'true';
+    if (!force && _updateCache.data && Date.now() - _updateCache.ts < UPDATE_CACHE_TTL) {
+      return res.json({ ...(_updateCache.data), cached: true });
+    }
+
+    const allContainers = await docker.listContainers({ all: true }).catch(() => []);
+    const userContainers = allContainers.filter(
+      (c) => String((c.Labels || {})['hearth.self']).toLowerCase() !== 'true'
+    );
+
+    // Container-Updates parallel prüfen
+    const containerUpdates = await Promise.all(
+      userContainers.map(async (c) => {
+        const update = await checkImageUpdate(c.Image);
+        return {
+          containerId: c.Id,
+          name: (c.Names[0] || '').replace(/^\//, ''),
+          image: c.Image,
+          state: c.State,
+          ...update,
+        };
+      })
+    );
+
+    // Hearth-Version gegen GitHub prüfen
+    let hearthUpdate = null;
+    try {
+      const r = await fetch(
+        'https://api.github.com/repos/MarioundMB/Hearth/commits/main',
+        { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
+          signal: AbortSignal.timeout(6000) }
+      );
+      if (r.ok) {
+        const d = await r.json();
+        const remoteTs  = new Date(d.commit?.committer?.date || 0).getTime();
+        const localVer  = VERSION;
+        hearthUpdate = {
+          sha: d.sha?.slice(0, 7),
+          message: d.commit?.message?.split('\n')[0] || '',
+          date: d.commit?.committer?.date,
+          remoteTs,
+        };
+      }
+    } catch (_) {}
+
+    const result = { containers: containerUpdates, hearth: hearthUpdate, ts: Date.now() };
+    _updateCache = { ts: Date.now(), data: result };
+    res.json({ ...result, cached: false });
+  })
+);
+
+// Einzelnen Container auf neues Image updaten (pull → recreate)
+app.post(
+  '/api/updates/container/:id',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const c    = docker.getContainer(req.params.id);
+    const info = await c.inspect();
+    const image = info.Config.Image;
+    const wasRunning = info.State.Running;
+
+    // Neues Image ziehen
+    await pullImage(image);
+
+    // Container neu erstellen mit identischer Konfiguration
+    if (wasRunning) await c.stop().catch(() => {});
+    await c.remove({ force: true });
+
+    const hc = info.HostConfig;
+    const cc = info.Config;
+    const portBindings = hc.PortBindings || {};
+    const exposedPorts = {};
+    for (const key of Object.keys(portBindings)) exposedPorts[key] = {};
+
+    const newC = await docker.createContainer({
+      Image: image,
+      name:  info.Name.replace(/^\//, ''),
+      Env:   cc.Env    || [],
+      Labels: cc.Labels || {},
+      ExposedPorts: exposedPorts,
+      HostConfig: {
+        PortBindings: portBindings,
+        Binds:        hc.Binds        || [],
+        RestartPolicy: hc.RestartPolicy || { Name: 'unless-stopped' },
+        Privileged:   hc.Privileged   || false,
+        NetworkMode:  hc.NetworkMode  || 'bridge',
+      },
+    });
+    if (wasRunning) await newC.start();
+
+    // Cache invalidieren
+    _updateCache = { ts: 0, data: null };
+    res.json({ ok: true, id: newC.id });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Container-Verwaltung (Admin)
 // ---------------------------------------------------------------------------
 app.get(
@@ -959,14 +1104,24 @@ app.get(
   '/api/images',
   requireAuth,
   asyncHandler(async (req, res) => {
+    // Image-IDs der internen Hearth-Container ermitteln und ausblenden
+    const selfContainers = await docker.listContainers({ all: true }).catch(() => []);
+    const systemImageIds = new Set(
+      selfContainers
+        .filter((c) => String((c.Labels || {})['hearth.self']).toLowerCase() === 'true')
+        .map((c) => c.ImageID)
+    );
+
     const images = await docker.listImages();
     res.json(
-      images.map((i) => ({
-        id: i.Id,
-        tags: i.RepoTags || [],
-        size: i.Size,
-        created: i.Created,
-      }))
+      images
+        .filter((i) => !systemImageIds.has(i.Id))
+        .map((i) => ({
+          id: i.Id,
+          tags: i.RepoTags || [],
+          size: i.Size,
+          created: i.Created,
+        }))
     );
   })
 );
