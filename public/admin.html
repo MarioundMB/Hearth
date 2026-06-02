@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hearth · Admin</title>
     <link rel="stylesheet" href="/css/style.css" />
+    <script src="/js/i18n.js"></script>
     <style>
       .sysbar {
         display: grid;
@@ -427,9 +428,9 @@
           <span>Hearth <small>Admin</small></span>
         </button>
         <div class="spacer"></div>
-        <a class="btn ghost sm" href="/" target="_blank">Gäste-Ansicht ↗</a>
-        <button class="btn sm" id="btn-settings">⚙ Einstellungen</button>
-        <button class="btn sm" id="logout">Abmelden</button>
+        <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
+        <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
+        <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
       </div>
     </header>
 
@@ -437,18 +438,18 @@
       <div class="sysbar" id="sysbar"></div>
 
       <div class="tabs">
-        <div class="tab active" data-view="containers">Container</div>
-        <div class="tab" data-view="images">Images</div>
-        <div class="tab" data-view="files">Dateimanager</div>
+        <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
+        <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
+        <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
       </div>
 
       <!-- Container -->
       <section class="view active" id="view-containers">
         <div class="toolbar">
-          <h2>Container</h2>
+          <h2 data-i18n="containers.title">Container</h2>
           <div class="spacer"></div>
-          <button class="btn sm ghost" id="refresh-containers">⟳ Aktualisieren</button>
-          <button class="btn primary sm" id="new-container">+ Neuer Container</button>
+          <button class="btn sm ghost" id="refresh-containers">⟳ <span data-i18n="nav.refresh">Aktualisieren</span></button>
+          <button class="btn primary sm" id="new-container" data-i18n="containers.new">+ Neuer Container</button>
         </div>
         <div class="list" id="containers"></div>
       </section>
@@ -456,9 +457,9 @@
       <!-- Images -->
       <section class="view" id="view-images">
         <div class="toolbar">
-          <h2>Images</h2>
+          <h2 data-i18n="images.title">Images</h2>
           <div class="spacer"></div>
-          <button class="btn primary sm" id="pull-image">↓ Image ziehen</button>
+          <button class="btn primary sm" id="pull-image" data-i18n="images.pull">↓ Image ziehen</button>
         </div>
         <div class="list" id="images"></div>
       </section>
@@ -466,13 +467,13 @@
       <!-- Dateimanager -->
       <section class="view" id="view-files">
         <div class="toolbar">
-          <h2>Dateimanager</h2>
+          <h2 data-i18n="files.title">Dateimanager</h2>
           <div class="spacer"></div>
-          <button class="btn sm" id="mkdir">+ Ordner</button>
+          <button class="btn sm" id="mkdir" data-i18n="files.newFolder">+ Ordner</button>
         </div>
         <div class="crumbs" id="crumbs"></div>
         <div class="dropzone" id="dropzone">
-          Dateien hierher ziehen oder klicken zum Hochladen
+          <span data-i18n="files.dropzone">Dateien hierher ziehen oder klicken zum Hochladen</span>
           <input type="file" id="fileinput" multiple style="display: none" />
         </div>
         <div class="list" id="files"></div>
@@ -483,40 +484,40 @@
     <div class="modal-backdrop" id="modal-create">
       <div class="modal">
         <div class="modal-head">
-          <h3>Neuen Container erstellen</h3>
+          <h3 data-i18n="modal.createContainer">Neuen Container erstellen</h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body">
           <div class="field">
-            <label>Image *</label>
+            <label data-i18n="modal.image">Image *</label>
             <input class="input" id="c-image" placeholder="z.B. nginx:latest" />
           </div>
-          <p class="hint">Tipp: Aktiviere „Image vorher ziehen", wenn es lokal noch nicht vorhanden ist.</p>
+          <p class="hint" data-i18n="modal.imageTip">Tipp: Aktiviere „Image vorher ziehen", wenn es lokal noch nicht vorhanden ist.</p>
           <div class="field">
-            <label>Name</label>
+            <label data-i18n="modal.name">Name</label>
             <input class="input" id="c-name" placeholder="meine-app" />
           </div>
 
           <div class="field">
-            <label>Port-Mappings (Host → Container)</label>
+            <label data-i18n="modal.ports">Port-Mappings (Host → Container)</label>
             <div class="port-builder" id="c-ports"></div>
-            <span class="addrow" id="add-port">+ Port hinzufügen</span>
+            <span class="addrow" id="add-port" data-i18n="modal.addPort">+ Port hinzufügen</span>
           </div>
 
           <div class="field">
-            <label>Volumes (Host-Pfad → Container-Pfad)</label>
+            <label data-i18n="modal.volumes">Volumes (Host-Pfad → Container-Pfad)</label>
             <div class="vol-builder" id="c-vols"></div>
-            <span class="addrow" id="add-vol">+ Volume hinzufügen</span>
+            <span class="addrow" id="add-vol" data-i18n="modal.addVolume">+ Volume hinzufügen</span>
           </div>
 
           <div class="field">
-            <label>Umgebungsvariablen</label>
+            <label data-i18n="modal.env">Umgebungsvariablen</label>
             <div class="env-builder" id="c-envs"></div>
-            <span class="addrow" id="add-env">+ Variable hinzufügen</span>
+            <span class="addrow" id="add-env" data-i18n="modal.addEnv">+ Variable hinzufügen</span>
           </div>
 
           <div class="field">
-            <label>Neustart-Richtlinie</label>
+            <label data-i18n="modal.restartPolicy">Neustart-Richtlinie</label>
             <select class="input" id="c-restart">
               <option value="unless-stopped">unless-stopped (empfohlen)</option>
               <option value="always">always</option>
@@ -527,23 +528,23 @@
 
           <div class="field" style="flex-direction: row; align-items: center; gap: 10px">
             <input type="checkbox" id="c-pull" checked style="width: auto" />
-            <label for="c-pull" style="margin: 0">Image vorher ziehen (docker pull)</label>
+            <label for="c-pull" style="margin: 0" data-i18n="modal.pullFirst">Image vorher ziehen (docker pull)</label>
           </div>
 
-          <p class="hint">
+          <p class="hint" data-i18n="modal.labelsTip">
             Optionale Labels für die Gäste-Ansicht kannst du als ENV-ähnliche Labels
             via <span class="mono">hearth.name</span>, <span class="mono">hearth.icon</span>,
             <span class="mono">hearth.description</span> setzen (siehe README).
           </p>
           <div class="field">
-            <label>Labels (für hübsche Gäste-Kacheln)</label>
+            <label data-i18n="modal.labels">Labels (für hübsche Gäste-Kacheln)</label>
             <div class="env-builder" id="c-labels"></div>
-            <span class="addrow" id="add-label">+ Label hinzufügen</span>
+            <span class="addrow" id="add-label" data-i18n="modal.addLabel">+ Label hinzufügen</span>
           </div>
         </div>
         <div class="modal-foot">
-          <button class="btn ghost" data-close>Abbrechen</button>
-          <button class="btn primary" id="c-submit">Erstellen & starten</button>
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
+          <button class="btn primary" id="c-submit" data-i18n="modal.createStart">Erstellen & starten</button>
         </div>
       </div>
     </div>
@@ -573,14 +574,14 @@
 
           <!-- Allgemein -->
           <div class="s-group">
-            <div class="s-group-title">Allgemein</div>
+            <div class="s-group-title" data-i18n="settings.general">Allgemein</div>
 
             <div class="s-row">
               <div class="s-row-l">
                 <span class="s-icon">🏠</span>
                 <div>
-                  <div class="s-label">Server-Name</div>
-                  <div class="s-sub">Wird in der Gäste-Ansicht angezeigt</div>
+                  <div class="s-label" data-i18n="settings.serverName">Server-Name</div>
+                  <div class="s-sub" data-i18n="settings.serverNameHint">Wird in der Gäste-Ansicht angezeigt</div>
                 </div>
               </div>
               <input class="input s-input" id="s-servername" placeholder="Hearth" />
@@ -590,13 +591,20 @@
               <div class="s-row-l">
                 <span class="s-icon">🌐</span>
                 <div>
-                  <div class="s-label">Sprache</div>
-                  <div class="s-sub">Interface-Sprache (weitere Sprachen folgen)</div>
+                  <div class="s-label" data-i18n="settings.language">Sprache</div>
+                  <div class="s-sub" data-i18n="settings.languageHint">Interface-Sprache (weitere Sprachen folgen)</div>
                 </div>
               </div>
               <select class="input s-select" id="s-lang">
                 <option value="de">Deutsch</option>
                 <option value="en">English</option>
+                <option value="ro">Română</option>
+                <option value="fr">Français</option>
+                <option value="es">Español</option>
+                <option value="it">Italiano</option>
+                <option value="pl">Polski</option>
+                <option value="nl">Nederlands</option>
+                <option value="pt">Português</option>
               </select>
             </div>
 
@@ -604,8 +612,8 @@
               <div class="s-row-l">
                 <span class="s-icon">🔌</span>
                 <div>
-                  <div class="s-label">WebUI Port</div>
-                  <div class="s-sub">Änderbar über ENV-Variable PORT</div>
+                  <div class="s-label" data-i18n="settings.port">WebUI Port</div>
+                  <div class="s-sub" data-i18n="settings.portHint">Änderbar über ENV-Variable PORT</div>
                 </div>
               </div>
               <span class="s-badge" id="s-port">—</span>
@@ -614,14 +622,14 @@
 
           <!-- Gäste-Ansicht -->
           <div class="s-group">
-            <div class="s-group-title">Gäste-Ansicht</div>
+            <div class="s-group-title" data-i18n="settings.guestView">Gäste-Ansicht</div>
 
             <div class="s-row">
               <div class="s-row-l">
                 <span class="s-icon">📴</span>
                 <div>
-                  <div class="s-label">Offline-Dienste anzeigen</div>
-                  <div class="s-sub">Gestoppte Container als inaktive Kacheln zeigen</div>
+                  <div class="s-label" data-i18n="settings.showOffline">Offline-Dienste anzeigen</div>
+                  <div class="s-sub" data-i18n="settings.showOfflineHint">Gestoppte Container als inaktive Kacheln zeigen</div>
                 </div>
               </div>
               <label class="toggle">
@@ -633,34 +641,34 @@
 
           <!-- Verhalten -->
           <div class="s-group">
-            <div class="s-group-title">Verhalten</div>
+            <div class="s-group-title" data-i18n="settings.behavior">Verhalten</div>
 
             <div class="s-row">
               <div class="s-row-l">
                 <span class="s-icon">🔄</span>
                 <div>
-                  <div class="s-label">Auto-Refresh Intervall</div>
-                  <div class="s-sub">System-Info im Admin-Bereich automatisch aktualisieren</div>
+                  <div class="s-label" data-i18n="settings.autoRefresh">Auto-Refresh Intervall</div>
+                  <div class="s-sub" data-i18n="settings.autoRefreshHint">System-Info im Admin-Bereich automatisch aktualisieren</div>
                 </div>
               </div>
               <select class="input s-select" id="s-refresh">
-                <option value="0">Aus</option>
-                <option value="10">10 Sekunden</option>
-                <option value="15">15 Sekunden</option>
-                <option value="30">30 Sekunden</option>
-                <option value="60">60 Sekunden</option>
+                <option value="0" data-i18n="settings.refreshOff">Aus</option>
+                <option value="10" data-i18n="settings.refresh10">10 Sekunden</option>
+                <option value="15" data-i18n="settings.refresh15">15 Sekunden</option>
+                <option value="30" data-i18n="settings.refresh30">30 Sekunden</option>
+                <option value="60" data-i18n="settings.refresh60">60 Sekunden</option>
               </select>
             </div>
           </div>
 
           <!-- Sicherheit -->
           <div class="s-group">
-            <div class="s-group-title">Sicherheit</div>
+            <div class="s-group-title" data-i18n="settings.security">Sicherheit</div>
 
             <div class="s-row">
               <div class="s-row-l">
                 <span class="s-icon">👤</span>
-                <div><div class="s-label">Admin-Benutzername</div></div>
+                <div><div class="s-label" data-i18n="settings.username">Admin-Benutzername</div></div>
               </div>
               <input class="input s-input" id="s-username" autocomplete="username" />
             </div>
@@ -668,20 +676,20 @@
             <div class="s-row" style="flex-direction:column;align-items:stretch;gap:0;min-height:auto;padding:12px 0">
               <div style="display:flex;align-items:center;gap:13px">
                 <span class="s-icon">🔑</span>
-                <button class="pw-toggle" id="pw-toggle">+ Passwort ändern</button>
+                <button class="pw-toggle" id="pw-toggle" data-i18n="settings.changePassword">+ Passwort ändern</button>
               </div>
               <div id="pw-fields" style="display:none;margin-top:14px;padding-left:37px">
                 <div class="field">
-                  <label>Aktuelles Passwort</label>
+                  <label data-i18n="settings.currentPassword">Aktuelles Passwort</label>
                   <input class="input" id="s-curpw" type="password" autocomplete="current-password" />
                 </div>
                 <div class="field">
-                  <label>Neues Passwort</label>
+                  <label data-i18n="settings.newPassword">Neues Passwort</label>
                   <input class="input" id="s-newpw" type="password" autocomplete="new-password"
-                    placeholder="Mindestens 8 Zeichen" />
+                    placeholder="Mindestens 8 Zeichen" data-i18n-ph="settings.newPasswordHint" />
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>Neues Passwort bestätigen</label>
+                  <label data-i18n="settings.confirmPassword">Neues Passwort bestätigen</label>
                   <input class="input" id="s-newpw2" type="password" autocomplete="new-password" />
                 </div>
               </div>
@@ -690,13 +698,13 @@
 
           <!-- System-Info -->
           <div class="s-group">
-            <div class="s-group-title">System</div>
+            <div class="s-group-title" data-i18n="settings.system">System</div>
 
             <div class="s-row">
               <div class="s-row-l">
                 <span class="s-icon">🐳</span>
                 <div>
-                  <div class="s-label">Docker Socket</div>
+                  <div class="s-label" data-i18n="settings.dockerSocket">Docker Socket</div>
                   <div class="s-sub mono" id="s-docker-socket">—</div>
                 </div>
               </div>
@@ -706,7 +714,7 @@
               <div class="s-row-l">
                 <span class="s-icon">📁</span>
                 <div>
-                  <div class="s-label">Dateimanager-Root</div>
+                  <div class="s-label" data-i18n="settings.filesRoot">Dateimanager-Root</div>
                   <div class="s-sub mono" id="s-filesroot">—</div>
                 </div>
               </div>
@@ -715,7 +723,7 @@
             <div class="s-row">
               <div class="s-row-l">
                 <span class="s-icon">ℹ️</span>
-                <div><div class="s-label">Version</div></div>
+                <div><div class="s-label" data-i18n="settings.version">Version</div></div>
               </div>
               <span class="s-badge" id="s-version">—</span>
             </div>
@@ -724,10 +732,10 @@
         </div>
 
         <div class="modal-foot" style="justify-content:space-between">
-          <button class="btn danger sm" id="s-restart">⟳ Hearth neu starten</button>
+          <button class="btn danger sm" id="s-restart" data-i18n="settings.restart">⟳ Hearth neu starten</button>
           <div style="display:flex;gap:8px">
-            <button class="btn ghost" data-close>Abbrechen</button>
-            <button class="btn primary" id="s-save">Speichern</button>
+            <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
+            <button class="btn primary" id="s-save" data-i18n="settings.save">Speichern</button>
           </div>
         </div>
       </div>
