@@ -196,7 +196,7 @@ function containerRow(c) {
     : '';
   const upd = _updateMap[c.id];
   const updateBadge = upd?.hasUpdate
-    ? `<span class="update-dot" title="Update available" onclick="event.stopPropagation();updateContainer('${esc(c.id)}','${esc(c.name)}')">↑</span>`
+    ? `<span class="update-dot" title="Update available" data-update-id="${esc(c.id)}" data-update-name="${esc(c.name)}">↑</span>`
     : '';
   return `
     <div class="row row-clickable" data-cid="${esc(c.id)}" data-cname="${esc(c.name)}">
@@ -215,6 +215,10 @@ function containerRow(c) {
 }
 
 document.getElementById('containers').addEventListener('click', (e) => {
+  // Update badge clicked
+  const upd = e.target.closest('[data-update-id]');
+  if (upd) { e.stopPropagation(); updateContainer(upd.dataset.updateId, upd.dataset.updateName); return; }
+  // Row click → open detail
   const row = e.target.closest('[data-cid]');
   if (row) openContainerDetail(row.dataset.cid, row.dataset.cname);
 });
@@ -752,27 +756,31 @@ document.querySelectorAll('.modal-backdrop').forEach((m) =>
   })
 );
 
-function portRow() {
+function portRow(host = '', container = '', proto = 'tcp') {
   const d = document.createElement('div');
-  d.className = 'triple';
+  d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;margin-bottom:8px';
   d.innerHTML = `
-    <input class="input" placeholder="Host-Port" data-k="host" />
-    <input class="input" placeholder="Container-Port" data-k="container" />
+    <input class="input" placeholder="Host Port" data-k="host" value="${host}" />
+    <input class="input" placeholder="Container Port" data-k="container" value="${container}" />
+    <select class="input" data-k="proto" style="padding:10px 6px">
+      <option value="tcp" ${proto === 'tcp' ? 'selected' : ''}>TCP</option>
+      <option value="udp" ${proto === 'udp' ? 'selected' : ''}>UDP</option>
+    </select>
     <button class="iconbtn danger" type="button" onclick="this.parentNode.remove()">✕</button>`;
   return d;
 }
-function volRow() {
+function volRow(host = '', container = '') {
   const d = document.createElement('div');
-  d.className = 'triple';
+  d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:8px';
   d.innerHTML = `
-    <input class="input" placeholder="/host/pfad" data-k="host" />
-    <input class="input" placeholder="/container/pfad" data-k="container" />
+    <input class="input" placeholder="/host/path" data-k="host" value="${host}" />
+    <input class="input" placeholder="/container/path" data-k="container" value="${container}" />
     <button class="iconbtn danger" type="button" onclick="this.parentNode.remove()">✕</button>`;
   return d;
 }
 function kvRow(kPh, vPh) {
   const d = document.createElement('div');
-  d.className = 'pair';
+  d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:8px';
   d.innerHTML = `
     <input class="input" placeholder="${kPh}" data-k="key" />
     <input class="input" placeholder="${vPh}" data-k="value" />
@@ -840,7 +848,7 @@ document.getElementById('c-submit').addEventListener('click', async () => {
     name: document.getElementById('c-name').value.trim(),
     restart: document.getElementById('c-restart').value,
     pull: document.getElementById('c-pull').checked,
-    ports: collect('c-ports', (p) => (p.container ? { host: p.host, container: p.container } : null)),
+    ports: collect('c-ports', (p) => (p.container ? { host: p.host, container: p.container, proto: p.proto || 'tcp' } : null)),
     volumes: collect('c-vols', (v) =>
       v.host && v.container ? { host: v.host, container: v.container } : null
     ),
@@ -1655,8 +1663,7 @@ async function loadProxyRules() {
 
   const box = document.getElementById('proxy-rules-list');
   if (!rules.length) {
-    box.innerHTML = `<div class="empty"><div class="big">⇌</div>No proxy rules yet.<br>
-      <span class="muted">Add a rule to route a domain to a container port.</span></div>`;
+    box.innerHTML = `<div class="empty"><div class="big">⇌</div>No proxy rules yet.<br><span class="muted" style="font-size:13px">Add a rule to route a domain to a container port.</span></div>`;
     return;
   }
   box.innerHTML = rules.map((r) => `
@@ -1798,7 +1805,7 @@ async function loadFirewall() {
   // Normal: Rule-Liste
   const box = document.getElementById('fw-rules-list');
   if (!rules.length) {
-    box.innerHTML = '<div class="empty" style="padding:24px">No rules configured.</div>';
+    box.innerHTML = '<div class="empty"><div class="big" style="font-size:32px">○</div>No rules configured.</div>';
     return;
   }
   box.innerHTML = rules.map((r) => `
