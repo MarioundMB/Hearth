@@ -325,7 +325,7 @@ document.getElementById('cd-edit-btn').addEventListener('click', async () => {
     document.getElementById('cd-info-view').style.display = 'none';
     document.getElementById('cd-edit-view').style.display = '';
   } catch (e) {
-    toast(e.message, 'error');
+    showDockerError(e.message);
   } finally {
     btn.textContent = '✎ Bearbeiten'; btn.disabled = false;
   }
@@ -446,7 +446,7 @@ document.getElementById('cd-save-btn').addEventListener('click', async () => {
     closeModal('modal-cd');
     loadContainers();
   } catch (e) {
-    toast(e.message, 'error');
+    showDockerError(e.message);
   } finally {
     btn.disabled = false; btn.textContent = '💾 Save & Restart';
   }
@@ -467,7 +467,7 @@ async function cdContainerAction(act) {
       closeModal('modal-cd');
     }
     loadContainers();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { showDockerError(e.message); }
 }
 
 document.getElementById('cd-toggle-btn').addEventListener('click', () => {
@@ -539,7 +539,7 @@ document.getElementById('images').addEventListener('click', async (e) => {
     toast(t('toast.imageDeleted'));
     loadImages();
   } catch (err) {
-    toast(err.message, 'error');
+    showDockerError(err.message);
   }
 });
 
@@ -552,7 +552,7 @@ document.getElementById('pull-image').addEventListener('click', async () => {
     toast(t('toast.imagePulled', { image }));
     loadImages();
   } catch (err) {
-    toast(err.message, 'error');
+    showDockerError(err.message);
   }
 });
 
@@ -860,7 +860,7 @@ document.getElementById('c-submit').addEventListener('click', async () => {
     closeModal('modal-create');
     loadContainers();
   } catch (err) {
-    toast(err.message, 'error');
+    showDockerError(err.message);
   } finally {
     btn.disabled = false;
     btn.textContent = t('modal.createStart');
@@ -1051,7 +1051,7 @@ document.getElementById('qi-install').addEventListener('click', async () => {
     closeModal('modal-qi');
     loadContainers();
   } catch (err) {
-    toast(err.message, 'error');
+    showDockerError(err.message);
     btn.disabled = false;
     btn.textContent = '⚡ Install';
   }
@@ -1118,6 +1118,204 @@ document.addEventListener('paste', (e) => {
   const image = parseDockerInput(text.split('\n')[0].trim());
   if (image) openQuickInstall(image);
 });
+
+// ---------- Fehler-Klassifizierung & Modal ----------
+const DOCKER_ERRORS = [
+  {
+    pattern: /port.*already.*allocated|address already in use|bind.*address.*already/i,
+    code: 'PORT_CONFLICT',
+    title: 'Port already in use',
+    desc: 'Another container or process is already listening on the requested port. Two services cannot share the same host port.',
+    steps: [
+      'Choose a different host port in the port mapping (e.g. <code>8081:80</code> instead of <code>8080:80</code>)',
+      'Find what is using the port: <code>lsof -i :PORT</code> (Linux/Mac) or <code>netstat -ano | findstr :PORT</code> (Windows)',
+      'Stop the conflicting container or service first',
+    ],
+    link: 'https://docs.docker.com/config/containers/container-networking/',
+  },
+  {
+    pattern: /no such image|manifest.*unknown|repository.*does not exist|name.*not known|not found in registry/i,
+    code: 'IMAGE_NOT_FOUND',
+    title: 'Image not found',
+    desc: 'The Docker image could not be found — either it does not exist on Docker Hub, the name is misspelled, or the tag is wrong.',
+    steps: [
+      'Double-check the image name and tag on <code>hub.docker.com</code>',
+      'Enable "Pull image before start" so Docker fetches it automatically',
+      'If it is a private image, log in first: <code>docker login</code>',
+    ],
+    link: 'https://hub.docker.com',
+  },
+  {
+    pattern: /conflict.*name.*already.*use|container.*already.*exists/i,
+    code: 'NAME_CONFLICT',
+    title: 'Container name already in use',
+    desc: 'A container with this exact name already exists on this Docker host (even if it is stopped).',
+    steps: [
+      'Choose a different container name',
+      'Or delete the existing container with the same name first',
+    ],
+    link: null,
+  },
+  {
+    pattern: /permission denied.*docker|cannot connect.*daemon|dial unix.*docker\.sock|no such file.*docker\.sock/i,
+    code: 'DOCKER_UNREACHABLE',
+    title: 'Cannot connect to Docker',
+    desc: 'Hearth cannot communicate with the Docker daemon. The socket is either missing, inaccessible, or Docker is not running.',
+    steps: [
+      'Make sure Docker is running on the host',
+      'Verify the Docker socket is mounted: <code>/var/run/docker.sock:/var/run/docker.sock</code>',
+      'On Linux, the user may need to be in the docker group: <code>sudo usermod -aG docker $USER</code>',
+    ],
+    link: 'https://docs.docker.com/engine/install/linux-postinstall/',
+  },
+  {
+    pattern: /no space left|out of.*space|disk.*quota/i,
+    code: 'DISK_FULL',
+    title: 'Disk full',
+    desc: 'Docker ran out of disk space. This can happen when pulling large images or creating volumes.',
+    steps: [
+      'Remove unused images: <code>docker image prune -a</code>',
+      'Remove stopped containers: <code>docker container prune</code>',
+      'Full cleanup: <code>docker system prune --volumes</code>',
+    ],
+    link: 'https://docs.docker.com/config/pruning/',
+  },
+  {
+    pattern: /pull access denied|unauthorized|authentication required|403 forbidden/i,
+    code: 'AUTH_REQUIRED',
+    title: 'Authentication required',
+    desc: 'The image is from a private registry or requires a Docker Hub login. Pulling was denied.',
+    steps: [
+      'Log into Docker Hub on the host: <code>docker login</code>',
+      'For private registries: <code>docker login registry.example.com</code>',
+      'Make sure the image name and credentials are correct',
+    ],
+    link: 'https://docs.docker.com/engine/reference/commandline/login/',
+  },
+  {
+    pattern: /invalid.*reference|invalid.*image.*name|invalid.*tag|repository name.*invalid/i,
+    code: 'INVALID_IMAGE_NAME',
+    title: 'Invalid image name or tag',
+    desc: 'The image name or tag contains invalid characters or does not follow Docker naming conventions.',
+    steps: [
+      'Image names must be lowercase and can contain letters, digits, dots, hyphens and slashes',
+      'Tags can contain letters, digits, underscores, hyphens and dots',
+      'Valid example: <code>my-registry.io/myapp:1.0.0</code>',
+    ],
+    link: null,
+  },
+  {
+    pattern: /path.*must be absolute|bind.*source.*invalid|invalid.*bind.*mount|no.*such.*file.*directory/i,
+    code: 'INVALID_VOLUME_PATH',
+    title: 'Invalid volume path',
+    desc: 'A volume mount path is invalid. Host paths must exist and be absolute (starting with /).',
+    steps: [
+      'Use absolute paths: <code>/data/myapp</code> not <code>./data</code>',
+      'Make sure the host directory exists before starting the container',
+      'Check for typos in the path',
+    ],
+    link: null,
+  },
+  {
+    pattern: /network.*not found|network.*does not exist/i,
+    code: 'NETWORK_NOT_FOUND',
+    title: 'Docker network not found',
+    desc: 'The specified Docker network does not exist on this host.',
+    steps: [
+      'Create the network first: <code>docker network create my-network</code>',
+      'Or use the default <code>bridge</code> network mode',
+      'List existing networks: <code>docker network ls</code>',
+    ],
+    link: 'https://docs.docker.com/network/',
+  },
+  {
+    pattern: /oci runtime.*error|failed.*start.*container|container.*start.*failed|exec.*format error/i,
+    code: 'RUNTIME_START_FAILED',
+    title: 'Container failed to start',
+    desc: 'The container process could not be started. This is often caused by a wrong entrypoint, missing files, or an architecture mismatch.',
+    steps: [
+      'Check container logs for the actual error message',
+      'Verify the image supports your platform (arm64 vs amd64)',
+      'Make sure all required environment variables and volumes are set',
+    ],
+    link: null,
+  },
+  {
+    pattern: /cannot.*stop.*container|container.*already.*stopped|no.*such.*container/i,
+    code: 'CONTAINER_NOT_RUNNING',
+    title: 'Container not running',
+    desc: 'The operation requires the container to be running, but it is already stopped or does not exist.',
+    steps: [
+      'Refresh the container list and try again',
+      'The container may have already stopped or been removed',
+    ],
+    link: null,
+  },
+  {
+    pattern: /image.*used.*by.*stopped|conflict.*unable.*delete/i,
+    code: 'IMAGE_IN_USE',
+    title: 'Image is in use',
+    desc: 'The image cannot be deleted because one or more containers (even stopped ones) are still using it.',
+    steps: [
+      'Remove all containers that use this image first',
+      'Use "force delete" if you want to remove it regardless: this will also remove dependent containers',
+    ],
+    link: null,
+  },
+];
+
+function classifyDockerError(message) {
+  for (const e of DOCKER_ERRORS) {
+    if (e.pattern.test(message)) return e;
+  }
+  return {
+    code: 'DOCKER_ERROR',
+    title: 'Docker operation failed',
+    desc: 'An unexpected error occurred while communicating with Docker.',
+    steps: [
+      'Check the raw error message below for details',
+      'Consult the Docker documentation or community forums',
+    ],
+    link: 'https://docs.docker.com',
+  };
+}
+
+function renderStep(html) {
+  // Backtick → <code>, danach plain text
+  return html.replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function showDockerError(rawMessage) {
+  const info = classifyDockerError(rawMessage || '');
+
+  document.getElementById('err-code').textContent        = info.code;
+  document.getElementById('err-title').textContent       = info.title;
+  document.getElementById('err-description').textContent = info.desc;
+  document.getElementById('err-raw').textContent         = rawMessage || '–';
+
+  // Fix-Schritte
+  const stepsBox  = document.getElementById('err-steps-box');
+  const stepsDiv  = document.getElementById('err-steps');
+  if (info.steps?.length) {
+    stepsDiv.innerHTML = info.steps.map((s) =>
+      `<div class="err-step"><span class="err-step-arrow">→</span><span>${renderStep(esc(s).replace(/&lt;code&gt;/g, '<code>').replace(/&lt;\/code&gt;/g, '</code>'))}</span></div>`
+    ).join('');
+    stepsBox.style.display = '';
+  } else {
+    stepsBox.style.display = 'none';
+  }
+
+  // Docs-Link
+  const linkEl = document.getElementById('err-link');
+  if (info.link) { linkEl.href = info.link; linkEl.style.display = ''; }
+  else           { linkEl.style.display = 'none'; }
+
+  // "Search fix"-Link → Google/DuckDuckGo
+  document.getElementById('err-search-link').href =
+    `https://duckduckgo.com/?q=docker+${encodeURIComponent(info.code.toLowerCase().replace(/_/g, '+'))}+fix`;
+
+  openModal('modal-error');
+}
 
 // ---------- Create-Modal: Methoden-Tabs ----------
 function switchCreateTab(tab) {
@@ -1437,7 +1635,7 @@ async function updateContainer(id, name) {
     _updateMap[id] = { hasUpdate: false };
     loadContainers();
     checkUpdates();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { showDockerError(e.message); }
 }
 
 // ---------- Reverse Proxy ----------
