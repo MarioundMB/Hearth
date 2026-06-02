@@ -181,10 +181,14 @@ async function loadContainers() {
 // Container-Zeile: kein Aktionsbutton, nur klickbar
 function containerRow(c) {
   const running = c.state === 'running';
-  const ports = c.ports
-    .filter((p) => p.publicPort)
-    .map((p) => `<span class="port">${p.publicPort}→${p.privatePort}</span>`)
-    .join('');
+  const ports = c.ports.filter((p) => p.publicPort);
+  const portBadges = ports.map((p) => `<span class="port">${p.publicPort}→${p.privatePort}</span>`).join('');
+  const webUrl = getContainerWebUrl(c);
+  const openBtn = webUrl
+    ? `<a href="${esc(webUrl)}" target="_blank" rel="noopener"
+         class="btn sm ghost row-open-btn" title="Open in new tab"
+         onclick="event.stopPropagation()">↗</a>`
+    : '';
   return `
     <div class="row row-clickable" data-cid="${esc(c.id)}" data-cname="${esc(c.name)}">
       <div class="main">
@@ -193,8 +197,9 @@ function containerRow(c) {
           <span class="pill ${running ? 'running' : 'stopped'}"><span class="dot"></span>${running ? t('containers.running') : esc(c.state)}</span>
         </div>
         <div class="meta">${esc(c.image)} · ${esc(c.status)}</div>
-        <div class="ports">${ports}</div>
+        <div class="ports">${portBadges}</div>
       </div>
+      ${openBtn}
       <span class="row-chevron">›</span>
     </div>`;
 }
