@@ -66,7 +66,7 @@ let activeDiskTab = 'total';
 
 function renderDisks() {
   if (!diskData.length) {
-    document.getElementById('mon-disk-total').innerHTML = '<div class="mon-sub">No disk data</div>';
+    document.getElementById('mon-disk-total').innerHTML = `<div class="mon-sub">${t('mon.noDisks')}</div>`;
     document.getElementById('mon-disk-each').innerHTML = '';
     return;
   }
@@ -79,7 +79,7 @@ function renderDisks() {
   document.getElementById('mon-disk-total').innerHTML = `
     <div class="mon-disk-row">
       <div class="mon-disk-label">
-        <span>All disks</span>
+        <span>${t('mon.allDisks')}</span>
         <span>${fmtBytes(usedBytes)} / ${fmtBytes(totalBytes)} · ${totalPct}%</span>
       </div>
       <div class="mon-bar"><div class="mon-bar-fill ${fillClass}" style="width:${totalPct}%"></div></div>
@@ -119,7 +119,7 @@ async function updateMonitor() {
   document.getElementById('mon-cpu-pct').textContent   = cpuPct + '%';
   document.getElementById('mon-cpu-bar').style.width   = cpuPct + '%';
   document.getElementById('mon-cpu-bar').className     = 'mon-bar-fill' + (cpuPct > 90 ? ' crit' : cpuPct > 75 ? ' warn' : '');
-  document.getElementById('mon-cpu-cores').textContent = `${m.cpu.cores} cores`;
+  document.getElementById('mon-cpu-cores').textContent = t('mon.cores').replace('{n}', m.cpu.cores);
 
   // RAM
   const ramPct = Math.round((m.mem.used / m.mem.total) * 100);
@@ -151,7 +151,7 @@ async function updateMonitor() {
       </div>`;
     }).join('');
   } else {
-    tempsBox.innerHTML = '<div class="mon-sub">No sensors found</div>';
+    tempsBox.innerHTML = `<div class="mon-sub">${t('mon.noSensors')}</div>`;
   }
 
   // System-Info
@@ -262,8 +262,8 @@ function openContainerDetail(id, name) {
 
   // Stop/Start-Button
   const toggleBtn = document.getElementById('cd-toggle-btn');
-  if (running) { toggleBtn.textContent = '■ Stop'; toggleBtn.className = 'btn sm'; }
-  else         { toggleBtn.textContent = '▶ Start'; toggleBtn.className = 'btn sm primary'; }
+  if (running) { toggleBtn.textContent = t('cd.stop'); toggleBtn.className = 'btn sm'; }
+  else         { toggleBtn.textContent = t('cd.start'); toggleBtn.className = 'btn sm primary'; }
 
   // Öffnen-Button
   const openBtn = document.getElementById('cd-open-btn');
@@ -322,7 +322,7 @@ function collectEdit(builderId, mapper) {
 // "Bearbeiten" — lädt vollständige Container-Inspektion und füllt Formular
 document.getElementById('cd-edit-btn').addEventListener('click', async () => {
   const btn = document.getElementById('cd-edit-btn');
-  btn.textContent = 'Loading…'; btn.disabled = true;
+  btn.textContent = t('mon.loading'); btn.disabled = true;
   try {
     const inspect = await api('GET', `/api/containers/${_cdCurrentId}`);
     populateEditForm(inspect);
@@ -415,7 +415,7 @@ document.getElementById('cd-edit-cancel').addEventListener('click', () => {
 document.getElementById('cd-save-btn').addEventListener('click', async () => {
   const imgName = document.getElementById('cd-image').value.trim();
   const imgTag  = document.getElementById('cd-tag').value.trim() || 'latest';
-  if (!imgName) { toast('Image name is required', 'error'); return; }
+  if (!imgName) { toast(t('cd.imageRequired'), 'error'); return; }
 
   // Hearth-Labels aus den Form-Feldern + custom labels
   const hearthLabels = [];
@@ -446,7 +446,7 @@ document.getElementById('cd-save-btn').addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await api('PUT', `/api/containers/${_cdCurrentId}`, payload);
-    toast('Container recreated successfully');
+    toast(t('cd.saved'));
     closeModal('modal-cd');
     loadContainers();
   } catch (e) {
@@ -1044,18 +1044,18 @@ async function openQuickInstall(image) {
 
 document.getElementById('qi-install').addEventListener('click', async () => {
   const image = document.getElementById('qi-image').value.trim();
-  if (!image) { toast('Image name required', 'error'); return; }
+  if (!image) { toast(t('cd.imageRequired'), 'error'); return; }
   const name  = document.getElementById('qi-name').value.trim();
   const btn   = document.getElementById('qi-install');
   btn.disabled = true;
-  btn.textContent = 'Installing…';
+  btn.textContent = t('qi.installing');
   try {
     await api('POST', '/api/containers', {
       image, name: name || undefined,
       pull: true, restart: 'unless-stopped',
       ports: [], volumes: [], env: [], labels: [],
     });
-    toast('Installed: ' + (name || image));
+    toast(t('qi.installed').replace('{name}', name || image));
     closeModal('modal-qi');
     loadContainers();
   } catch (err) {
@@ -1114,7 +1114,7 @@ document.addEventListener('drop', (e) => {
   if (image) {
     openQuickInstall(image);
   } else {
-    toast('No Docker image found in dropped content', 'error');
+    toast(t('misc.noDockerInDrop'), 'error');
   }
 });
 
@@ -1513,16 +1513,16 @@ function fillCreateForm(data) {
 
 document.getElementById('parse-run-btn').addEventListener('click', () => {
   const cmd = document.getElementById('docker-run-input').value.trim();
-  if (!cmd) { toast('Please paste a docker run command', 'error'); return; }
-  try { fillCreateForm(parseDockerRun(cmd)); toast('Command parsed successfully'); }
-  catch (e) { toast('Parse error: ' + e.message, 'error'); }
+  if (!cmd) { toast(t('parse.runRequired'), 'error'); return; }
+  try { fillCreateForm(parseDockerRun(cmd)); toast(t('parse.runSuccess')); }
+  catch (e) { toast(t('parse.error') + e.message, 'error'); }
 });
 
 document.getElementById('parse-compose-btn').addEventListener('click', () => {
   const yaml = document.getElementById('compose-input').value.trim();
-  if (!yaml) { toast('Please paste a docker-compose service block', 'error'); return; }
-  try { fillCreateForm(parseDockerCompose(yaml)); toast('Compose parsed successfully'); }
-  catch (e) { toast('Parse error: ' + e.message, 'error'); }
+  if (!yaml) { toast(t('parse.composeRequired'), 'error'); return; }
+  try { fillCreateForm(parseDockerCompose(yaml)); toast(t('parse.composeSuccess')); }
+  catch (e) { toast(t('parse.error') + e.message, 'error'); }
 });
 
 // ---------- Auto-Icon-Fetch ----------
@@ -1634,12 +1634,12 @@ async function checkUpdates(force = false) {
 }
 
 async function updateContainer(id, name) {
-  if (!confirm(`Update "${name}"? The container will be briefly stopped.`)) return;
+  if (!confirm(t('update.confirm').replace('{name}', name))) return;
   const btn = document.querySelector(`[data-cid="${id}"] .update-dot`);
   if (btn) btn.textContent = '⟳';
   try {
     await api('POST', `/api/updates/container/${id}`);
-    toast(`Updated: ${name}`);
+    toast(t('update.done').replace('{name}', name));
     _updateMap[id] = { hasUpdate: false };
     loadContainers();
     checkUpdates();
@@ -1657,13 +1657,13 @@ async function loadProxyRules() {
   const badge = document.getElementById('proxy-status-badge');
   if (badge) {
     badge.innerHTML = status.running
-      ? `<span class="proxy-status-dot"></span><span style="font-size:12px;color:var(--ok)">Running on :${status.port}</span>`
-      : `<span class="proxy-status-dot off"></span><span style="font-size:12px;color:var(--text-faint)">Stopped</span>`;
+      ? `<span class="proxy-status-dot"></span><span style="font-size:12px;color:var(--ok)">${t('proxy.running').replace(':{port}', status.port)}</span>`
+      : `<span class="proxy-status-dot off"></span><span style="font-size:12px;color:var(--text-faint)">${t('proxy.stopped')}</span>`;
   }
 
   const box = document.getElementById('proxy-rules-list');
   if (!rules.length) {
-    box.innerHTML = `<div class="empty"><div class="big">⇌</div>No proxy rules yet.<br><span class="muted" style="font-size:13px">Add a rule to route a domain to a container port.</span></div>`;
+    box.innerHTML = `<div class="empty"><div class="big">⇌</div>${t('proxy.empty')}<br><span class="muted" style="font-size:13px">${t('proxy.emptyHint')}</span></div>`;
     return;
   }
   box.innerHTML = rules.map((r) => `
@@ -1685,7 +1685,7 @@ async function loadProxyRules() {
 document.getElementById('proxy-rules-list').addEventListener('click', async (e) => {
   const delBtn = e.target.closest('[data-proxy-del]');
   if (delBtn) {
-    if (!confirm('Delete proxy rule?')) return;
+    if (!confirm(t('proxy.deleteConfirm'))) return;
     await api('DELETE', `/api/proxy/rules/${delBtn.dataset.proxyDel}`).catch((err) => toast(err.message, 'error'));
     loadProxyRules();
     return;
@@ -1707,7 +1707,7 @@ let _editingProxyId = null;
 function openProxyModal(id) {
   _editingProxyId = id || null;
   const title = document.getElementById('prl-title');
-  title.textContent = id ? 'Edit Proxy Rule' : 'Add Proxy Rule';
+  title.textContent = id ? t('proxy.editTitle') : t('proxy.addTitle');
 
   if (id) {
     api('GET', '/api/proxy/rules').then((rules) => {
@@ -1731,7 +1731,7 @@ document.getElementById('prl-save').addEventListener('click', async () => {
   const domain  = document.getElementById('prl-domain').value.trim();
   const target  = document.getElementById('prl-target').value.trim();
   const enabled = document.getElementById('prl-enabled').checked;
-  if (!domain || !target) { toast('Domain and target are required', 'error'); return; }
+  if (!domain || !target) { toast(t('proxy.requiredFields'), 'error'); return; }
 
   const btn = document.getElementById('prl-save');
   btn.disabled = true;
@@ -1741,7 +1741,7 @@ document.getElementById('prl-save').addEventListener('click', async () => {
     } else {
       await api('POST', '/api/proxy/rules', { domain, target, enabled });
     }
-    toast('Proxy rule saved');
+    toast(t('proxy.saved'));
     closeModal('modal-proxy-rule');
     loadProxyRules();
   } catch (err) { toast(err.message, 'error'); }
@@ -1774,7 +1774,7 @@ async function loadFirewall() {
   const badge = document.getElementById('fw-status-badge');
   if (badge) {
     badge.className = `fw-status-badge ${info.active ? 'active' : 'inactive'}`;
-    badge.textContent = info.active ? 'Active' : 'Inactive';
+    badge.textContent = info.active ? t('firewall.active') : t('firewall.inactive');
   }
 
   // Advanced: raw output
@@ -1795,7 +1795,7 @@ async function loadFirewall() {
         <div class="fw-port-name">${esc(p.name)}</div>
         <div class="fw-port-num">${p.port}/${p.proto}</div>
       </div>
-      <label class="toggle" title="${allowed ? 'Allowed' : 'Denied'}">
+      <label class="toggle" title="${allowed ? t('firewall.allowed') : t('firewall.denied')}">
         <input type="checkbox" ${allowed ? 'checked' : ''} data-fw-port="${p.port}" data-fw-proto="${p.proto}" />
         <span class="toggle-track"></span>
       </label>
@@ -1805,7 +1805,7 @@ async function loadFirewall() {
   // Normal: Rule-Liste
   const box = document.getElementById('fw-rules-list');
   if (!rules.length) {
-    box.innerHTML = '<div class="empty"><div class="big" style="font-size:32px">○</div>No rules configured.</div>';
+    box.innerHTML = `<div class="empty"><div class="big" style="font-size:32px">○</div>${t('firewall.empty')}</div>`;
     return;
   }
   box.innerHTML = rules.map((r) => `
@@ -1832,7 +1832,7 @@ document.getElementById('fw-quick-ports').addEventListener('change', async (e) =
 document.getElementById('fw-rules-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-fw-del]');
   if (!btn) return;
-  if (!confirm(`Delete rule #${btn.dataset.fwDel}?`)) return;
+  if (!confirm(t('firewall.deleteConfirm').replace('#{n}', btn.dataset.fwDel))) return;
   await api('DELETE', `/api/firewall/rules/${btn.dataset.fwDel}`).catch((err) => toast(err.message, 'error'));
   loadFirewall();
 });
@@ -1856,7 +1856,7 @@ document.getElementById('fw-rule-save').addEventListener('click', async () => {
       proto:  document.getElementById('fw-proto').value || undefined,
       from:   document.getElementById('fw-from').value.trim() || undefined,
     });
-    toast('Firewall rule added');
+    toast(t('firewall.ruleAdded'));
     closeModal('modal-fw-rule');
     loadFirewall();
   } catch (err) { toast(err.message, 'error'); }
