@@ -283,6 +283,34 @@
         margin-bottom: 14px;
       }
 
+      /* ===== Reverse Proxy ===== */
+      .proxy-info-bar {
+        font-size: 12.5px; color: var(--text-faint);
+        padding: 8px 0 16px; border-bottom: 1px solid var(--border);
+        margin-bottom: 16px;
+      }
+      .proxy-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+      .proxy-row .proxy-domain { font-weight: 700; font-size: 14px; }
+      .proxy-row .proxy-target { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+      .proxy-row .proxy-main { flex: 1; min-width: 0; }
+      .proxy-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); display: inline-block; margin-right: 6px; }
+      .proxy-status-dot.off { background: var(--text-faint); box-shadow: none; }
+
+      /* ===== Firewall ===== */
+      .fw-quick-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 20px; }
+      .fw-port-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+      .fw-port-name { font-weight: 600; font-size: 13px; }
+      .fw-port-num  { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+      .fw-rule-row  { display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+      .fw-rule-num  { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); width: 24px; flex-shrink: 0; }
+      .fw-rule-action { font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+      .fw-rule-action.allow { background: rgba(88,214,141,0.15); color: var(--ok); }
+      .fw-rule-action.deny  { background: rgba(255,107,94,0.15);  color: var(--danger); }
+      .fw-status-badge { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 20px; }
+      .fw-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
+      .fw-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
+      .fw-mode-toggle { display: flex; gap: 4px; margin-right: 8px; }
+
       /* ===== Container-Detail-Modal ===== */
       .row-clickable { cursor: pointer; }
       .row-clickable:hover { border-color: var(--accent-dim); background: rgba(196,240,66,0.03); }
@@ -750,6 +778,8 @@
             <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
             <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
             <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
+            <div class="tab" data-view="proxy">Reverse Proxy</div>
+            <div class="tab" data-view="firewall">Firewall</div>
           </div>
 
           <!-- Container -->
@@ -788,6 +818,55 @@
             </div>
             <div class="list" id="files"></div>
           </section>
+          <!-- Reverse Proxy -->
+          <section class="view" id="view-proxy">
+            <div class="toolbar">
+              <h2>Reverse Proxy</h2>
+              <div class="spacer"></div>
+              <div class="proxy-status" id="proxy-status-badge"></div>
+              <button class="btn primary sm" id="add-proxy-btn">+ Add Rule</button>
+            </div>
+            <div class="proxy-info-bar" id="proxy-info-bar">
+              <span>Routes incoming requests by domain to containers · WebSocket supported</span>
+            </div>
+            <div class="list" id="proxy-rules-list"></div>
+          </section>
+
+          <!-- Firewall -->
+          <section class="view" id="view-firewall">
+            <div class="toolbar">
+              <h2>Firewall</h2>
+              <div class="spacer"></div>
+              <div class="fw-mode-toggle">
+                <button class="mon-tab active" id="fw-mode-normal">Normal</button>
+                <button class="mon-tab" id="fw-mode-advanced">Advanced</button>
+              </div>
+              <div class="fw-status-badge" id="fw-status-badge"></div>
+            </div>
+
+            <!-- Normal Mode -->
+            <div id="fw-normal">
+              <div class="fw-unavail" id="fw-unavail" style="display:none">
+                <div class="empty"><div class="big">🛡</div>Firewall container not running.<br>
+                <span class="muted" style="font-size:13px">Start the <code>hearth-firewall</code> container or add it to your docker-compose.yml.</span></div>
+              </div>
+              <div id="fw-normal-content">
+                <div class="fw-quick-ports" id="fw-quick-ports"></div>
+                <div class="toolbar" style="margin-top:18px">
+                  <h2 style="font-size:16px">Rules</h2>
+                  <div class="spacer"></div>
+                  <button class="btn primary sm" id="fw-add-rule-btn">+ Add Rule</button>
+                </div>
+                <div class="list" id="fw-rules-list"></div>
+              </div>
+            </div>
+
+            <!-- Advanced Mode -->
+            <div id="fw-advanced" style="display:none">
+              <pre class="logs" id="fw-raw-output" style="max-height:60vh">Loading…</pre>
+            </div>
+          </section>
+
         </div><!-- /.admin-main -->
 
         <!-- ── Monitoring-Sidebar (immer sichtbar) ────────────── -->
@@ -1276,6 +1355,71 @@
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- Proxy-Regel Modal -->
+    <div class="modal-backdrop" id="modal-proxy-rule">
+      <div class="modal" style="max-width:500px">
+        <div class="modal-head">
+          <h3 id="prl-title">Add Proxy Rule</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>Domain <span class="muted" style="font-size:11px">(e.g. jellyfin.home.local)</span></label>
+            <input class="input" id="prl-domain" placeholder="app.myserver.com" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>Target <span class="muted" style="font-size:11px">(e.g. http://192.168.1.50:8096)</span></label>
+            <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
+          </div>
+          <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
+            <input type="checkbox" id="prl-enabled" checked style="width:auto" />
+            <label for="prl-enabled" style="margin:0">Enable rule immediately</label>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close>Cancel</button>
+          <button class="btn primary" id="prl-save">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Firewall-Regel Modal -->
+    <div class="modal-backdrop" id="modal-fw-rule">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-head">
+          <h3>Add Firewall Rule</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>Action</label>
+            <select class="input" id="fw-action">
+              <option value="allow">Allow</option>
+              <option value="deny">Deny</option>
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 100px;gap:10px">
+            <div class="field" style="margin:0"><label>Port</label><input class="input" id="fw-port" placeholder="8096" /></div>
+            <div class="field" style="margin:0"><label>Protocol</label>
+              <select class="input" id="fw-proto">
+                <option value="">any</option>
+                <option value="tcp">tcp</option>
+                <option value="udp">udp</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px;margin-bottom:0">
+            <label>From IP <span class="muted" style="font-size:11px">(leave empty for any)</span></label>
+            <input class="input" id="fw-from" placeholder="any / 192.168.1.0/24" />
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close>Cancel</button>
+          <button class="btn primary" id="fw-rule-save">Add Rule</button>
+        </div>
       </div>
     </div>
 

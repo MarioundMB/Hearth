@@ -19,7 +19,12 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const crypto = require('crypto');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
+
+// Modul-weite Zustandsvariablen (müssen vor jeder Nutzung deklariert sein)
+let _nginxProc  = null;
+let _cpuPrev    = null;
+let _netPrev    = null, _netPrevTs = 0;
 
 const { version: VERSION } = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
@@ -29,10 +34,11 @@ const { version: VERSION } = JSON.parse(
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
 // ---------------------------------------------------------------------------
 const PORT = parseInt(process.env.PORT || '4500', 10);
+const PROXY_PORT = parseInt(process.env.PROXY_PORT || '80', 10);
 const FILES_ROOT = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
-// Persistente Konfigurationsdatei – wird beim Setup-Wizard erstellt
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(FILES_ROOT, 'hearth.config.json');
+const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
 
 // FILES_ROOT anlegen, falls nicht vorhanden
 try {
@@ -50,10 +56,10 @@ let runtimeConfig = {
   serverName: process.env.SERVER_NAME || 'Hearth',
   sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   setupDone: !!(process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD !== 'changeme'),
-  // Einstellungen (vom Setup-Wizard / Einstellungs-Panel konfigurierbar)
   lang: 'de',
   showOfflineApps: false,
   refreshInterval: 15,
+  proxyRules: [],      // Reverse-Proxy-Regeln
 };
 
 function loadConfig() {
@@ -80,6 +86,9 @@ if (!runtimeConfig.setupDone) {
 } else if (runtimeConfig.adminPassword === 'changeme') {
   console.warn('\x1b[33m[WARNUNG] Standard-Passwort "changeme" ist aktiv!\x1b[0m');
 }
+
+// Nginx starten (läuft parallel zum Express-Server)
+startNginx();
 
 const docker = new Docker({ socketPath: DOCKER_SOCKET });
 const app = express();
@@ -207,11 +216,109 @@ function asyncHandler(fn) {
 }
 
 // ---------------------------------------------------------------------------
+// Nginx / Reverse Proxy
+// ---------------------------------------------------------------------------
+function nginxConfForRule(rule) {
+  return `# Hearth Proxy: ${rule.id} (${rule.domain})
+server {
+    listen ${PROXY_PORT};
+    server_name ${rule.domain};
+    location / {
+        proxy_pass ${rule.target};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+    }
+}
+`;
+}
+
+function writeProxyConfigs(rules) {
+  try {
+    fs.mkdirSync(NGINX_PROXY_DIR, { recursive: true });
+    for (const f of fs.readdirSync(NGINX_PROXY_DIR)) {
+      fs.unlinkSync(path.join(NGINX_PROXY_DIR, f));
+    }
+    for (const r of (rules || []).filter((r) => r.enabled)) {
+      fs.writeFileSync(path.join(NGINX_PROXY_DIR, `${r.id}.conf`), nginxConfForRule(r));
+    }
+  } catch (e) {
+    console.warn('[PROXY] Konnte Nginx-Configs nicht schreiben:', e.message);
+  }
+}
+
+function reloadNginx() {
+  return new Promise((resolve) => {
+    exec('nginx -s reload 2>/dev/null', (err) => resolve(!err));
+  });
+}
+
+function startNginx() {
+  const nginxBin = ['/usr/sbin/nginx', '/usr/bin/nginx', '/sbin/nginx'].find(fs.existsSync);
+  if (!nginxBin) {
+    console.log('[PROXY] Nginx nicht gefunden – Reverse Proxy deaktiviert');
+    return;
+  }
+  writeProxyConfigs(runtimeConfig.proxyRules);
+  _nginxProc = spawn(nginxBin, ['-g', 'daemon off;'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  _nginxProc.stderr.on('data', (d) => {
+    const msg = d.toString().trim();
+    if (msg && !msg.includes('signal process started')) console.warn('[NGINX]', msg);
+  });
+  _nginxProc.on('exit', (code) => {
+    if (code !== null && code !== 0) {
+      console.error(`[NGINX] Exited (code ${code}), restart in 3s`);
+      setTimeout(startNginx, 3000);
+    }
+  });
+  console.log(`\x1b[32m✓ Reverse Proxy (Nginx) auf Port ${PROXY_PORT}\x1b[0m`);
+}
+
+// ---------------------------------------------------------------------------
+// Firewall-Helfer (exec in hearth-firewall Container)
+// ---------------------------------------------------------------------------
+const FW_CONTAINER = process.env.FW_CONTAINER || 'hearth-firewall';
+
+async function fwExec(cmd) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const c = docker.getContainer(FW_CONTAINER);
+      const exec = await c.exec({
+        Cmd: ['sh', '-c', cmd],
+        AttachStdout: true,
+        AttachStderr: true,
+      });
+      const stream = await exec.start({});
+      let out = '';
+      stream.on('data', (chunk) => {
+        // Docker-Multiplex-Header (8 Byte) überspringen
+        const text = chunk.slice(8).toString('utf8');
+        out += text;
+      });
+      stream.on('end', () => resolve(out.trim()));
+      stream.on('error', reject);
+    } catch (e) { reject(e); }
+  });
+}
+
+async function fwAvailable() {
+  try {
+    await docker.getContainer(FW_CONTAINER).inspect();
+    return true;
+  } catch (_) { return false; }
+}
+
+// ---------------------------------------------------------------------------
 // Monitoring-Hilfsfunktionen
 // ---------------------------------------------------------------------------
 
 // CPU-Auslastung über /proc/stat (Linux-only, graceful fallback)
-let _cpuPrev = null;
 function _readProcStat() {
   try {
     const line = fs.readFileSync('/proc/stat', 'utf8').split('\n')[0];
@@ -255,7 +362,6 @@ function getDiskInfo() {
 }
 
 // Netzwerk-Durchsatz via /proc/net/dev (Delta zwischen Abfragen)
-let _netPrev = null, _netPrevTs = 0;
 function getNetworkRate() {
   try {
     const lines = fs.readFileSync('/proc/net/dev', 'utf8').trim().split('\n').slice(2);
@@ -386,6 +492,109 @@ app.get(
     });
   })
 );
+
+// ---------------------------------------------------------------------------
+// Reverse-Proxy API
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/rules', requireAuth, (req, res) => {
+  res.json(runtimeConfig.proxyRules || []);
+});
+
+app.get('/api/proxy/status', requireAuth, (req, res) => {
+  const nginxRunning = _nginxProc !== null && !_nginxProc.killed;
+  res.json({ running: nginxRunning, port: PROXY_PORT, rules: (runtimeConfig.proxyRules || []).length });
+});
+
+app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
+  const { domain, target, enabled = true, strip = '' } = req.body || {};
+  if (!domain || !target) return res.status(400).json({ error: 'domain and target are required' });
+
+  const rules = [...(runtimeConfig.proxyRules || [])];
+  const id = Date.now().toString(36);
+  rules.push({ id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''), enabled: !!enabled, strip: strip.trim() });
+  saveConfig({ proxyRules: rules });
+  writeProxyConfigs(rules);
+  await reloadNginx();
+  res.json({ ok: true, id });
+}));
+
+app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  const { domain, target, enabled, strip } = req.body || {};
+  const rules = (runtimeConfig.proxyRules || []).map((r) => {
+    if (r.id !== req.params.id) return r;
+    return {
+      ...r,
+      domain:  domain  !== undefined ? domain.trim()  : r.domain,
+      target:  target  !== undefined ? target.trim().replace(/\/$/, '') : r.target,
+      enabled: enabled !== undefined ? !!enabled        : r.enabled,
+      strip:   strip   !== undefined ? strip.trim()    : (r.strip || ''),
+    };
+  });
+  saveConfig({ proxyRules: rules });
+  writeProxyConfigs(rules);
+  await reloadNginx();
+  res.json({ ok: true });
+}));
+
+app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  const rules = (runtimeConfig.proxyRules || []).filter((r) => r.id !== req.params.id);
+  saveConfig({ proxyRules: rules });
+  writeProxyConfigs(rules);
+  await reloadNginx();
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Firewall API
+// ---------------------------------------------------------------------------
+app.get('/api/firewall/available', requireAuth, asyncHandler(async (req, res) => {
+  res.json({ available: await fwAvailable() });
+}));
+
+app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.json({ available: false });
+  try {
+    const [verbose, numbered] = await Promise.all([
+      fwExec('ufw status verbose'),
+      fwExec('ufw status numbered'),
+    ]);
+    const active = verbose.includes('Status: active');
+    // Regeln parsen: "[N] port/proto ALLOW/DENY IN ..."
+    const ruleLines = numbered.split('\n').filter((l) => /^\[/.test(l.trim()));
+    const rules = ruleLines.map((l) => {
+      const m = l.match(/\[\s*(\d+)\]\s+(.+?)\s+(ALLOW|DENY)\s+(IN|OUT|FWD)?\s*(.*)/i);
+      if (!m) return null;
+      return { num: parseInt(m[1]), to: m[2].trim(), action: m[3].toUpperCase(), dir: (m[4] || 'IN').toUpperCase(), from: (m[5] || 'Anywhere').trim() };
+    }).filter(Boolean);
+    res.json({ available: true, active, raw: verbose, rules });
+  } catch (e) {
+    res.status(500).json({ available: true, error: e.message });
+  }
+}));
+
+app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { action, port, proto, from = 'any', comment = '' } = req.body || {};
+  if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
+  const protoStr = proto ? `/${proto}` : '';
+  const fromStr  = from && from !== 'any' ? ` from ${from}` : '';
+  const cmd = `ufw ${action}${fromStr} to any port ${port}${protoStr} && ufw status numbered`;
+  const result = await fwExec(cmd);
+  res.json({ ok: true, result });
+}));
+
+app.delete('/api/firewall/rules/:num', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const result = await fwExec(`echo y | ufw delete ${req.params.num}`);
+  res.json({ ok: true, result });
+}));
+
+app.post('/api/firewall/toggle', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { enable } = req.body || {};
+  const result = await fwExec(enable ? 'ufw --force enable' : 'ufw disable');
+  res.json({ ok: true, result });
+}));
 
 // ---------------------------------------------------------------------------
 // Einstellungen (Admin)

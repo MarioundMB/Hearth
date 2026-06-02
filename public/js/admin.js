@@ -10,8 +10,10 @@ document.querySelectorAll('.tab').forEach((t) => {
     document.querySelectorAll('.view').forEach((x) => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById('view-' + t.dataset.view).classList.add('active');
-    if (t.dataset.view === 'images') loadImages();
-    if (t.dataset.view === 'files') loadFiles(currentPath);
+    if (t.dataset.view === 'images')   loadImages();
+    if (t.dataset.view === 'files')    loadFiles(currentPath);
+    if (t.dataset.view === 'proxy')    loadProxyRules();
+    if (t.dataset.view === 'firewall') loadFirewall();
   });
 });
 
@@ -1084,6 +1086,239 @@ document.addEventListener('paste', (e) => {
   const text = e.clipboardData?.getData('text') || '';
   const image = parseDockerInput(text.split('\n')[0].trim());
   if (image) openQuickInstall(image);
+});
+
+// ---------- Reverse Proxy ----------
+async function loadProxyRules() {
+  const [status, rules] = await Promise.all([
+    api('GET', '/api/proxy/status').catch(() => ({ running: false, port: 80, rules: 0 })),
+    api('GET', '/api/proxy/rules').catch(() => []),
+  ]);
+
+  // Status-Badge in der Toolbar
+  const badge = document.getElementById('proxy-status-badge');
+  if (badge) {
+    badge.innerHTML = status.running
+      ? `<span class="proxy-status-dot"></span><span style="font-size:12px;color:var(--ok)">Running on :${status.port}</span>`
+      : `<span class="proxy-status-dot off"></span><span style="font-size:12px;color:var(--text-faint)">Stopped</span>`;
+  }
+
+  const box = document.getElementById('proxy-rules-list');
+  if (!rules.length) {
+    box.innerHTML = `<div class="empty"><div class="big">⇌</div>No proxy rules yet.<br>
+      <span class="muted">Add a rule to route a domain to a container port.</span></div>`;
+    return;
+  }
+  box.innerHTML = rules.map((r) => `
+    <div class="proxy-row">
+      <div class="proxy-main">
+        <div class="proxy-domain">${esc(r.domain)}</div>
+        <div class="proxy-target">→ ${esc(r.target)}</div>
+      </div>
+      <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+        <input type="checkbox" ${r.enabled ? 'checked' : ''} data-proxy-toggle="${esc(r.id)}" />
+        <span class="toggle-track"></span>
+      </label>
+      <button class="btn sm ghost" data-proxy-edit="${esc(r.id)}">✎</button>
+      <button class="btn sm danger" data-proxy-del="${esc(r.id)}">🗑</button>
+    </div>`).join('');
+}
+
+// Proxy-Tab Events
+document.getElementById('proxy-rules-list').addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('[data-proxy-del]');
+  if (delBtn) {
+    if (!confirm('Delete proxy rule?')) return;
+    await api('DELETE', `/api/proxy/rules/${delBtn.dataset.proxyDel}`).catch((err) => toast(err.message, 'error'));
+    loadProxyRules();
+    return;
+  }
+  const editBtn = e.target.closest('[data-proxy-edit]');
+  if (editBtn) openProxyModal(editBtn.dataset.proxyEdit);
+});
+
+document.getElementById('proxy-rules-list').addEventListener('change', async (e) => {
+  const toggle = e.target.closest('[data-proxy-toggle]');
+  if (!toggle) return;
+  await api('PUT', `/api/proxy/rules/${toggle.dataset.proxyToggle}`, { enabled: toggle.checked })
+    .catch((err) => { toast(err.message, 'error'); toggle.checked = !toggle.checked; });
+  loadProxyRules();
+});
+
+let _editingProxyId = null;
+
+function openProxyModal(id) {
+  _editingProxyId = id || null;
+  const title = document.getElementById('prl-title');
+  title.textContent = id ? 'Edit Proxy Rule' : 'Add Proxy Rule';
+
+  if (id) {
+    api('GET', '/api/proxy/rules').then((rules) => {
+      const r = rules.find((x) => x.id === id);
+      if (!r) return;
+      document.getElementById('prl-domain').value  = r.domain;
+      document.getElementById('prl-target').value  = r.target;
+      document.getElementById('prl-enabled').checked = r.enabled;
+    });
+  } else {
+    document.getElementById('prl-domain').value  = '';
+    document.getElementById('prl-target').value  = '';
+    document.getElementById('prl-enabled').checked = true;
+  }
+  openModal('modal-proxy-rule');
+}
+
+document.getElementById('add-proxy-btn').addEventListener('click', () => openProxyModal(null));
+
+document.getElementById('prl-save').addEventListener('click', async () => {
+  const domain  = document.getElementById('prl-domain').value.trim();
+  const target  = document.getElementById('prl-target').value.trim();
+  const enabled = document.getElementById('prl-enabled').checked;
+  if (!domain || !target) { toast('Domain and target are required', 'error'); return; }
+
+  const btn = document.getElementById('prl-save');
+  btn.disabled = true;
+  try {
+    if (_editingProxyId) {
+      await api('PUT', `/api/proxy/rules/${_editingProxyId}`, { domain, target, enabled });
+    } else {
+      await api('POST', '/api/proxy/rules', { domain, target, enabled });
+    }
+    toast('Proxy rule saved');
+    closeModal('modal-proxy-rule');
+    loadProxyRules();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+// ---------- Firewall ----------
+const FW_QUICK_PORTS = [
+  { name: 'SSH',      port: 22,   proto: 'tcp' },
+  { name: 'HTTP',     port: 80,   proto: 'tcp' },
+  { name: 'HTTPS',    port: 443,  proto: 'tcp' },
+  { name: 'DNS',      port: 53,   proto: 'udp' },
+  { name: 'SMB',      port: 445,  proto: 'tcp' },
+  { name: 'Plex',     port: 32400, proto: 'tcp' },
+  { name: 'Hearth',   port: 4500, proto: 'tcp' },
+];
+
+let _fwAvailable = false;
+
+async function loadFirewall() {
+  const info = await api('GET', '/api/firewall/status').catch(() => ({ available: false }));
+  _fwAvailable = !!info.available;
+
+  document.getElementById('fw-unavail').style.display    = _fwAvailable ? 'none' : '';
+  document.getElementById('fw-normal-content').style.display = _fwAvailable ? '' : 'none';
+
+  if (!_fwAvailable) return;
+
+  // Status-Badge
+  const badge = document.getElementById('fw-status-badge');
+  if (badge) {
+    badge.className = `fw-status-badge ${info.active ? 'active' : 'inactive'}`;
+    badge.textContent = info.active ? 'Active' : 'Inactive';
+  }
+
+  // Advanced: raw output
+  const rawEl = document.getElementById('fw-raw-output');
+  if (rawEl) rawEl.textContent = info.raw || '–';
+
+  // Normal: Quick-Port-Karten
+  const rules = info.rules || [];
+  const allowedPorts = new Set(rules.filter((r) => r.action === 'ALLOW').map((r) => {
+    const m = r.to.match(/^(\d+)/);
+    return m ? parseInt(m[1]) : null;
+  }).filter(Boolean));
+
+  document.getElementById('fw-quick-ports').innerHTML = FW_QUICK_PORTS.map((p) => {
+    const allowed = allowedPorts.has(p.port);
+    return `<div class="fw-port-card">
+      <div>
+        <div class="fw-port-name">${esc(p.name)}</div>
+        <div class="fw-port-num">${p.port}/${p.proto}</div>
+      </div>
+      <label class="toggle" title="${allowed ? 'Allowed' : 'Denied'}">
+        <input type="checkbox" ${allowed ? 'checked' : ''} data-fw-port="${p.port}" data-fw-proto="${p.proto}" />
+        <span class="toggle-track"></span>
+      </label>
+    </div>`;
+  }).join('');
+
+  // Normal: Rule-Liste
+  const box = document.getElementById('fw-rules-list');
+  if (!rules.length) {
+    box.innerHTML = '<div class="empty" style="padding:24px">No rules configured.</div>';
+    return;
+  }
+  box.innerHTML = rules.map((r) => `
+    <div class="fw-rule-row">
+      <span class="fw-rule-num">${r.num}</span>
+      <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action}</span>
+      <span style="flex:1">${esc(r.to)}</span>
+      <span style="color:var(--text-faint);font-size:12px">from ${esc(r.from)}</span>
+      <button class="iconbtn danger" data-fw-del="${r.num}" title="Delete rule">🗑</button>
+    </div>`).join('');
+}
+
+// Quick-Port-Toggles
+document.getElementById('fw-quick-ports').addEventListener('change', async (e) => {
+  const inp = e.target.closest('[data-fw-port]');
+  if (!inp) return;
+  const action = inp.checked ? 'allow' : 'deny';
+  await api('POST', '/api/firewall/rules', { action, port: inp.dataset.fwPort, proto: inp.dataset.fwProto })
+    .catch((err) => { toast(err.message, 'error'); inp.checked = !inp.checked; });
+  setTimeout(loadFirewall, 800);
+});
+
+// Rule löschen
+document.getElementById('fw-rules-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-fw-del]');
+  if (!btn) return;
+  if (!confirm(`Delete rule #${btn.dataset.fwDel}?`)) return;
+  await api('DELETE', `/api/firewall/rules/${btn.dataset.fwDel}`).catch((err) => toast(err.message, 'error'));
+  loadFirewall();
+});
+
+// Firewall-Regel hinzufügen
+document.getElementById('fw-add-rule-btn').addEventListener('click', () => {
+  document.getElementById('fw-port').value  = '';
+  document.getElementById('fw-from').value  = '';
+  document.getElementById('fw-action').value = 'allow';
+  document.getElementById('fw-proto').value  = 'tcp';
+  openModal('modal-fw-rule');
+});
+
+document.getElementById('fw-rule-save').addEventListener('click', async () => {
+  const btn = document.getElementById('fw-rule-save');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/firewall/rules', {
+      action: document.getElementById('fw-action').value,
+      port:   document.getElementById('fw-port').value.trim(),
+      proto:  document.getElementById('fw-proto').value || undefined,
+      from:   document.getElementById('fw-from').value.trim() || undefined,
+    });
+    toast('Firewall rule added');
+    closeModal('modal-fw-rule');
+    loadFirewall();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+// Normal / Advanced Toggle
+document.getElementById('fw-mode-normal').addEventListener('click', () => {
+  document.getElementById('fw-normal').style.display   = '';
+  document.getElementById('fw-advanced').style.display = 'none';
+  document.getElementById('fw-mode-normal').classList.add('active');
+  document.getElementById('fw-mode-advanced').classList.remove('active');
+});
+document.getElementById('fw-mode-advanced').addEventListener('click', () => {
+  document.getElementById('fw-normal').style.display   = 'none';
+  document.getElementById('fw-advanced').style.display = '';
+  document.getElementById('fw-mode-advanced').classList.add('active');
+  document.getElementById('fw-mode-normal').classList.remove('active');
+  loadFirewall();
 });
 
 // ---------- Init ----------
