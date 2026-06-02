@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hearth · Anmelden</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .login {
+        width: 100%;
+        max-width: 400px;
+        padding: 38px 34px;
+        position: relative;
+        z-index: 1;
+      }
+      .login .brand {
+        font-size: 26px;
+        margin-bottom: 6px;
+      }
+      .login .sub {
+        color: var(--text-dim);
+        font-size: 14px;
+        margin-bottom: 28px;
+      }
+      .login .btn.primary {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+        margin-top: 6px;
+      }
+      .back {
+        display: inline-flex;
+        gap: 6px;
+        margin-top: 22px;
+        font-size: 13px;
+        color: var(--text-dim);
+      }
+      .back:hover {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login panel">
+      <div class="brand">
+        <span class="flame">▲</span>
+        <span>Hearth</span>
+      </div>
+      <div class="sub">Admin-Anmeldung</div>
+
+      <form id="form">
+        <div class="field">
+          <label for="u">Benutzername</label>
+          <input class="input" id="u" autocomplete="username" value="admin" />
+        </div>
+        <div class="field">
+          <label for="p">Passwort</label>
+          <input class="input" id="p" type="password" autocomplete="current-password" />
+        </div>
+        <button class="btn primary" type="submit">Anmelden</button>
+      </form>
+
+      <a class="back" href="/">← Zurück zur Dienste-Übersicht</a>
+    </div>
+
+    <div id="toast"></div>
+    <script src="/js/common.js"></script>
+    <script>
+      document.getElementById('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api('POST', '/api/login', {
+            username: document.getElementById('u').value,
+            password: document.getElementById('p').value,
+          });
+          location.href = '/admin';
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+    </script>
+  </body>
+</html>

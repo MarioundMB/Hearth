@@ -1,0 +1,28 @@
+services:
+  hearth:
+    build: .
+    # Alternativ: ein vorgebautes Image verwenden, wenn du es selbst pushst:
+    # image: dein-user/hearth:latest
+    container_name: hearth
+    restart: unless-stopped
+    ports:
+      - "4500:4500"
+    environment:
+      # WICHTIG: eigenes Passwort und Secret setzen!
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=BitteAendern123
+      - SESSION_SECRET=ersetze-mich-durch-langen-zufallsstring
+      - FILES_ROOT=/mnt/data
+      - PORT=4500
+    volumes:
+      # Docker-Socket: erlaubt Hearth, Container zu verwalten (wie CasaOS)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Verzeichnis, das der Dateimanager verwalten darf.
+      # Links der Pfad auf DEINEM Server, rechts der Pfad in FILES_ROOT.
+      - /srv/hearth-data:/mnt/data
+    labels:
+      - "hearth.name=Hearth Panel"
+      - "hearth.icon=🔥"
+      - "hearth.description=Server-Verwaltung"
+      # Hearth selbst muss nicht in der Gäste-Ansicht erscheinen:
+      - "hearth.hide=true"
