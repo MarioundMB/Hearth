@@ -21,8 +21,5 @@ services:
       # Links der Pfad auf DEINEM Server, rechts der Pfad in FILES_ROOT.
       - /srv/hearth-data:/mnt/data
     labels:
-      - "hearth.name=Hearth Panel"
-      - "hearth.icon=🔥"
-      - "hearth.description=Server-Verwaltung"
-      # Hearth selbst muss nicht in der Gäste-Ansicht erscheinen:
+      - "hearth.self=true"
       - "hearth.hide=true"

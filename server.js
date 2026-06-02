@@ -20,30 +20,64 @@ const fsp = require('fs/promises');
 const crypto = require('crypto');
 const os = require('os');
 
+const { version: VERSION } = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
+);
+
 // ---------------------------------------------------------------------------
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
 // ---------------------------------------------------------------------------
 const PORT = parseInt(process.env.PORT || '4500', 10);
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
-const SESSION_SECRET =
-  process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-// Wurzelverzeichnis für den Dateimanager. Der Manager kann NICHT darüber hinaus.
 const FILES_ROOT = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
-
-if (ADMIN_PASSWORD === 'changeme') {
-  console.warn(
-    '\x1b[33m[WARNUNG] Standard-Passwort "changeme" ist aktiv. ' +
-      'Bitte ADMIN_PASSWORD in der .env setzen!\x1b[0m'
-  );
-}
+// Persistente Konfigurationsdatei – wird beim Setup-Wizard erstellt
+const CONFIG_PATH = process.env.CONFIG_PATH || path.join(FILES_ROOT, 'hearth.config.json');
 
 // FILES_ROOT anlegen, falls nicht vorhanden
 try {
   fs.mkdirSync(FILES_ROOT, { recursive: true });
 } catch (e) {
   console.warn(`[WARNUNG] Konnte FILES_ROOT (${FILES_ROOT}) nicht anlegen:`, e.message);
+}
+
+// ---------------------------------------------------------------------------
+// Runtime-Konfiguration (Defaults aus ENV, wird durch Setup-Wizard ersetzt)
+// ---------------------------------------------------------------------------
+let runtimeConfig = {
+  adminUser: process.env.ADMIN_USER || 'admin',
+  adminPassword: process.env.ADMIN_PASSWORD || 'changeme',
+  serverName: process.env.SERVER_NAME || 'Hearth',
+  sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  setupDone: !!(process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD !== 'changeme'),
+  // Einstellungen (vom Setup-Wizard / Einstellungs-Panel konfigurierbar)
+  lang: 'de',
+  showOfflineApps: false,
+  refreshInterval: 15,
+};
+
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      const saved = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      Object.assign(runtimeConfig, saved);
+    }
+  } catch (e) {
+    console.warn('[WARNUNG] Konfigurationsdatei konnte nicht geladen werden:', e.message);
+  }
+}
+
+function saveConfig(updates) {
+  Object.assign(runtimeConfig, updates, { setupDone: true });
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(runtimeConfig, null, 2), 'utf8');
+}
+
+loadConfig();
+
+if (!runtimeConfig.setupDone) {
+  console.log('\x1b[33m[SETUP] Erster Start → Setup-Wizard unter http://localhost:' + PORT + '/setup\x1b[0m');
+} else if (runtimeConfig.adminPassword === 'changeme') {
+  console.warn('\x1b[33m[WARNUNG] Standard-Passwort "changeme" ist aktiv!\x1b[0m');
 }
 
 const docker = new Docker({ socketPath: DOCKER_SOCKET });
@@ -56,7 +90,7 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 app.use(
   session({
-    secret: SESSION_SECRET,
+    secret: runtimeConfig.sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -71,6 +105,20 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.authed) return next();
   return res.status(401).json({ error: 'Nicht angemeldet' });
 }
+
+// Setup-Redirect: alle Anfragen abfangen, solange der Wizard nicht abgeschlossen ist
+app.use((req, res, next) => {
+  if (runtimeConfig.setupDone) return next();
+  if (
+    req.path === '/setup' ||
+    req.path.startsWith('/api/setup') ||
+    /\.(css|js|ico|png|svg|woff2?)$/.test(req.path)
+  ) return next();
+  if (req.path.startsWith('/api/')) {
+    return res.status(503).json({ error: 'Setup erforderlich', setupRequired: true });
+  }
+  return res.redirect('/setup');
+});
 
 // ---------------------------------------------------------------------------
 // Hilfsfunktionen
@@ -158,14 +206,101 @@ function asyncHandler(fn) {
 }
 
 // ---------------------------------------------------------------------------
+// Einstellungen (Admin)
+// ---------------------------------------------------------------------------
+app.get('/api/settings', requireAuth, (req, res) => {
+  res.json({
+    // Bearbeitbar
+    serverName: runtimeConfig.serverName,
+    adminUser: runtimeConfig.adminUser,
+    lang: runtimeConfig.lang || 'de',
+    showOfflineApps: !!runtimeConfig.showOfflineApps,
+    refreshInterval: runtimeConfig.refreshInterval ?? 15,
+    // Nur Info
+    port: PORT,
+    dockerSocket: DOCKER_SOCKET,
+    filesRoot: FILES_ROOT,
+    version: VERSION,
+  });
+});
+
+app.post(
+  '/api/settings',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const {
+      serverName, adminUser, newPassword, currentPassword,
+      lang, showOfflineApps, refreshInterval,
+    } = req.body || {};
+    const updates = {};
+
+    if (serverName !== undefined) updates.serverName = (serverName || '').trim() || 'Hearth';
+    if (adminUser !== undefined) {
+      if (!String(adminUser).trim()) {
+        return res.status(400).json({ error: 'Benutzername darf nicht leer sein' });
+      }
+      updates.adminUser = String(adminUser).trim();
+    }
+    if (lang !== undefined) updates.lang = lang;
+    if (showOfflineApps !== undefined) updates.showOfflineApps = !!showOfflineApps;
+    if (refreshInterval !== undefined) updates.refreshInterval = Number(refreshInterval) || 0;
+
+    if (newPassword) {
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
+      }
+      const curBuf = Buffer.from(String(currentPassword || ''));
+      const refBuf = Buffer.from(runtimeConfig.adminPassword);
+      const ok = curBuf.length === refBuf.length && crypto.timingSafeEqual(curBuf, refBuf);
+      if (!ok) return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
+      updates.adminPassword = newPassword;
+    }
+
+    saveConfig(updates);
+    res.json({ ok: true });
+  })
+);
+
+app.post('/api/system/restart', requireAuth, (req, res) => {
+  res.json({ ok: true });
+  setTimeout(() => process.exit(0), 400);
+});
+
+// ---------------------------------------------------------------------------
+// Setup-Wizard API (nur nutzbar, solange setupDone === false)
+// ---------------------------------------------------------------------------
+app.get('/api/setup/status', (req, res) => {
+  res.json({ needed: !runtimeConfig.setupDone });
+});
+
+app.post('/api/setup', asyncHandler(async (req, res) => {
+  if (runtimeConfig.setupDone) {
+    return res.status(403).json({ error: 'Setup bereits abgeschlossen' });
+  }
+  const { adminUser, adminPassword, serverName } = req.body || {};
+  if (!adminUser || !adminPassword) {
+    return res.status(400).json({ error: 'Benutzername und Passwort sind erforderlich' });
+  }
+  if (adminPassword.length < 8) {
+    return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
+  }
+  saveConfig({
+    adminUser: adminUser.trim(),
+    adminPassword,
+    serverName: (serverName || 'Hearth').trim(),
+  });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
 // Auth-Routen
 // ---------------------------------------------------------------------------
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
   // Konstantzeit-Vergleich, um Timing-Angriffe zu erschweren
-  const userOk = username === ADMIN_USER;
+  const userOk = username === runtimeConfig.adminUser;
   const passBuf = Buffer.from(String(password || ''));
-  const refBuf = Buffer.from(ADMIN_PASSWORD);
+  const refBuf = Buffer.from(runtimeConfig.adminPassword);
   const passOk =
     passBuf.length === refBuf.length && crypto.timingSafeEqual(passBuf, refBuf);
 
@@ -192,7 +327,7 @@ app.get(
   '/api/public/apps',
   asyncHandler(async (req, res) => {
     const reqHost = (req.headers.host || 'localhost').split(':')[0];
-    const containers = await docker.listContainers({ all: false }); // nur laufende
+    const containers = await docker.listContainers({ all: !!runtimeConfig.showOfflineApps });
     const tiles = containers
       .map(mapContainer)
       .map((c) => buildAppTile(c, reqHost))
@@ -242,7 +377,11 @@ app.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const containers = await docker.listContainers({ all: true });
-    res.json(containers.map(mapContainer));
+    res.json(
+      containers
+        .map(mapContainer)
+        .filter((c) => String(c.labels['hearth.self']).toLowerCase() !== 'true')
+    );
   })
 );
 
@@ -527,6 +666,12 @@ app.delete(
 // Statisches Frontend
 // ---------------------------------------------------------------------------
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Setup-Wizard-Seite
+app.get('/setup', (req, res) => {
+  if (runtimeConfig.setupDone) return res.redirect('/');
+  res.sendFile(path.join(__dirname, 'public', 'setup.html'));
+});
 
 // Admin-Seite nur ausliefern, wenn man eingeloggt ist – sonst zum Login
 app.get('/admin', (req, res) => {

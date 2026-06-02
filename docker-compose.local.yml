@@ -1,0 +1,20 @@
+services:
+  hearth:
+    build: .
+    container_name: hearth-dev
+    restart: "no"
+    ports:
+      - "4500:4500"
+    environment:
+      - FILES_ROOT=/mnt/data
+      - PORT=4500
+      # Kein ADMIN_PASSWORD gesetzt → Setup-Wizard startet beim ersten Aufruf
+    labels:
+      - "hearth.self=true"
+      - "hearth.hide=true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hearth-data:/mnt/data
+
+volumes:
+  hearth-data:
