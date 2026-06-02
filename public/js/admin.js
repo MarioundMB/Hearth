@@ -791,12 +791,23 @@ document.getElementById('add-label').onclick = () =>
 
 document.getElementById('new-container').addEventListener('click', () => {
   // Formular zurücksetzen
-  ['c-image', 'c-name'].forEach((id) => (document.getElementById(id).value = ''));
+  ['c-image', 'c-name', 'c-display-name', 'c-icon-field', 'c-web-url'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   ['c-ports', 'c-vols', 'c-envs', 'c-labels'].forEach(
     (id) => (document.getElementById(id).innerHTML = '')
   );
   document.getElementById('c-ports').appendChild(portRow());
   document.getElementById('c-pull').checked = true;
+  // Icon-Vorschau zurücksetzen
+  ['c-icon-preview', 'c-icon-preview-sm'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.textContent = '🐳';
+  });
+  // Auf Form-Tab wechseln
+  switchCreateTab('form');
+  ['docker-run-input', 'compose-input'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   openModal('modal-create');
 });
 
@@ -815,6 +826,15 @@ document.getElementById('c-submit').addEventListener('click', async () => {
   const image = document.getElementById('c-image').value.trim();
   if (!image) return toast('Image ist erforderlich', 'error');
 
+  // App-Settings → Hearth-Labels
+  const appLabels = [];
+  const dispName = document.getElementById('c-display-name')?.value.trim();
+  const iconVal  = document.getElementById('c-icon-field')?.value.trim();
+  const webUrl   = document.getElementById('c-web-url')?.value.trim();
+  if (dispName) appLabels.push({ key: 'hearth.name', value: dispName });
+  if (iconVal)  appLabels.push({ key: 'hearth.icon', value: iconVal });
+  if (webUrl)   appLabels.push({ key: 'hearth.url',  value: webUrl });
+
   const payload = {
     image,
     name: document.getElementById('c-name').value.trim(),
@@ -825,7 +845,10 @@ document.getElementById('c-submit').addEventListener('click', async () => {
       v.host && v.container ? { host: v.host, container: v.container } : null
     ),
     env: collect('c-envs', (e) => (e.key ? { key: e.key, value: e.value } : null)),
-    labels: collect('c-labels', (l) => (l.key ? { key: l.key, value: l.value } : null)),
+    labels: [
+      ...appLabels,
+      ...collect('c-labels', (l) => (l.key ? { key: l.key, value: l.value } : null)),
+    ],
   };
 
   const btn = document.getElementById('c-submit');
@@ -1095,6 +1118,277 @@ document.addEventListener('paste', (e) => {
   const image = parseDockerInput(text.split('\n')[0].trim());
   if (image) openQuickInstall(image);
 });
+
+// ---------- Create-Modal: Methoden-Tabs ----------
+function switchCreateTab(tab) {
+  ['form', 'run', 'compose'].forEach((t) => {
+    document.getElementById(`ctab-${t}`).style.display = t === tab ? '' : 'none';
+  });
+  document.querySelectorAll('.cm-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.ctab === tab);
+  });
+  // Foot nur bei Form-Tab zeigen
+  document.getElementById('create-modal-foot').style.display = tab === 'form' ? '' : 'none';
+}
+
+document.querySelectorAll('.cm-tab').forEach((btn) => {
+  btn.addEventListener('click', () => switchCreateTab(btn.dataset.ctab));
+});
+
+// ---------- docker run Parser ----------
+function tokenizeRun(str) {
+  const tokens = [];
+  let buf = '', inQ = false, qChar = '';
+  for (const ch of str.replace(/\\\s*\n/g, ' ').replace(/\\\s+/g, ' ')) {
+    if (!inQ && (ch === '"' || ch === "'")) { inQ = true; qChar = ch; }
+    else if (inQ && ch === qChar) { inQ = false; }
+    else if (!inQ && ch === ' ') { if (buf) { tokens.push(buf); buf = ''; } }
+    else buf += ch;
+  }
+  if (buf) tokens.push(buf);
+  return tokens;
+}
+
+function parseDockerRun(cmd) {
+  const tokens = tokenizeRun(
+    cmd.replace(/^(?:sudo\s+)?docker\s+(?:container\s+)?run\s+/, '').trim()
+  );
+  const r = { image: '', name: '', ports: [], volumes: [], env: [], restart: 'unless-stopped', privileged: false, labels: [], hostname: '', network: 'bridge' };
+  const NEEDS_VAL = { '-p': 'port', '--publish': 'port', '-v': 'vol', '--volume': 'vol', '-e': 'env', '--env': 'env', '--name': 'name', '--restart': 'restart', '-h': 'hn', '--hostname': 'hn', '--network': 'net', '--net': 'net', '-l': 'label', '--label': 'label', '--memory': 'skip', '-m': 'skip', '--cpus': 'skip' };
+  const IGNORE   = new Set(['-d', '--detach', '-it', '-i', '-t', '--rm', '-P', '--read-only', '--init']);
+
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    const kind = NEEDS_VAL[t];
+    if (IGNORE.has(t)) { i++; continue; }
+
+    if (kind) {
+      const v = tokens[++i] || '';
+      if (kind === 'port') {
+        const pts = v.split(':');
+        const host = pts.length >= 2 ? pts[pts.length - 2] : pts[0];
+        const contProto = pts[pts.length - 1];
+        const [cp, proto = 'tcp'] = contProto.split('/');
+        r.ports.push({ host, container: cp, proto });
+      } else if (kind === 'vol') {
+        const [h, c] = v.split(':');
+        if (h && c) r.volumes.push({ host: h, container: c });
+      } else if (kind === 'env') {
+        const idx = v.indexOf('=');
+        if (idx >= 0) r.env.push({ key: v.slice(0, idx), value: v.slice(idx + 1) });
+      } else if (kind === 'label') {
+        const idx = v.indexOf('=');
+        if (idx >= 0) r.labels.push({ key: v.slice(0, idx), value: v.slice(idx + 1) });
+      } else if (kind === 'name')    r.name     = v;
+        else if (kind === 'restart') r.restart  = v;
+        else if (kind === 'hn')      r.hostname = v;
+        else if (kind === 'net')     r.network  = v;
+    } else if (t === '--privileged') {
+      r.privileged = true;
+    } else if (!t.startsWith('-') && !r.image) {
+      r.image = t;
+    }
+    i++;
+  }
+  return r;
+}
+
+// ---------- docker-compose Parser ----------
+function parseDockerCompose(yaml) {
+  const r = { image: '', name: '', ports: [], volumes: [], env: [], restart: 'unless-stopped', privileged: false, labels: [] };
+  const lines = yaml.split('\n');
+  let inSvc = false, serviceIndent = -1, curSec = '';
+
+  for (const raw of lines) {
+    const trimmed = raw.trimStart();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const indent = raw.length - trimmed.length;
+
+    if (!inSvc) {
+      // Find first service name (indent 2, ends with :, follows 'services:' block)
+      if (trimmed === 'services:') continue;
+      if (indent === 2 && trimmed.endsWith(':')) {
+        r.name = trimmed.slice(0, -1);
+        serviceIndent = 2;
+        inSvc = true;
+      }
+      continue;
+    }
+
+    // End of service block
+    if (indent <= serviceIndent && trimmed !== '' && !trimmed.startsWith('-')) break;
+
+    if (indent === serviceIndent + 2 && !trimmed.startsWith('-')) {
+      const colon = trimmed.indexOf(':');
+      const key = colon >= 0 ? trimmed.slice(0, colon).trim() : trimmed;
+      const val = colon >= 0 ? trimmed.slice(colon + 1).trim().replace(/^["']|["']$/g, '') : '';
+      curSec = key;
+      if (key === 'image')      r.image     = val;
+      if (key === 'restart')    r.restart   = val;
+      if (key === 'privileged') r.privileged = val === 'true';
+    } else if (trimmed.startsWith('- ')) {
+      const val = trimmed.slice(2).trim().replace(/^["']|["']$/g, '');
+      if (curSec === 'ports') {
+        const [h, c] = val.split(':');
+        if (h && c) r.ports.push({ host: h, container: c.split('/')[0], proto: c.includes('/udp') ? 'udp' : 'tcp' });
+      } else if (curSec === 'volumes') {
+        const [h, c] = val.split(':');
+        if (h && c) r.volumes.push({ host: h, container: c });
+      } else if (curSec === 'environment') {
+        const idx = val.indexOf('=');
+        if (idx >= 0) r.env.push({ key: val.slice(0, idx), value: val.slice(idx + 1) });
+      } else if (curSec === 'labels') {
+        const idx = val.indexOf('=');
+        if (idx >= 0) r.labels.push({ key: val.slice(0, idx), value: val.slice(idx + 1) });
+      }
+    } else if (indent === serviceIndent + 4 && !trimmed.startsWith('-')) {
+      // key: value map format (e.g. under environment:)
+      const colon = trimmed.indexOf(':');
+      if (colon >= 0) {
+        const k = trimmed.slice(0, colon).trim();
+        const v = trimmed.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
+        if (curSec === 'environment') r.env.push({ key: k, value: v });
+        if (curSec === 'labels')      r.labels.push({ key: k, value: v });
+      }
+    }
+  }
+  return r;
+}
+
+// Formular aus geparsten Daten befüllen und zu "Form"-Tab wechseln
+function fillCreateForm(data) {
+  document.getElementById('c-image').value = data.image || '';
+  document.getElementById('c-name').value  = data.name  || '';
+
+  // Restart
+  const rs = document.getElementById('c-restart');
+  if (data.restart && [...rs.options].some((o) => o.value === data.restart)) rs.value = data.restart;
+
+  // Ports
+  const pb = document.getElementById('c-ports'); pb.innerHTML = '';
+  (data.ports?.length ? data.ports : [{}]).forEach((p) => {
+    const row = portRow();
+    if (p.host)      row.querySelector('[data-k="host"]').value      = p.host;
+    if (p.container) row.querySelector('[data-k="container"]').value = p.container;
+    pb.appendChild(row);
+  });
+
+  // Volumes
+  const vb = document.getElementById('c-vols'); vb.innerHTML = '';
+  data.volumes?.forEach((v) => {
+    const row = volRow();
+    row.querySelector('[data-k="host"]').value      = v.host      || '';
+    row.querySelector('[data-k="container"]').value = v.container || '';
+    vb.appendChild(row);
+  });
+
+  // Env
+  const eb = document.getElementById('c-envs'); eb.innerHTML = '';
+  data.env?.forEach((e) => {
+    const row = kvRow('KEY', 'wert');
+    row.querySelector('[data-k="key"]').value   = e.key   || '';
+    row.querySelector('[data-k="value"]').value = e.value || '';
+    eb.appendChild(row);
+  });
+
+  // Labels
+  const lb = document.getElementById('c-labels'); lb.innerHTML = '';
+  data.labels?.filter(l => !l.key?.startsWith('hearth.')).forEach((l) => {
+    const row = kvRow('key', 'value');
+    row.querySelector('[data-k="key"]').value   = l.key   || '';
+    row.querySelector('[data-k="value"]').value = l.value || '';
+    lb.appendChild(row);
+  });
+
+  switchCreateTab('form');
+  if (data.image) autoFetchIcon(data.image);
+}
+
+document.getElementById('parse-run-btn').addEventListener('click', () => {
+  const cmd = document.getElementById('docker-run-input').value.trim();
+  if (!cmd) { toast('Please paste a docker run command', 'error'); return; }
+  try { fillCreateForm(parseDockerRun(cmd)); toast('Command parsed successfully'); }
+  catch (e) { toast('Parse error: ' + e.message, 'error'); }
+});
+
+document.getElementById('parse-compose-btn').addEventListener('click', () => {
+  const yaml = document.getElementById('compose-input').value.trim();
+  if (!yaml) { toast('Please paste a docker-compose service block', 'error'); return; }
+  try { fillCreateForm(parseDockerCompose(yaml)); toast('Compose parsed successfully'); }
+  catch (e) { toast('Parse error: ' + e.message, 'error'); }
+});
+
+// ---------- Auto-Icon-Fetch ----------
+let _iconTimer = null;
+
+async function autoFetchIcon(image) {
+  clearTimeout(_iconTimer);
+  _iconTimer = setTimeout(async () => {
+    const baseImg = image.split(':')[0];
+    if (!baseImg) return;
+    const previews = [
+      document.getElementById('c-icon-preview'),
+      document.getElementById('c-icon-preview-sm'),
+    ].filter(Boolean);
+
+    previews.forEach((el) => el.classList.add('loading'));
+
+    try {
+      const r = await fetch(`/api/dockerhub/logo?image=${encodeURIComponent(baseImg)}`, { credentials: 'same-origin' });
+      if (!r.ok) { previews.forEach((el) => { el.classList.remove('loading'); el.textContent = '🐳'; }); return; }
+
+      const url = `/api/dockerhub/logo?image=${encodeURIComponent(baseImg)}`;
+      previews.forEach((el) => {
+        el.classList.remove('loading');
+        el.innerHTML = `<img src="${esc(url)}" onerror="this.parentNode.textContent='🐳'">`;
+      });
+
+      // Icon-Feld nur füllen wenn leer
+      const iconField = document.getElementById('c-icon-field');
+      if (iconField && !iconField.value) iconField.value = url;
+
+    } catch (_) {
+      previews.forEach((el) => { el.classList.remove('loading'); el.textContent = '🐳'; });
+    }
+  }, 700);
+}
+
+// Auto-fetch wenn Image-Feld verändert wird
+document.getElementById('c-image').addEventListener('input', function () {
+  autoFetchIcon(this.value.trim());
+});
+
+// Icon-Feld Vorschau bei manueller Eingabe
+document.getElementById('c-icon-field').addEventListener('input', function () {
+  const val = this.value.trim();
+  const prev = document.getElementById('c-icon-preview-sm');
+  if (!prev) return;
+  if (val.startsWith('http')) {
+    prev.innerHTML = `<img src="${esc(val)}" onerror="this.parentNode.textContent='🐳'">`;
+  } else {
+    prev.textContent = val || '🐳';
+  }
+});
+
+// Edit-Formular: Auto-fetch wenn Image-Feld geändert
+document.getElementById('cd-image')?.addEventListener('input', function () {
+  const img = this.value.trim() + ':' + (document.getElementById('cd-tag')?.value || 'latest');
+  autoFetchCdIcon(img);
+});
+document.getElementById('cd-tag')?.addEventListener('input', function () {
+  autoFetchCdIcon(document.getElementById('cd-image')?.value.trim());
+});
+
+async function autoFetchCdIcon(image) {
+  if (!image) return;
+  const iconField = document.getElementById('cd-hearth-icon');
+  if (!iconField || iconField.value) return; // nur wenn leer
+  try {
+    const r = await fetch(`/api/dockerhub/logo?image=${encodeURIComponent(image.split(':')[0])}`, { credentials: 'same-origin' });
+    if (r.ok && !iconField.value) iconField.value = `/api/dockerhub/logo?image=${encodeURIComponent(image.split(':')[0])}`;
+  } catch (_) {}
+}
 
 // ---------- Update-Checker ----------
 async function checkUpdates(force = false) {
