@@ -1634,10 +1634,15 @@ async function checkUpdates(force = false) {
     if (_cdListData) loadContainers();
     // Hearth-Update-Hinweis
     const hi = data.hearth;
-    if (hi && document.getElementById('hearth-update-hint')) {
-      document.getElementById('hearth-update-hint').innerHTML = hi.sha
-        ? `Latest GitHub commit: <span class="mono">${esc(hi.sha)}</span> · ${esc(hi.message)}`
-        : '';
+    const updateRow  = document.getElementById('hearth-update-row');
+    const updateHint = document.getElementById('hearth-update-hint');
+    if (hi && updateRow && updateHint) {
+      if (hi.hasUpdate) {
+        updateHint.innerHTML = `${esc(hi.localSha)} → <span class="mono">${esc(hi.sha)}</span> · ${esc(hi.message)}`;
+        updateRow.style.display = '';
+      } else {
+        updateRow.style.display = 'none';
+      }
     }
   } catch (_) {
     if (badge) badge.style.display = 'none';
@@ -1655,6 +1660,26 @@ async function updateContainer(id, name) {
     loadContainers();
     checkUpdates();
   } catch (e) { showDockerError(e.message); }
+}
+
+async function updateHearth() {
+  if (!confirm(t('settings.updateConfirm'))) return;
+  const btn = document.getElementById('btn-hearth-update');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
+  try {
+    const data = await api('POST', '/api/updates/hearth');
+    if (data.upToDate) {
+      toast(t('settings.alreadyUpToDate'));
+      if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
+      return;
+    }
+    toast(t('settings.updateStarted'));
+    // Server rebuilds and restarts — reload after a short wait
+    setTimeout(() => location.reload(), 15000);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
+    showDockerError(e.message);
+  }
 }
 
 // ---------- Reverse Proxy ----------
