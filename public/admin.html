@@ -1511,7 +1511,10 @@
         </div>
 
         <div class="modal-foot" style="justify-content:space-between">
-          <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Hearth neu starten</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Hearth neu starten</button>
+            <button class="btn ghost" id="s-check-updates" onclick="checkUpdates(true)" data-i18n="settings.checkUpdates">🔍 Nach Updates suchen</button>
+          </div>
           <div style="display:flex;gap:8px">
             <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
             <button class="btn primary" id="s-save" data-i18n="settings.save">Speichern</button>

@@ -1153,45 +1153,66 @@ app.post(
   })
 );
 
-// Hearth selbst updaten (git pull → docker compose up -d --build)
+// ---------------------------------------------------------------------------
+// Hearth self-update logic (shared by manual endpoint + nightly scheduler)
+// ---------------------------------------------------------------------------
+const { execFile: _execFile, spawn: _spawn } = require('child_process');
+const _REPO = '/app/repo';
+
+function _exec(cmd, args) {
+  return new Promise((resolve, reject) =>
+    _execFile(cmd, args, (err, stdout, stderr) =>
+      err ? reject(new Error(stderr?.trim() || err.message)) : resolve(stdout.trim())
+    )
+  );
+}
+
+async function runHearthSelfUpdate() {
+  if (!fs.existsSync(path.join(_REPO, '.git'))) {
+    throw new Error('Source directory not mounted. Add "- .:/app/repo" to the hearth volumes in docker-compose.yml.');
+  }
+  await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
+  const localSha  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+  const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'origin/main']);
+  if (localSha === remoteSha) return { upToDate: true, sha: localSha };
+
+  await _exec('git', ['-C', _REPO, 'pull', '--ff-only']);
+  const newSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+  _updateCache = { ts: 0, data: null };
+
+  _spawn('sh', ['-c', `sleep 2 && cd /app/repo && GIT_SHA=${newSha} docker compose up -d --build hearth`], {
+    detached: true, stdio: 'ignore',
+  }).unref();
+
+  return { upToDate: false, sha: newSha };
+}
+
+// Nightly auto-update at 00:00 server time
+function scheduleNightlyUpdate() {
+  const now  = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+  const delay = next - now;
+  setTimeout(() => {
+    console.log('[UPDATE] Running nightly auto-update…');
+    runHearthSelfUpdate()
+      .then(r => console.log(r.upToDate ? '[UPDATE] Already up to date.' : `[UPDATE] Updated to ${r.sha}.`))
+      .catch(e => console.error('[UPDATE] Nightly update failed:', e.message));
+    scheduleNightlyUpdate();
+  }, delay);
+  console.log(`[UPDATE] Next auto-update scheduled at ${next.toLocaleString()}`);
+}
+
+// Manual trigger endpoint
 app.post(
   '/api/updates/hearth',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { execFile, spawn } = require('child_process');
-    const REPO = '/app/repo';
-
-    if (!fs.existsSync(path.join(REPO, '.git'))) {
-      return res.status(400).json({
-        error: 'Source directory not mounted. Add "- .:/app/repo" to the hearth volumes in docker-compose.yml.',
-      });
+    try {
+      const result = await runHearthSelfUpdate();
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
     }
-
-    const exec = (cmd, args) => new Promise((resolve, reject) =>
-      execFile(cmd, args, (err, stdout, stderr) =>
-        err ? reject(new Error(stderr?.trim() || err.message)) : resolve(stdout.trim())
-      )
-    );
-
-    await exec('git', ['-C', REPO, 'fetch', '--quiet']);
-    const localSha  = await exec('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD']);
-    const remoteSha = await exec('git', ['-C', REPO, 'rev-parse', '--short', 'origin/main']);
-
-    if (localSha === remoteSha) {
-      return res.json({ ok: true, upToDate: true, sha: localSha });
-    }
-
-    await exec('git', ['-C', REPO, 'pull', '--ff-only']);
-    const newSha = await exec('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD']);
-
-    _updateCache = { ts: 0, data: null };
-    res.json({ ok: true, sha: newSha });
-
-    // Rebuild + recreate via docker compose — detached so it outlives this process
-    spawn('sh', ['-c', `sleep 2 && cd /app/repo && GIT_SHA=${newSha} docker compose up -d --build hearth`], {
-      detached: true,
-      stdio:    'ignore',
-    }).unref();
   })
 );
 
@@ -1659,6 +1680,7 @@ app.get('/login', (req, res) =>
 http.createServer(app).listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
+  scheduleNightlyUpdate();
 });
 
 // Guest server — safe to expose publicly (admin routes are blocked)
