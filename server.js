@@ -1290,12 +1290,15 @@ async function runHearthSelfUpdate() {
   // Allow git to operate on the bind-mounted directory (owner may differ inside the container)
   await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
   await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
-  const localSha  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
   const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'origin/main']);
-  if (localSha === remoteSha) return { upToDate: true, sha: localSha };
 
-  await _exec('git', ['-C', _REPO, 'pull', '--ff-only']);
+  // Pull if source dir is behind remote
+  const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+  if (sourceSha !== remoteSha) await _exec('git', ['-C', _REPO, 'pull', '--ff-only']);
   const newSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+
+  // Only skip rebuild if the running image already reflects the latest source
+  if (HEARTH_SHA !== 'unknown' && HEARTH_SHA === newSha) return { upToDate: true, sha: newSha };
   _updateCache = { ts: 0, data: null };
 
   _spawn('sh', ['-c', `sleep 2 && cd /app/repo && GIT_SHA=${newSha} docker compose up -d --build hearth`], {
