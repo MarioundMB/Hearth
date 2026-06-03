@@ -412,6 +412,18 @@
         color: var(--warn) !important;
       }
 
+      /* ===== VPN ===== */
+      .vpn-status-badge { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 20px; }
+      .vpn-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
+      .vpn-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
+      .vpn-info-box { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 18px; margin-bottom: 4px; }
+      .vpn-info-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+      .vpn-info-row:last-child { border-bottom: none; }
+      .vpn-info-key { color: var(--text-dim); }
+      .vpn-info-val { font-size: 12px; }
+      .vpn-peer-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+      .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
+
       /* ===== Reverse Proxy ===== */
       .proxy-info-bar {
         font-size: 12.5px; color: var(--text-faint);
@@ -914,6 +926,7 @@
             <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
             <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
             <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
+            <div class="tab" data-view="vpn">VPN</div>
           </div>
 
           <!-- Container -->
@@ -1001,6 +1014,77 @@
             <!-- Advanced Mode -->
             <div id="fw-advanced" style="display:none">
               <pre class="logs" id="fw-raw-output" style="max-height:60vh">Loading…</pre>
+            </div>
+          </section>
+
+          <!-- VPN (WireGuard) -->
+          <section class="view" id="view-vpn">
+            <div class="toolbar">
+              <h2>VPN</h2>
+              <div class="spacer"></div>
+              <span class="vpn-status-badge" id="vpn-status-badge"></span>
+            </div>
+
+            <div id="vpn-unavail" style="display:none">
+              <div class="empty">
+                <div class="big">🔒</div>
+                WireGuard container not running.
+                <div class="muted" style="margin-top:8px;font-size:13px">
+                  Add the <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">hearth-vpn</code>
+                  service to your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">docker-compose.yml</code>
+                  and set <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">VPN_HOST</code> in your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code>.
+                </div>
+              </div>
+            </div>
+
+            <div id="vpn-content" style="display:none">
+              <!-- Info box -->
+              <div class="vpn-info-box" id="vpn-info-box">
+                <div class="vpn-info-row">
+                  <span class="vpn-info-key">Server</span>
+                  <span class="vpn-info-val mono" id="vpn-server">–</span>
+                </div>
+                <div class="vpn-info-row">
+                  <span class="vpn-info-key">Protocol</span>
+                  <span class="vpn-info-val mono">WireGuard · UDP</span>
+                </div>
+                <div class="vpn-info-row">
+                  <span class="vpn-info-key">Clients</span>
+                  <span class="vpn-info-val mono" id="vpn-peer-count">–</span>
+                </div>
+              </div>
+
+              <!-- Peer list -->
+              <div class="toolbar" style="margin-top:20px">
+                <h2 style="font-size:16px">VPN Clients</h2>
+                <div class="muted" style="font-size:12px">Scan the QR code with the WireGuard app</div>
+              </div>
+              <div class="list" id="vpn-peers-list"></div>
+            </div>
+
+            <!-- QR Modal -->
+            <div class="modal-backdrop" id="modal-vpn-qr">
+              <div class="modal" style="max-width:400px">
+                <div class="modal-head">
+                  <h3 id="vpn-qr-title">VPN Client</h3>
+                  <button class="iconbtn" data-close>✕</button>
+                </div>
+                <div class="modal-body" style="text-align:center">
+                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+                    Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
+                  </p>
+                  <div id="vpn-qr-img" style="background:white;padding:16px;border-radius:12px;display:inline-block">
+                    <img id="vpn-qr-png" src="" alt="QR Code" style="width:220px;height:220px;display:block" />
+                  </div>
+                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px">
+                    Keep this QR code private — it grants full VPN access.
+                  </p>
+                </div>
+                <div class="modal-foot" style="justify-content:space-between">
+                  <a id="vpn-qr-download" href="#" download class="btn ghost sm">⬇ Download .conf</a>
+                  <button class="btn ghost" data-close>Close</button>
+                </div>
+              </div>
             </div>
           </section>
 

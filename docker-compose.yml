@@ -4,16 +4,18 @@ services:
     container_name: hearth
     restart: unless-stopped
     ports:
-      - "${PORT:-4500}:${PORT:-4500}"   # Admin-UI
-      - "${PROXY_PORT:-80}:80"          # Reverse Proxy
+      - "${PORT:-4500}:${PORT:-4500}"         # Admin panel  — keep behind firewall/VPN
+      - "${GUEST_PORT:-3000}:${GUEST_PORT:-3000}" # Guest view   — safe to expose publicly
+      - "${PROXY_PORT:-80}:80"                # Reverse Proxy
     environment:
       - PORT=${PORT:-4500}
+      - GUEST_PORT=${GUEST_PORT:-3000}
       - PROXY_PORT=80
       - SESSION_SECRET=${SESSION_SECRET}
       - FILES_ROOT=/mnt/data
-      # Admin-Zugangsdaten OPTIONAL – wenn nicht gesetzt, startet der Setup-Wizard
+      # Admin credentials (optional) — set via setup wizard on first run
       # - ADMIN_USER=admin
-      # - ADMIN_PASSWORD=meinPasswort
+      # - ADMIN_PASSWORD=mySecurePassword
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR:-/srv/hearth-data}:/mnt/data
@@ -21,7 +23,7 @@ services:
       - "hearth.self=true"
       - "hearth.hide=true"
 
-  # Privilegierter Firewall-Helfer (verwaltet ufw auf dem Host-Netzwerk)
+  # Firewall helper (manages ufw on host network)
   hearth-firewall:
     image: alpine:latest
     container_name: hearth-firewall
@@ -35,3 +37,37 @@ services:
     labels:
       - "hearth.self=true"
       - "hearth.hide=true"
+
+  # WireGuard VPN — access your admin panel securely from anywhere
+  # Set VPN_HOST to your server's public IP or domain name
+  hearth-vpn:
+    image: linuxserver/wireguard:latest
+    container_name: hearth-vpn
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Europe/Berlin}
+      - SERVERURL=${VPN_HOST:-auto}       # Your public IP or domain
+      - SERVERPORT=${VPN_PORT:-51820}
+      - PEERS=${VPN_PEERS:-1}             # Number of VPN clients to generate
+      - PEERDNS=auto
+      - INTERNAL_SUBNET=10.13.13.0
+      - ALLOWEDIPS=0.0.0.0/0,::/0
+      - LOG_CONFS=true
+    volumes:
+      - wireguard-config:/config
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "${VPN_PORT:-51820}:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    labels:
+      - "hearth.self=true"
+      - "hearth.hide=true"
+
+volumes:
+  wireguard-config:

@@ -4,11 +4,13 @@ services:
     container_name: hearth-dev
     restart: "no"
     ports:
-      - "4500:4500"
-      - "8080:80"    # Proxy auf 8080 um Konflikt mit lokalem Port 80 zu vermeiden
+      - "4500:4500"   # Admin panel
+      - "3000:3000"   # Guest view
+      - "8080:80"     # Reverse Proxy (avoid conflict with local port 80)
     environment:
       - FILES_ROOT=/mnt/data
       - PORT=4500
+      - GUEST_PORT=3000
       - PROXY_PORT=80
     labels:
       - "hearth.self=true"
@@ -31,5 +33,35 @@ services:
       - "hearth.self=true"
       - "hearth.hide=true"
 
+  # WireGuard VPN (local testing — no actual VPN tunnel)
+  hearth-vpn:
+    image: linuxserver/wireguard:latest
+    container_name: hearth-vpn-dev
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+      - SERVERURL=localhost
+      - SERVERPORT=51820
+      - PEERS=1
+      - PEERDNS=auto
+      - INTERNAL_SUBNET=10.13.13.0
+      - LOG_CONFS=true
+    volumes:
+      - wireguard-config-dev:/config
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: "no"
+    labels:
+      - "hearth.self=true"
+      - "hearth.hide=true"
+
 volumes:
   hearth-data:
+  wireguard-config-dev:

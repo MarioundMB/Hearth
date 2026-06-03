@@ -14,6 +14,7 @@ const express = require('express');
 const session = require('express-session');
 const multer = require('multer');
 const Docker = require('dockerode');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -33,12 +34,15 @@ const { version: VERSION } = JSON.parse(
 // ---------------------------------------------------------------------------
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
 // ---------------------------------------------------------------------------
-const PORT = parseInt(process.env.PORT || '4500', 10);
-const PROXY_PORT = parseInt(process.env.PROXY_PORT || '80', 10);
-const FILES_ROOT = path.resolve(process.env.FILES_ROOT || '/mnt/data');
+const PORT        = parseInt(process.env.PORT        || '4500', 10);
+// Separate public-facing port for the guest view only (no admin routes)
+const GUEST_PORT  = parseInt(process.env.GUEST_PORT  || '3000', 10);
+const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '80',   10);
+const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
-const CONFIG_PATH = process.env.CONFIG_PATH || path.join(FILES_ROOT, 'hearth.config.json');
+const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
 const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
+const VPN_CONTAINER   = process.env.VPN_CONTAINER || 'hearth-vpn';
 
 // FILES_ROOT anlegen, falls nicht vorhanden
 try {
@@ -121,6 +125,33 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.authed) return next();
   return res.status(401).json({ error: 'Nicht angemeldet' });
 }
+
+// ── Guest-port isolation ─────────────────────────────────────────────────
+// Requests arriving on GUEST_PORT have req.fromGuestPort = true (set by the
+// guest http.Server wrapper below). Admin routes and API endpoints are blocked
+// on that port so the guest view can be exposed publicly without risk.
+app.use((req, res, next) => {
+  if (!req.fromGuestPort) return next();
+
+  // Block admin pages
+  if (['/admin', '/login', '/setup'].some(p => req.path === p || req.path.startsWith(p + '/'))) {
+    return res.status(403).send(
+      '<!doctype html><html><body style="font-family:sans-serif;padding:40px">' +
+      '<h2>Admin access is restricted to the local network.</h2>' +
+      '<p>Connect via VPN or access from your local network.</p></body></html>'
+    );
+  }
+
+  // Block all /api/* except the public guest endpoints
+  if (req.path.startsWith('/api/')) {
+    const allowed = ['/api/lang', '/api/public/'];
+    if (!allowed.some(a => req.path.startsWith(a))) {
+      return res.status(403).json({ error: 'Not available on the guest port.' });
+    }
+  }
+
+  next();
+});
 
 // Setup-Redirect: alle Anfragen abfangen, solange der Wizard nicht abgeschlossen ist
 app.use((req, res, next) => {
@@ -1376,6 +1407,80 @@ app.delete(
 // ---------------------------------------------------------------------------
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ---------------------------------------------------------------------------
+// VPN (WireGuard via hearth-vpn container)
+// ---------------------------------------------------------------------------
+async function vpnAvailable() {
+  try { await docker.getContainer(VPN_CONTAINER).inspect(); return true; } catch (_) { return false; }
+}
+
+async function vpnExec(cmd) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const c = docker.getContainer(VPN_CONTAINER);
+      const exec = await c.exec({ Cmd: ['sh', '-c', cmd], AttachStdout: true, AttachStderr: true });
+      const stream = await exec.start({});
+      let out = '';
+      stream.on('data', (chunk) => { out += chunk.slice(8).toString('utf8'); });
+      stream.on('end', () => resolve(out.trim()));
+      stream.on('error', reject);
+    } catch (e) { reject(e); }
+  });
+}
+
+app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
+  if (!await vpnAvailable()) return res.json({ available: false });
+  try {
+    const info = await docker.getContainer(VPN_CONTAINER).inspect();
+    const running = info.State.Running;
+    const wgStatus = running ? await vpnExec('wg show 2>/dev/null | head -20') : '';
+    // List peer directories
+    const peerList = running
+      ? await vpnExec('ls /config 2>/dev/null | grep "^peer_" | sed "s/peer_//"')
+      : '';
+    const peers = peerList.split('\n').filter(Boolean).map(name => ({ name }));
+    res.json({ available: true, running, status: wgStatus, peers });
+  } catch (e) {
+    res.json({ available: true, running: false, error: e.message, peers: [] });
+  }
+}));
+
+// Stream a peer's QR code PNG from the container
+app.get('/api/vpn/peers/:name/qr', requireAuth, asyncHandler(async (req, res) => {
+  const name = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+  try {
+    const c = docker.getContainer(VPN_CONTAINER);
+    // linuxserver/wireguard stores QR as PNG
+    const execObj = await c.exec({
+      Cmd: ['cat', `/config/peer_${name}/peer_${name}.png`],
+      AttachStdout: true, AttachStderr: false,
+    });
+    const stream = await execObj.start({});
+    const chunks = [];
+    stream.on('data', (d) => chunks.push(d.slice(8)));
+    stream.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      if (!buf.length) return res.status(404).json({ error: 'QR not found' });
+      res.setHeader('Content-Type', 'image/png');
+      res.send(buf);
+    });
+    stream.on('error', (e) => res.status(500).json({ error: e.message }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+}));
+
+// Download a peer's .conf file
+app.get('/api/vpn/peers/:name/conf', requireAuth, asyncHandler(async (req, res) => {
+  const name = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+  try {
+    const conf = await vpnExec(`cat /config/peer_${name}/peer_${name}.conf`);
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}.conf"`);
+    res.send(conf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+}));
+
 // Setup-Wizard-Seite
 app.get('/setup', (req, res) => {
   if (runtimeConfig.setupDone) return res.redirect('/');
@@ -1393,9 +1498,19 @@ app.get('/login', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'login.html'))
 );
 
-app.listen(PORT, () => {
-  console.log(`\x1b[32m✓ Hearth läuft auf http://localhost:${PORT}\x1b[0m`);
-  console.log(`  Gäste-Ansicht:  http://localhost:${PORT}/`);
-  console.log(`  Admin-Bereich:  http://localhost:${PORT}/admin`);
-  console.log(`  Dateimanager-Root: ${FILES_ROOT}`);
+// Admin server — keep this behind your firewall / VPN
+http.createServer(app).listen(PORT, () => {
+  console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
+  console.log(`  File manager root: ${FILES_ROOT}`);
 });
+
+// Guest server — safe to expose publicly (admin routes are blocked)
+if (GUEST_PORT !== PORT) {
+  http.createServer((req, res) => {
+    req.fromGuestPort = true;
+    app(req, res);
+  }).listen(GUEST_PORT, () => {
+    console.log(`\x1b[32m✓ Guest view    http://localhost:${GUEST_PORT}\x1b[0m`);
+    console.log(`\x1b[2m  → Safe to expose publicly. Admin routes are blocked on this port.\x1b[0m`);
+  });
+}
