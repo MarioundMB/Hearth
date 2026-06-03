@@ -397,25 +397,29 @@ function getCpuPercent() {
 // Ersten Sample nehmen damit die nächste Abfrage einen sinnvollen Delta hat
 _cpuPrev = _readProcStat();
 
-// Festplatten via df (ignoriert tmpfs/overlay/squashfs)
+// Disk info: query host filesystem mounted at /host (read-only), fall back to own mounts
 function getDiskInfo() {
   return new Promise((resolve) => {
-    exec(
-      "df -B1 -x tmpfs -x devtmpfs -x overlay -x squashfs --output=source,size,used,avail,target 2>/dev/null",
-      (err, stdout) => {
-        if (err || !stdout) return resolve([]);
-        try {
-          resolve(
-            stdout.trim().split('\n').slice(1)
-              .map((l) => {
-                const p = l.trim().split(/\s+/);
-                return { fs: p[0], total: +p[1], used: +p[2], avail: +p[3], mount: p[4] };
-              })
-              .filter((d) => d.total > 0 && !isNaN(d.total))
-          );
-        } catch (_) { resolve([]); }
-      }
-    );
+    const useHost = fs.existsSync('/host/proc');
+    const cmd = useHost
+      ? "df -B1 -x tmpfs -x devtmpfs -x overlay -x squashfs --output=source,size,used,avail,target /host 2>/dev/null"
+      : "df -B1 -x tmpfs -x devtmpfs -x squashfs --output=source,size,used,avail,target 2>/dev/null";
+    exec(cmd, (err, stdout) => {
+      if (err || !stdout) return resolve([]);
+      try {
+        resolve(
+          stdout.trim().split('\n').slice(1)
+            .map((l) => {
+              const p = l.trim().split(/\s+/);
+              const mount = useHost
+                ? ((p[4] || '').replace(/^\/host/, '') || '/')
+                : p[4];
+              return { fs: p[0], total: +p[1], used: +p[2], avail: +p[3], mount };
+            })
+            .filter((d) => d.total > 0 && !isNaN(d.total))
+        );
+      } catch (_) { resolve([]); }
+    });
   });
 }
 
