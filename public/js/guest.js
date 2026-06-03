@@ -1,5 +1,17 @@
 /* Hearth – Guest View */
 
+// Map Docker container state to a display label and pill class
+function stateInfo(state) {
+  switch (state) {
+    case 'running':    return { label: t('status.running'),    cls: 'running' };
+    case 'paused':     return { label: t('status.paused'),     cls: 'paused'  };
+    case 'restarting': return { label: t('status.restarting'), cls: 'restarting' };
+    case 'created':    return { label: t('status.starting'),   cls: 'starting' };
+    case 'dead':       return { label: t('status.error'),      cls: 'error'   };
+    default:           return { label: t('status.stopped'),    cls: 'stopped' };
+  }
+}
+
 function appIcon(app) {
   const ic = app.icon || '';
   if (/^https?:\/\//.test(ic)) {
@@ -9,13 +21,17 @@ function appIcon(app) {
 }
 
 function appCard(app) {
-  const stateClass = app.running ? 'running' : 'stopped';
+  const si         = stateInfo(app.state || (app.running ? 'running' : 'exited'));
+  const isRunning  = app.running;
+  const cardClass  = isRunning ? 'running' : 'offline';
+
   return `
-    <a class="app-card ${stateClass}" href="${esc(app.url)}" target="_blank" rel="noopener">
+    <a class="app-card ${cardClass}" href="${esc(app.url)}" target="_blank" rel="noopener"
+       ${!isRunning ? 'tabindex="-1"' : ''}>
       <div class="app-body">
         ${appIcon(app)}
         <div class="app-name">${esc(app.name)}</div>
-        <span class="pill ${stateClass}"><span class="dot"></span>${app.running ? t('status.running') : t('status.stopped')}</span>
+        <span class="pill ${si.cls}"><span class="dot"></span>${si.label}</span>
       </div>
       <div class="app-open-bar">
         ${t('btn.open')}
@@ -47,10 +63,16 @@ async function load() {
       setTimeout(() => { el.style.opacity = '1'; el.style.transform = 'none'; }, 40 * i);
     });
 
-    // Singular vs. plural (+ no host info)
-    const n       = data.apps.length;
-    const onlineLabel = n === 1 ? t('guest.onlineSingle') : t('guest.online', { n });
-    stats.innerHTML = `<span class="pill running"><span class="dot"></span>${onlineLabel}</span>`;
+    // Count only running ones for the online badge; show total if some are offline
+    const running = data.apps.filter(a => a.running).length;
+    const total   = data.apps.length;
+    const onlineLabel = running === 1
+      ? t('guest.onlineSingle')
+      : t('guest.online', { n: running });
+    stats.innerHTML = `<span class="pill running"><span class="dot"></span>${onlineLabel}</span>` +
+      (total > running
+        ? ` <span class="pill stopped"><span class="dot"></span>${total - running} offline</span>`
+        : '');
 
   } catch (e) {
     grid.innerHTML = `<div class="empty"><div class="big">⚠</div>${t('guest.error')}<br><span class="muted">${esc(e.message)}</span></div>`;

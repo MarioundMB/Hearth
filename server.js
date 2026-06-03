@@ -59,8 +59,14 @@ let runtimeConfig = {
   lang: 'de',
   showOfflineApps: false,
   refreshInterval: 15,
-  proxyRules: [],      // Reverse-Proxy-Regeln
+  proxyRules: [],
+  // Container names/IDs hidden from the guest page (admin-controlled)
+  guestHidden: [],
 };
+
+// In-memory URL cache: populated while containers are running so we can
+// still link to them when they go offline (survives across load() calls).
+const _tileUrlCache = {};
 
 function loadConfig() {
   try {
@@ -156,23 +162,22 @@ function mapContainer(c) {
   };
 }
 
-// Baut aus einem Container eine "App-Kachel" für die Gäste-Ansicht.
-// Liest optionale hearth.*-Labels aus (analog zu CasaOS-Metadaten).
+// Build an app tile for the guest view from a mapped container.
+// Always shows the tile even if the container is stopped, as long as
+// we have a URL (from label, active port, or in-memory cache).
 function buildAppTile(c, reqHost) {
   const labels = c.labels || {};
   if (String(labels['hearth.hide']).toLowerCase() === 'true') return null;
 
-  // Welcher veröffentlichte Host-Port soll verlinkt werden?
   const published = c.ports.filter((p) => p.publicPort);
-  if (published.length === 0 && !labels['hearth.url']) return null;
 
   let webPort = null;
   if (labels['hearth.port']) {
-    // explizit gesetzter interner Port -> passenden Host-Port finden
     const match = published.find(
       (p) => String(p.privatePort) === String(labels['hearth.port'])
     );
-    webPort = match ? match.publicPort : null;
+    // When stopped, fall back to using hearth.port as the host port directly
+    webPort = match ? match.publicPort : (published.length === 0 ? labels['hearth.port'] : null);
   }
   if (!webPort && published.length) {
     webPort = published[0].publicPort;
@@ -180,19 +185,22 @@ function buildAppTile(c, reqHost) {
 
   const scheme = labels['hearth.scheme'] || 'http';
   let url = labels['hearth.url'];
-  if (!url && webPort) {
-    url = `${scheme}://${reqHost}:${webPort}`;
-  }
+  if (!url && webPort) url = `${scheme}://${reqHost}:${webPort}`;
+
+  // Cache the URL while container is running; reuse cache when stopped
+  if (url && c.state === 'running') _tileUrlCache[c.id] = url;
+  if (!url) url = _tileUrlCache[c.id] || null;
   if (!url) return null;
 
   return {
     id: c.id,
-    name: labels['hearth.name'] || c.name,
+    name:        labels['hearth.name']        || c.name,
     description: labels['hearth.description'] || c.image,
-    icon: labels['hearth.icon'] || '', // Emoji oder Bild-URL
+    icon:        labels['hearth.icon']        || '',
     url,
+    state:   c.state,                  // full Docker state
     running: c.state === 'running',
-    ports: published.map((p) => p.publicPort),
+    ports:   published.map((p) => p.publicPort),
   };
 }
 
@@ -779,13 +787,49 @@ app.get('/api/me', (req, res) => {
 app.get(
   '/api/public/apps',
   asyncHandler(async (req, res) => {
-    const reqHost = (req.headers.host || 'localhost').split(':')[0];
-    const containers = await docker.listContainers({ all: !!runtimeConfig.showOfflineApps });
+    const reqHost   = (req.headers.host || 'localhost').split(':')[0];
+    const guestHidden = new Set(runtimeConfig.guestHidden || []);
+
+    // Always fetch ALL containers so we can show offline ones too.
+    const containers = await docker.listContainers({ all: true });
     const tiles = containers
       .map(mapContainer)
+      .filter((c) => {
+        // Never show internal Hearth containers
+        if (String(c.labels['hearth.self']).toLowerCase() === 'true') return false;
+        // Respect hearth.hide label
+        if (String(c.labels['hearth.hide']).toLowerCase() === 'true') return false;
+        // Respect admin's per-container visibility toggle (by name or ID)
+        if (guestHidden.has(c.id) || guestHidden.has(c.name)) return false;
+        return true;
+      })
       .map((c) => buildAppTile(c, reqHost))
       .filter(Boolean);
+
     res.json({ apps: tiles, host: reqHost });
+  })
+);
+
+// Toggle guest-page visibility for a single container (no recreate needed)
+app.post(
+  '/api/containers/:id/guest-visibility',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { visible } = req.body || {};
+    // Resolve name for stable storage across container recreates
+    let name = req.params.id;
+    try {
+      const info = await docker.getContainer(req.params.id).inspect();
+      name = info.Name.replace(/^\//, '');
+    } catch (_) {}
+
+    const hidden = new Set(runtimeConfig.guestHidden || []);
+    // Store by name; also clean up any stale ID entry
+    hidden.delete(req.params.id);
+    visible ? hidden.delete(name) : hidden.add(name);
+
+    saveConfig({ guestHidden: [...hidden] });
+    res.json({ ok: true });
   })
 );
 
@@ -971,10 +1015,15 @@ app.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const containers = await docker.listContainers({ all: true });
+    const guestHiddenSet = new Set(runtimeConfig.guestHidden || []);
     res.json(
       containers
         .map(mapContainer)
         .filter((c) => String(c.labels['hearth.self']).toLowerCase() !== 'true')
+        .map((c) => ({
+          ...c,
+          guestVisible: !guestHiddenSet.has(c.id) && !guestHiddenSet.has(c.name),
+        }))
     );
   })
 );
