@@ -1731,6 +1731,59 @@ app.delete(
   })
 );
 
+app.post(
+  '/api/files/copy',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const from = safeResolve(req.body.from);
+    const toDir = safeResolve(req.body.toDir || '/');
+    const name = req.body.name || path.basename(from);
+    const target = path.join(toDir, name);
+    if (target === from) {
+      res.status(400);
+      throw new Error('Quelle und Ziel sind identisch');
+    }
+    await fsp.cp(from, target, { recursive: true });
+    res.json({ ok: true });
+  })
+);
+
+app.get(
+  '/api/files/volumes',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    let entries = [];
+    try {
+      entries = await fsp.readdir(FILES_ROOT, { withFileTypes: true });
+    } catch (_) {}
+    const volumes = await Promise.all(
+      entries
+        .filter((e) => e.isDirectory())
+        .map(async (e) => {
+          const p = path.join(FILES_ROOT, e.name);
+          let used = 0, total = 0;
+          try {
+            await new Promise((resolve) => {
+              exec(`df -k "${p}"`, (err, stdout) => {
+                if (!err && stdout) {
+                  const lines = stdout.trim().split('\n');
+                  const parts = lines[lines.length - 1].trim().split(/\s+/);
+                  if (parts.length >= 3) {
+                    total = parseInt(parts[1]) * 1024 || 0;
+                    used  = parseInt(parts[2]) * 1024 || 0;
+                  }
+                }
+                resolve();
+              });
+            });
+          } catch (_) {}
+          return { name: e.name, path: '/' + e.name, used, total };
+        })
+    );
+    res.json({ volumes });
+  })
+);
+
 // ---------------------------------------------------------------------------
 // Statisches Frontend
 // ---------------------------------------------------------------------------

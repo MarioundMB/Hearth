@@ -1011,15 +1011,33 @@
           <section class="view" id="view-files">
             <div class="toolbar">
               <h2 data-i18n="files.title">Dateimanager</h2>
+              <div class="fm-nav-btns">
+                <button class="btn ghost sm" id="fm-back" title="Zurück">&#8592;</button>
+                <button class="btn ghost sm" id="fm-forward" title="Vorwärts">&#8594;</button>
+                <button class="btn ghost sm" id="fm-up" title="Hoch">&#8593;</button>
+              </div>
               <div class="spacer"></div>
+              <button class="btn ghost sm" id="fm-paste-btn" style="display:none" data-i18n="files.paste">&#x1F4CB; Einfügen</button>
               <button class="btn sm" id="mkdir" data-i18n="files.newFolder">+ Ordner</button>
+              <button class="btn primary sm" id="fm-upload-btn" data-i18n="files.upload">&#8679; Hochladen</button>
             </div>
-            <div class="crumbs" id="crumbs"></div>
-            <div class="dropzone" id="dropzone">
-              <span data-i18n="files.dropzone">Dateien hierher ziehen oder klicken zum Hochladen</span>
-              <input type="file" id="fileinput" multiple style="display: none" />
+            <div class="fm-layout">
+              <aside class="fm-sidebar">
+                <div class="fm-sidebar-section">
+                  <div class="fm-sidebar-label" data-i18n="files.volumes">Volumes</div>
+                  <div id="fm-volumes"></div>
+                </div>
+              </aside>
+              <div class="fm-main">
+                <div class="crumbs" id="crumbs"></div>
+                <div class="dropzone" id="dropzone">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span data-i18n="files.dropzone">Dateien hierher ziehen oder klicken zum Hochladen</span>
+                  <input type="file" id="fileinput" multiple style="display: none" />
+                </div>
+                <div class="fm-list" id="files"></div>
+              </div>
             </div>
-            <div class="list" id="files"></div>
           </section>
           <!-- Reverse Proxy -->
           <section class="view" id="view-proxy">
