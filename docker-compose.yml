@@ -16,6 +16,7 @@ services:
       - PROXY_PORT=80
       - SESSION_SECRET=${SESSION_SECRET}
       - FILES_ROOT=/mnt/data
+      - DATA_DIR=${DATA_DIR:-/srv/hearth-data}
       # Admin credentials (optional) — set via setup wizard on first run
       # - ADMIN_USER=admin
       # - ADMIN_PASSWORD=mySecurePassword

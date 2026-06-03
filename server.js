@@ -40,6 +40,7 @@ const PORT        = parseInt(process.env.PORT        || '4500', 10);
 const GUEST_PORT  = parseInt(process.env.GUEST_PORT  || '3000', 10);
 const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '80',   10);
 const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
+const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
 const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
@@ -466,6 +467,103 @@ function getTemperatures() {
 }
 
 // ---------------------------------------------------------------------------
+// Docker Registry Manifest API — holt ExposedPorts, Volumes, Env ohne Pull
+// ---------------------------------------------------------------------------
+async function getRegistryImageConfig(ns, name, tag = 'latest') {
+  try {
+    const tokenRes = await fetch(
+      `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${ns}/${name}:pull`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!tokenRes.ok) return null;
+    const { token } = await tokenRes.json();
+
+    const manifestRes = await fetch(
+      `https://registry-1.docker.io/v2/${ns}/${name}/manifests/${tag}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: [
+            'application/vnd.oci.image.index.v1+json',
+            'application/vnd.docker.distribution.manifest.list.v2+json',
+            'application/vnd.oci.image.manifest.v1+json',
+            'application/vnd.docker.distribution.manifest.v2+json',
+          ].join(', '),
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (!manifestRes.ok) return null;
+    const manifest = await manifestRes.json();
+
+    let configDigest;
+    if (manifest.manifests) {
+      // Manifest-Liste → linux/amd64 bevorzugen
+      const pick = manifest.manifests.find(
+        m => m.platform?.os === 'linux' && m.platform?.architecture === 'amd64'
+      ) || manifest.manifests.find(m => m.platform?.os === 'linux') || manifest.manifests[0];
+      const platRes = await fetch(
+        `https://registry-1.docker.io/v2/${ns}/${name}/manifests/${pick.digest}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json',
+          },
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      if (!platRes.ok) return null;
+      configDigest = (await platRes.json()).config?.digest;
+    } else {
+      configDigest = manifest.config?.digest;
+    }
+    if (!configDigest) return null;
+
+    const blobRes = await fetch(
+      `https://registry-1.docker.io/v2/${ns}/${name}/blobs/${configDigest}`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
+    );
+    if (!blobRes.ok) return null;
+    const blob = await blobRes.json();
+    const cfg  = blob.config || blob.Config || {};
+
+    // System-Env-Vars herausfiltern — nur appspezifische behalten
+    const SYSTEM_PREFIXES = ['PATH', 'HOME', 'LANG', 'LC_', 'TERM', 'SHELL', 'SHLVL',
+      'NODE_', 'NPM_', 'YARN_', 'JAVA_', 'JRE_', 'JDK_', 'PYTHON', 'PIP_',
+      'GOLANG', 'GOPATH', 'GOROOT', 'RUBY_', 'GEM_', 'PHP_', 'COMPOSER_'];
+    const env = (cfg.Env || []).filter(e => {
+      const key = e.split('=')[0];
+      return !SYSTEM_PREFIXES.some(p => key === p || key.startsWith(p));
+    });
+
+    return {
+      ports:   Object.keys(cfg.ExposedPorts || {}),
+      volumes: Object.keys(cfg.Volumes      || {}),
+      env,
+    };
+  } catch (_) { return null; }
+}
+
+// Sucht in der full_description nach docker-compose- oder docker-run-Beispielen
+function extractDockerSnippets(fullDesc) {
+  let composeSnippet = null;
+  let dockerRunSnippet = null;
+
+  // Compose: Codeblock der 'services:' enthält
+  const codeBlocks = [...fullDesc.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map(m => m[1]);
+  for (const block of codeBlocks) {
+    if (!composeSnippet && /^\s*services\s*:/m.test(block)) composeSnippet = block.trim();
+    if (!dockerRunSnippet && /^\s*docker\s+run\b/m.test(block)) dockerRunSnippet = block.trim();
+  }
+  // Fallback: inline docker run ohne Codeblock
+  if (!dockerRunSnippet) {
+    const m = fullDesc.match(/`(docker run[^`\n]{10,})`/);
+    if (m) dockerRunSnippet = m[1].trim();
+  }
+  return { composeSnippet, dockerRunSnippet };
+}
+
+// ---------------------------------------------------------------------------
 // Docker Hub Logo-Cache (lädt einmalig herunter, speichert lokal)
 // ---------------------------------------------------------------------------
 app.get('/api/dockerhub/logo', requireAuth, asyncHandler(async (req, res) => {
@@ -526,27 +624,41 @@ app.get(
   '/api/dockerhub/info',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const raw = (req.query.image || '').trim().split(':')[0]; // Tag abschneiden
+    const rawWithTag = (req.query.image || '').trim();
+    const raw        = rawWithTag.split(':')[0];
     if (!raw) return res.status(400).json({ error: 'image required' });
 
     const parts = raw.split('/');
     const [ns, name] = parts.length === 1 ? ['library', parts[0]] : [parts[0], parts[1]];
 
+    const tag = rawWithTag.includes(':') ? rawWithTag.split(':')[1] : 'latest';
+
     try {
-      const r = await fetch(
-        `https://hub.docker.com/v2/repositories/${ns}/${name}/`,
-        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }
-      );
-      if (!r.ok) return res.json({ found: false });
-      const d = await r.json();
+      const [hubRes, imgCfg] = await Promise.all([
+        fetch(`https://hub.docker.com/v2/repositories/${ns}/${name}/`,
+          { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }),
+        getRegistryImageConfig(ns, name, tag),
+      ]);
+      if (!hubRes.ok) return res.json({ found: false });
+      const d = await hubRes.json();
+
+      const { composeSnippet, dockerRunSnippet } = extractDockerSnippets(d.full_description || '');
+
       res.json({
-        found: true,
-        image: ns === 'library' ? name : `${ns}/${name}`,
+        found:      true,
+        image:      ns === 'library' ? name : `${ns}/${name}`,
         description: (d.description || '').slice(0, 280),
-        pullCount: d.pull_count || 0,
-        starCount: d.star_count || 0,
+        pullCount:  d.pull_count  || 0,
+        starCount:  d.star_count  || 0,
         isOfficial: !!d.is_official,
-        logoUrl: d.logo_url?.large || null,
+        logoUrl:    d.logo_url?.large || null,
+        // Konfiguration aus Registry-Manifest
+        ports:   imgCfg?.ports   || [],
+        volumes: imgCfg?.volumes || [],
+        env:     imgCfg?.env     || [],
+        // Snippets aus der README für den Full-Editor
+        composeSnippet,
+        dockerRunSnippet,
       });
     } catch (_) {
       res.json({ found: false });
@@ -713,6 +825,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
     port: PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot: FILES_ROOT,
+    dataDir:   DATA_DIR,
     version: VERSION,
   });
 });

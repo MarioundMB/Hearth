@@ -1798,6 +1798,12 @@
             </div>
           </div>
 
+          <!-- Erkannte Konfiguration -->
+          <div id="qi-detected" style="display:none;margin:4px 0 12px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px" data-i18n="qi.detectedConfig">Detected configuration</div>
+            <div id="qi-detected-chips" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+          </div>
+
           <div class="field">
             <label>Image</label>
             <input class="input" id="qi-image" placeholder="nginx:latest" autocomplete="off" />
@@ -1806,7 +1812,7 @@
             <label>Container name</label>
             <input class="input" id="qi-name" placeholder="auto" autocomplete="off" />
           </div>
-          <p class="qi-hint" data-i18n="qi.hint">Installs with default settings (no ports/volumes). Use the full editor for custom configuration.</p>
+          <p class="qi-hint" id="qi-hint" data-i18n="qi.hint">Installs with default settings. Use the full editor for custom configuration.</p>
         </div>
         <div class="modal-foot" style="justify-content:space-between">
           <button class="btn ghost sm" id="qi-open-full" data-i18n="qi.openFull">Open in full editor ↗</button>
