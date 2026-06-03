@@ -1,4 +1,4 @@
-/* Hearth – Gäste-Ansicht */
+/* Hearth – Guest View */
 
 function appIcon(app) {
   const ic = app.icon || '';
@@ -9,27 +9,23 @@ function appIcon(app) {
 }
 
 function appCard(app) {
+  const stateClass = app.running ? 'running' : 'stopped';
   return `
-    <a class="app-card" href="${esc(app.url)}" target="_blank" rel="noopener">
-      <div class="app-top">
+    <a class="app-card ${stateClass}" href="${esc(app.url)}" target="_blank" rel="noopener">
+      <div class="app-body">
         ${appIcon(app)}
-        <div>
-          <div class="app-name">${esc(app.name)}</div>
-          <span class="pill ${app.running ? 'running' : 'stopped'}"><span class="dot"></span>${app.running ? t('status.running') : t('status.stopped')}</span>
-        </div>
+        <div class="app-name">${esc(app.name)}</div>
+        <span class="pill ${stateClass}"><span class="dot"></span>${app.running ? t('status.running') : t('status.stopped')}</span>
       </div>
-      <div class="app-desc">${esc(app.description)}</div>
-      <div class="app-foot">
-        <span class="mono muted" style="font-size:12px">:${app.ports.join(' :')}</span>
-        <span class="open">${t('btn.open')}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
-        </span>
+      <div class="app-open-bar">
+        ${t('btn.open')}
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg>
       </div>
     </a>`;
 }
 
 async function load() {
-  const grid = document.getElementById('grid');
+  const grid  = document.getElementById('grid');
   const stats = document.getElementById('stats');
   try {
     const data = await api('GET', '/api/public/apps');
@@ -40,20 +36,22 @@ async function load() {
       stats.innerHTML = '';
       return;
     }
+
     grid.innerHTML = data.apps.map(appCard).join('');
-    // gestaffelte Einblendung
+
+    // Staggered fade-in
     [...grid.children].forEach((el, i) => {
       el.style.opacity = '0';
-      el.style.transform = 'translateY(10px)';
-      el.style.transition = 'opacity .4s ease, transform .4s ease';
-      setTimeout(() => {
-        el.style.opacity = '1';
-        el.style.transform = 'none';
-      }, 40 * i);
+      el.style.transform = 'translateY(8px)';
+      el.style.transition = 'opacity .35s ease, transform .35s ease';
+      setTimeout(() => { el.style.opacity = '1'; el.style.transform = 'none'; }, 40 * i);
     });
-    stats.innerHTML = `
-      <span class="pill running"><span class="dot"></span>${t('guest.online', { n: data.apps.length })}</span>
-      <span class="pill"><span class="dot"></span>Host: ${esc(data.host)}</span>`;
+
+    // Singular vs. plural (+ no host info)
+    const n       = data.apps.length;
+    const onlineLabel = n === 1 ? t('guest.onlineSingle') : t('guest.online', { n });
+    stats.innerHTML = `<span class="pill running"><span class="dot"></span>${onlineLabel}</span>`;
+
   } catch (e) {
     grid.innerHTML = `<div class="empty"><div class="big">⚠</div>${t('guest.error')}<br><span class="muted">${esc(e.message)}</span></div>`;
   }
@@ -67,4 +65,4 @@ document.getElementById('reload').addEventListener('click', (e) => {
 });
 
 load();
-setInterval(load, 30000); // alle 30s aktualisieren
+setInterval(load, 30000);
