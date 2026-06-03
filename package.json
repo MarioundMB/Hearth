@@ -9,6 +9,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "dockerode": "^4.0.2",
     "express": "^4.19.2",
     "express-session": "^1.18.0",

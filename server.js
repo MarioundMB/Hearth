@@ -21,6 +21,8 @@ const fsp = require('fs/promises');
 const crypto = require('crypto');
 const os = require('os');
 const { exec, spawn } = require('child_process');
+const bcrypt = require('bcryptjs');
+const BCRYPT_ROUNDS = 12;
 
 // Modul-weite Zustandsvariablen (müssen vor jeder Nutzung deklariert sein)
 let _nginxProc  = null;
@@ -102,6 +104,26 @@ if (!runtimeConfig.users?.length) {
     role: 'admin',
   }];
   if (runtimeConfig.setupDone) saveConfig({ users: runtimeConfig.users });
+}
+
+// Migrate plaintext passwords to bcrypt hashes (one-time, idempotent)
+{
+  let _migrated = false;
+  for (const user of runtimeConfig.users) {
+    if (user.password && !user.password.startsWith('$2')) {
+      user.password = bcrypt.hashSync(user.password, BCRYPT_ROUNDS);
+      _migrated = true;
+    }
+  }
+  if (_migrated) {
+    try {
+      fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(runtimeConfig, null, 2), 'utf8');
+      console.log('\x1b[32m[SECURITY] Passwörter zu bcrypt-Hashes migriert.\x1b[0m');
+    } catch (e) {
+      console.warn('[WARNUNG] Migration konnte nicht gespeichert werden:', e.message);
+    }
+  }
 }
 
 if (!runtimeConfig.setupDone) {
@@ -254,13 +276,36 @@ function buildAppTile(c, reqHost) {
   };
 }
 
-// Schützt vor Path-Traversal: löst einen relativen Pfad sicher innerhalb
-// von FILES_ROOT auf und wirft, wenn er ausbrechen würde.
+// Schützt vor Path-Traversal und Symlink-Ausbruch.
+// Gibt den absoluten Pfad zurück; wirft bei ungültigem Zugriff.
 function safeResolve(relPath) {
   const clean = path.normalize(relPath || '/').replace(/^(\.\.(\/|\\|$))+/, '');
   const full = path.resolve(FILES_ROOT, '.' + path.sep + clean);
   if (full !== FILES_ROOT && !full.startsWith(FILES_ROOT + path.sep)) {
     throw new Error('Ungültiger Pfad');
+  }
+  // Follow symlinks to prevent escape via symlinks inside FILES_ROOT.
+  try {
+    const real = fs.realpathSync(full);
+    if (real !== FILES_ROOT && !real.startsWith(FILES_ROOT + path.sep)) {
+      throw new Error('Symlink-Ausbruch verhindert');
+    }
+  } catch (e) {
+    if (e.message === 'Symlink-Ausbruch verhindert') throw e;
+    if (e.code === 'ENOENT') {
+      // Path doesn't exist yet (upload/mkdir) — validate parent instead.
+      try {
+        const parentReal = fs.realpathSync(path.dirname(full));
+        if (parentReal !== FILES_ROOT && !parentReal.startsWith(FILES_ROOT + path.sep)) {
+          throw new Error('Symlink-Ausbruch verhindert');
+        }
+      } catch (e2) {
+        if (e2.message === 'Symlink-Ausbruch verhindert') throw e2;
+        // Parent also non-existent: string-based check already passed above.
+      }
+    } else {
+      throw new Error('Ungültiger Pfad');
+    }
   }
   return full;
 }
@@ -276,6 +321,42 @@ function asyncHandler(fn) {
 // ---------------------------------------------------------------------------
 // Nginx / Reverse Proxy
 // ---------------------------------------------------------------------------
+
+// Strict allowlist validation for proxy inputs to prevent config injection.
+// Domain: valid hostname or wildcard (*.example.com), no special chars.
+// Target: valid http(s) URL with hostname/IP and optional port.
+const _DOMAIN_RE = /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+const _HOST_RE   = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)$|^(\d{1,3}\.){3}\d{1,3}$/;
+
+function validateProxyInputs(domain, target) {
+  if (!domain || !_DOMAIN_RE.test(domain.replace(/^\*\./, ''))) {
+    const err = new Error('Ungültige Domain – nur Buchstaben, Ziffern, Bindestriche und Punkte erlaubt');
+    err.statusCode = 400;
+    throw err;
+  }
+  let url;
+  try { url = new URL(target); } catch {
+    const err = new Error('Ungültiges Target – muss eine gültige http:// oder https:// URL sein');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    const err = new Error('Target muss mit http:// oder https:// beginnen');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!_HOST_RE.test(url.hostname)) {
+    const err = new Error('Ungültiger Hostname im Target');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (url.port && (isNaN(+url.port) || +url.port < 1 || +url.port > 65535)) {
+    const err = new Error('Ungültiger Port im Target');
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 function nginxConfForRule(rule) {
   return `# Hearth Proxy: ${rule.id} (${rule.domain})
 server {
@@ -739,18 +820,27 @@ app.get('/api/proxy/status', requireAuth, (req, res) => {
 app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
   const { domain, target, enabled = true, strip = '' } = req.body || {};
   if (!domain || !target) return res.status(400).json({ error: 'domain and target are required' });
+  validateProxyInputs(domain.trim(), target.trim());
 
   const rules = [...(runtimeConfig.proxyRules || [])];
   const id = Date.now().toString(36);
   rules.push({ id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''), enabled: !!enabled, strip: strip.trim() });
   saveConfig({ proxyRules: rules });
   writeProxyConfigs(rules);
-  await reloadNginx();
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
+  }
   res.json({ ok: true, id });
 }));
 
 app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   const { domain, target, enabled, strip } = req.body || {};
+  const existing = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  const newDomain = domain !== undefined ? domain.trim() : existing?.domain;
+  const newTarget = target !== undefined ? target.trim() : existing?.target;
+  if (newDomain && newTarget) validateProxyInputs(newDomain, newTarget);
+
   const rules = (runtimeConfig.proxyRules || []).map((r) => {
     if (r.id !== req.params.id) return r;
     return {
@@ -763,7 +853,10 @@ app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   });
   saveConfig({ proxyRules: rules });
   writeProxyConfigs(rules);
-  await reloadNginx();
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
+  }
   res.json({ ok: true });
 }));
 
@@ -771,7 +864,10 @@ app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) =>
   const rules = (runtimeConfig.proxyRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ proxyRules: rules });
   writeProxyConfigs(rules);
-  await reloadNginx();
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
+  }
   res.json({ ok: true });
 }));
 
@@ -903,11 +999,12 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
   }
   const trimmedUser = adminUser.trim();
+  const hashedPassword = await bcrypt.hash(adminPassword, BCRYPT_ROUNDS);
   saveConfig({
     adminUser: trimmedUser,
-    adminPassword,
+    adminPassword: hashedPassword,
     serverName: (serverName || 'Hearth').trim(),
-    users: [{ username: trimmedUser, password: adminPassword, role: 'admin' }],
+    users: [{ username: trimmedUser, password: hashedPassword, role: 'admin' }],
   });
   res.json({ ok: true });
 }));
@@ -915,22 +1012,20 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Auth-Routen
 // ---------------------------------------------------------------------------
-app.post('/api/login', (req, res) => {
+app.post('/api/login', asyncHandler(async (req, res) => {
   const { username, password } = req.body || {};
   const users = runtimeConfig.users || [];
   const user  = users.find(u => u.username === username);
   if (!user) return res.status(401).json({ error: 'Invalid username or password' });
 
-  const passBuf = Buffer.from(String(password || ''));
-  const refBuf  = Buffer.from(user.password);
-  const passOk  = passBuf.length === refBuf.length && crypto.timingSafeEqual(passBuf, refBuf);
+  const passOk = await bcrypt.compare(String(password || ''), user.password);
   if (!passOk) return res.status(401).json({ error: 'Invalid username or password' });
 
   req.session.authed = true;
   req.session.user   = username;
   req.session.role   = user.role;
   res.json({ ok: true, role: user.role });
-});
+}));
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
@@ -951,16 +1046,18 @@ app.get('/api/users', requireAuth, requireAdmin, (req, res) => {
   res.json((runtimeConfig.users || []).map(u => ({ username: u.username, role: u.role })));
 });
 
-app.post('/api/users', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/users', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const { username, password, role = 'viewer' } = req.body || {};
   if (!username?.trim() || !password) return res.status(400).json({ error: 'username and password required' });
   if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const users = runtimeConfig.users || [];
   if (users.find(u => u.username === username.trim())) return res.status(409).json({ error: 'Username already taken' });
-  users.push({ username: username.trim(), password, role });
+  const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  users.push({ username: username.trim(), password: hashed, role });
   saveConfig({ users });
   res.json({ ok: true });
-});
+}));
 
 app.delete('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
   const { username } = req.params;
@@ -975,7 +1072,7 @@ app.delete('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Update own credentials (any user) or another user's role (admin only)
-app.patch('/api/users/:username', requireAuth, (req, res) => {
+app.patch('/api/users/:username', requireAuth, asyncHandler(async (req, res) => {
   const { username } = req.params;
   const isSelf  = username === req.session.user;
   const isAdmin = req.session.role === 'admin';
@@ -989,12 +1086,11 @@ app.patch('/api/users/:username', requireAuth, (req, res) => {
 
   if (newPassword || newUsername) {
     if (!currentPassword) return res.status(400).json({ error: 'Current password required' });
-    const a = Buffer.from(String(currentPassword)), b = Buffer.from(user.password);
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b))
-      return res.status(401).json({ error: 'Current password is incorrect' });
+    const passOk = await bcrypt.compare(String(currentPassword), user.password);
+    if (!passOk) return res.status(401).json({ error: 'Current password is incorrect' });
     if (newPassword) {
       if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-      user.password = newPassword;
+      user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     }
     if (newUsername) {
       const trim = newUsername.trim();
@@ -1012,7 +1108,7 @@ app.patch('/api/users/:username', requireAuth, (req, res) => {
   }
   saveConfig({ users });
   res.json({ ok: true });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Notifications (in-memory, per session reset)
@@ -1651,6 +1747,11 @@ app.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const dir = safeResolve(req.query.path || '/');
+    // Return the canonical relative path so the frontend always shows the real location,
+    // even when the input was dirty (e.g. "../" resolves to the root).
+    const relPath = '/' + path.relative(FILES_ROOT, dir).replace(/\\/g, '/');
+    const cleanPath = relPath === '/.' ? '/' : relPath;
+
     const entries = await fsp.readdir(dir, { withFileTypes: true });
     const items = await Promise.all(
       entries.map(async (e) => {
@@ -1672,7 +1773,7 @@ app.get(
     items.sort((a, b) =>
       a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1
     );
-    res.json({ path: req.query.path || '/', items });
+    res.json({ path: cleanPath, items });
   })
 );
 
@@ -1683,10 +1784,44 @@ app.get(
     const full = safeResolve(req.query.path);
     const st = await fsp.stat(full);
     if (st.isDirectory()) {
-      res.status(400);
-      throw new Error('Ordner können nicht heruntergeladen werden');
+      // Stream folder as tar.gz archive
+      const name = path.basename(full) || 'archive';
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${name}.tar.gz"`);
+      const tar = spawn('tar', ['czf', '-', '-C', path.dirname(full), name]);
+      tar.stdout.pipe(res);
+      tar.stderr.on('data', () => {});
+      tar.on('error', (e) => { if (!res.headersSent) res.status(500).end(); else res.end(); });
+      return;
     }
     res.download(full, path.basename(full));
+  })
+);
+
+// Read text file content (max 5 MB)
+app.get(
+  '/api/files/content',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const full = safeResolve(req.query.path);
+    const st = await fsp.stat(full);
+    if (st.isDirectory()) { res.status(400); throw new Error('Ordner haben keinen Textinhalt'); }
+    if (st.size > 5 * 1024 * 1024) { res.status(400); throw new Error('Datei zu groß für den Editor (max 5 MB)'); }
+    const content = await fsp.readFile(full, 'utf8');
+    res.type('text/plain; charset=utf-8').send(content);
+  })
+);
+
+// Write text file content
+app.put(
+  '/api/files/content',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const full = safeResolve(req.body.path);
+    const st = await fsp.stat(full).catch(() => null);
+    if (st && st.isDirectory()) { res.status(400); throw new Error('Ordner können nicht beschrieben werden'); }
+    await fsp.writeFile(full, req.body.content ?? '', 'utf8');
+    res.json({ ok: true });
   })
 );
 
@@ -1833,12 +1968,30 @@ app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
   try {
     const info = await docker.getContainer(VPN_CONTAINER).inspect();
     const running = info.State.Running;
-    const wgStatus = running ? await vpnExec('wg show 2>/dev/null | head -20') : '';
-    // List peer directories
+    const wgStatus = running ? await vpnExec('wg show 2>/dev/null') : '';
+
+    // Directory-based peers (linuxserver/wireguard format: /config/peer_<name>/)
     const peerList = running
       ? await vpnExec('ls /config 2>/dev/null | grep "^peer_" | sed "s/peer_//"')
       : '';
-    const peers = peerList.split('\n').filter(Boolean).map(name => ({ name }));
+    const dirPeers = peerList.split('\n').filter(Boolean);
+    const peers = dirPeers.map(name => ({ name }));
+
+    // Also parse `wg show` output for peers that are active but not in /config dirs
+    // (manually configured peers). `peer: <pubkey>` lines mark each peer.
+    const wgPeerKeys = [...wgStatus.matchAll(/^peer:\s+(\S+)/gm)].map(m => m[1]);
+    for (const key of wgPeerKeys) {
+      const shortKey = key.slice(0, 8) + '…';
+      // Skip if a dir-based peer likely owns this key (we can't easily correlate, so
+      // only add if we have more wg peers than dir peers)
+      if (!peers.some(p => p.pubkey === key)) {
+        // Only add as extra entry when no dir peer covers this slot
+        if (peers.length < wgPeerKeys.length) {
+          peers.push({ name: shortKey, pubkey: key });
+        }
+      }
+    }
+
     res.json({ available: true, running, status: wgStatus, peers });
   } catch (e) {
     res.json({ available: true, running: false, error: e.message, peers: [] });

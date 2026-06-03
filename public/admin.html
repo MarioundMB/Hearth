@@ -1462,9 +1462,31 @@
       <div class="modal" style="max-width: 760px">
         <div class="modal-head">
           <h3 id="logs-title">Logs</h3>
-          <button class="iconbtn" data-close>✕</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-sub)">
+              <input type="checkbox" id="logs-live" style="accent-color:var(--accent)"> Live
+            </label>
+            <button class="iconbtn" data-close>✕</button>
+          </div>
         </div>
         <div class="modal-body"><pre class="logs" id="logs-body">…</pre></div>
+      </div>
+    </div>
+
+    <!-- Text-Editor-Modal -->
+    <div class="modal-backdrop" id="modal-editor">
+      <div class="modal" style="max-width:800px">
+        <div class="modal-head">
+          <h3 id="editor-title">Datei bearbeiten</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <textarea id="editor-body" spellcheck="false" style="width:100%;min-height:400px;padding:16px;border:none;background:var(--bg2);color:var(--text);font-family:monospace;font-size:13px;line-height:1.5;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close>Abbrechen</button>
+          <button class="btn primary" id="editor-save-btn">Speichern</button>
+        </div>
       </div>
     </div>
 
