@@ -135,6 +135,24 @@ textarea {
   display: block;
   flex-shrink: 0;
 }
+/* ── SVG icon system ── */
+.icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.icon-sm  { width: 13px; height: 13px; }
+.icon-md  { width: 18px; height: 18px; }
+.icon-lg  { width: 20px; height: 20px; }
+.icon-xl  { width: 24px; height: 24px; }
+
 .brand small {
   font-family: var(--font-mono);
   font-size: 10px;

@@ -149,10 +149,14 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # Verify Docker is reachable
+_DOCKER_NEEDS_SG=false
 if ! docker info &>/dev/null 2>&1; then
   # One retry via sg (in case the user was just added to the docker group)
-  sg docker "docker info" &>/dev/null 2>&1 || \
+  if sg docker "docker info" &>/dev/null 2>&1; then
+    _DOCKER_NEEDS_SG=true
+  else
     err "Docker is installed but not reachable.\n  Try: sudo systemctl start docker\n  Or log out and back in if you were just added to the docker group."
+  fi
 fi
 
 # ── Auto-install Docker Compose ───────────────────────────────────────────
@@ -249,7 +253,11 @@ fi
 echo ""
 info "Building and starting Hearth…"
 export GIT_SHA=$(git -C "${INSTALL_DIR}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-GIT_SHA=${GIT_SHA} ${DC} up -d --build
+if [ "$_DOCKER_NEEDS_SG" = true ]; then
+  sg docker "GIT_SHA=${GIT_SHA} ${DC} up -d --build"
+else
+  GIT_SHA=${GIT_SHA} ${DC} up -d --build
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
 PORT_DISPLAY=$(grep '^PORT=' .env 2>/dev/null | cut -d= -f2 || echo "4500")
