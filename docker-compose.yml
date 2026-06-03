@@ -25,6 +25,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR:-/srv/hearth-data}:/mnt/data
       - .:/app/repo
+      - /:/host:ro
     labels:
       - "hearth.self=true"
       - "hearth.hide=true"

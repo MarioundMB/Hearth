@@ -12,6 +12,8 @@ const I18N = {
     'nav.refresh': 'Aktualisieren',
     // Tabs
     'tab.containers': 'Container',
+    'tab.store': 'Store',
+    'store.search': 'Apps suchen…',
     'tab.images': 'Images',
     'tab.files': 'Dateimanager',
     // Container
@@ -267,6 +269,8 @@ const I18N = {
     'nav.logout': 'Sign out',
     'nav.refresh': 'Refresh',
     'tab.containers': 'Containers',
+    'tab.store': 'Store',
+    'store.search': 'Search apps…',
     'tab.images': 'Images',
     'tab.files': 'File Manager',
     'containers.title': 'Containers',

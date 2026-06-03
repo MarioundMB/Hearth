@@ -10,6 +10,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     document.querySelectorAll('.view').forEach((x) => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById('view-' + t.dataset.view).classList.add('active');
+    if (t.dataset.view === 'store')    renderStore();
     if (t.dataset.view === 'images')   loadImages();
     if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
     if (t.dataset.view === 'proxy')    loadProxyRules();
@@ -1284,9 +1285,11 @@ function renderQiChips(cfg) {
   }
 }
 
-async function openQuickInstall(image) {
+async function openQuickInstall(image, storeApp) {
   document.getElementById('drop-overlay').classList.remove('active');
-  _qiConfig  = { ports: [], volumes: [], env: [] };
+  _qiConfig  = storeApp
+    ? { ports: storeApp.ports || [], volumes: (storeApp.volumes || []).map(v => ({ ...v, host: v.host.replace('{data}', _dataDir) })), env: storeApp.env || [] }
+    : { ports: [], volumes: [], env: [] };
   _qiSnippet = { compose: null, run: null };
 
   document.getElementById('qi-loading').style.display  = 'flex';
@@ -2297,6 +2300,114 @@ api('GET', '/api/settings').then((s) => applyRefreshInterval(s.refreshInterval ?
 // Monitoring: immer alle 2s aktualisieren (für Echtzeitgraphen)
 updateMonitor();
 setInterval(updateMonitor, 2000);
+
+// ── App Store ─────────────────────────────────────────────────────────────────
+
+const STORE_CATALOG = [
+  // Media
+  { cat: 'media', name: 'Jellyfin',        image: 'linuxserver/jellyfin',       desc: 'Free open-source media server. Stream movies, TV, music & photos.',     ports: [{host:'8096',container:'8096',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/jellyfin/config',container:'/config'},{host:'/media',container:'/data'}] },
+  { cat: 'media', name: 'Plex',            image: 'linuxserver/plex',           desc: 'Organise and stream your personal media collection.',                   ports: [{host:'32400',container:'32400',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'},{key:'VERSION',value:'docker'}], volumes: [{host:'{data}/plex/config',container:'/config'},{host:'/media',container:'/media'}] },
+  { cat: 'media', name: 'Navidrome',       image: 'deluan/navidrome',           desc: 'Modern music server. Compatible with Subsonic/Airsonic apps.',           ports: [{host:'4533',container:'4533',proto:'tcp'}], env: [{key:'ND_SCANSCHEDULE',value:'1h'},{key:'ND_LOGLEVEL',value:'info'}], volumes: [{host:'{data}/navidrome',container:'/data'},{host:'/music',container:'/music:ro'}] },
+  { cat: 'media', name: 'Immich',          image: 'ghcr.io/immich-app/immich-server', desc: 'High-performance self-hosted photo and video management.',         ports: [{host:'2283',container:'3001',proto:'tcp'}], env: [{key:'DB_PASSWORD',value:'postgres'},{key:'DB_USERNAME',value:'postgres'},{key:'DB_DATABASE_NAME',value:'immich'}], volumes: [{host:'{data}/immich/upload',container:'/usr/src/app/upload'}] },
+
+  // Arr-Stack
+  { cat: 'arr',   name: 'Sonarr',          image: 'linuxserver/sonarr',         desc: 'Automatic TV show downloader — tracks, grabs and sorts episodes.',       ports: [{host:'8989',container:'8989',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/sonarr/config',container:'/config'},{host:'/media',container:'/media'}] },
+  { cat: 'arr',   name: 'Radarr',          image: 'linuxserver/radarr',         desc: 'Automatic movie downloader — finds, grabs and manages your films.',      ports: [{host:'7878',container:'7878',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/radarr/config',container:'/config'},{host:'/media',container:'/media'}] },
+  { cat: 'arr',   name: 'Prowlarr',        image: 'linuxserver/prowlarr',       desc: 'Indexer manager & proxy for the *arr stack.',                            ports: [{host:'9696',container:'9696',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/prowlarr/config',container:'/config'}] },
+  { cat: 'arr',   name: 'Lidarr',          image: 'linuxserver/lidarr',         desc: 'Music collection manager — automatically downloads missing albums.',      ports: [{host:'8686',container:'8686',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/lidarr/config',container:'/config'},{host:'/music',container:'/music'}] },
+
+  // Downloads
+  { cat: 'download', name: 'qBittorrent',  image: 'linuxserver/qbittorrent',    desc: 'Lightweight torrent client with a clean web UI.',                        ports: [{host:'8080',container:'8080',proto:'tcp'},{host:'6881',container:'6881',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'},{key:'WEBUI_PORT',value:'8080'}], volumes: [{host:'{data}/qbittorrent/config',container:'/config'},{host:'/downloads',container:'/downloads'}] },
+  { cat: 'download', name: 'Transmission', image: 'linuxserver/transmission',   desc: 'Simple, lightweight torrent client.',                                    ports: [{host:'9091',container:'9091',proto:'tcp'}], env: [{key:'PUID',value:'1000'},{key:'PGID',value:'1000'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/transmission/config',container:'/config'},{host:'/downloads',container:'/downloads'}] },
+
+  // Tools
+  { cat: 'tools',  name: 'Portainer',      image: 'portainer/portainer-ce',     desc: 'Visual Docker management UI — manage containers, images, volumes.',     ports: [{host:'9000',container:'9000',proto:'tcp'},{host:'9443',container:'9443',proto:'tcp'}], env: [], volumes: [{host:'/var/run/docker.sock',container:'/var/run/docker.sock'},{host:'{data}/portainer',container:'/data'}] },
+  { cat: 'tools',  name: 'Uptime Kuma',    image: 'louislam/uptime-kuma',       desc: 'Self-hosted uptime monitoring tool with a fancy dashboard.',             ports: [{host:'3001',container:'3001',proto:'tcp'}], env: [], volumes: [{host:'{data}/uptime-kuma',container:'/app/data'}] },
+  { cat: 'tools',  name: 'Watchtower',     image: 'containrrr/watchtower',      desc: 'Automatically updates running Docker containers.',                       ports: [], env: [{key:'WATCHTOWER_CLEANUP',value:'true'},{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'/var/run/docker.sock',container:'/var/run/docker.sock'}] },
+  { cat: 'tools',  name: 'Dozzle',         image: 'amir20/dozzle',              desc: 'Real-time Docker log viewer — simple, lightweight, no storage.',         ports: [{host:'8888',container:'8080',proto:'tcp'}], env: [], volumes: [{host:'/var/run/docker.sock',container:'/var/run/docker.sock:ro'}] },
+
+  // Security
+  { cat: 'security', name: 'Vaultwarden',  image: 'vaultwarden/server',         desc: 'Lightweight Bitwarden-compatible password manager server.',              ports: [{host:'3012',container:'80',proto:'tcp'}], env: [{key:'WEBSOCKET_ENABLED',value:'true'}], volumes: [{host:'{data}/vaultwarden',container:'/data'}] },
+  { cat: 'security', name: 'AdGuard Home', image: 'adguard/adguardhome',        desc: 'Network-wide ad & tracker blocking DNS server.',                        ports: [{host:'3000',container:'3000',proto:'tcp'},{host:'53',container:'53',proto:'udp'}], env: [], volumes: [{host:'{data}/adguard/workdir',container:'/opt/adguardhome/work'},{host:'{data}/adguard/confdir',container:'/opt/adguardhome/conf'}] },
+  { cat: 'security', name: 'Pi-hole',      image: 'pihole/pihole',              desc: 'DNS sinkhole that blocks ads for all devices on your network.',          ports: [{host:'8053',container:'80',proto:'tcp'},{host:'53',container:'53',proto:'udp'}], env: [{key:'TZ',value:'Europe/Berlin'},{key:'WEBPASSWORD',value:'changeme'}], volumes: [{host:'{data}/pihole/etc',container:'/etc/pihole'},{host:'{data}/pihole/dnsmasq',container:'/etc/dnsmasq.d'}] },
+
+  // Cloud & Home
+  { cat: 'cloud',  name: 'Nextcloud',      image: 'nextcloud',                  desc: 'Self-hosted cloud — files, calendars, contacts and collaboration.',      ports: [{host:'8081',container:'80',proto:'tcp'}], env: [], volumes: [{host:'{data}/nextcloud',container:'/var/www/html'}] },
+  { cat: 'cloud',  name: 'Home Assistant', image: 'homeassistant/home-assistant',desc: 'Open-source home automation platform.',                                 ports: [{host:'8123',container:'8123',proto:'tcp'}], env: [{key:'TZ',value:'Europe/Berlin'}], volumes: [{host:'{data}/homeassistant/config',container:'/config'}] },
+  { cat: 'cloud',  name: 'Gitea',          image: 'gitea/gitea',                desc: 'Lightweight self-hosted Git service — like GitHub at home.',             ports: [{host:'3030',container:'3000',proto:'tcp'},{host:'222',container:'22',proto:'tcp'}], env: [{key:'USER_UID',value:'1000'},{key:'USER_GID',value:'1000'}], volumes: [{host:'{data}/gitea',container:'/data'}] },
+  { cat: 'cloud',  name: 'Grafana',        image: 'grafana/grafana',            desc: 'Open-source metrics dashboard and monitoring platform.',                 ports: [{host:'3030',container:'3000',proto:'tcp'}], env: [], volumes: [{host:'{data}/grafana',container:'/var/lib/grafana'}] },
+];
+
+const STORE_CATEGORIES = {
+  media:    '🎬  Media',
+  arr:      '🔍  Download Management',
+  download: '⬇️  Download Clients',
+  tools:    '🛠  Tools & Management',
+  security: '🔒  Security & Privacy',
+  cloud:    '☁️  Cloud & Home',
+};
+
+let _storeRendered = false;
+
+function filterStore(query) {
+  const q = (query || '').toLowerCase();
+  document.querySelectorAll('.store-card').forEach((card) => {
+    const match = !q || card.dataset.search.includes(q);
+    card.style.display = match ? '' : 'none';
+  });
+  document.querySelectorAll('.store-category').forEach((cat) => {
+    const hasVisible = [...cat.querySelectorAll('.store-card')].some(c => c.style.display !== 'none');
+    cat.style.display = hasVisible ? '' : 'none';
+  });
+}
+
+async function renderStore() {
+  if (_storeRendered) return;
+  _storeRendered = true;
+
+  const container = document.getElementById('store-categories');
+  const bycat = {};
+  STORE_CATALOG.forEach((app) => {
+    (bycat[app.cat] = bycat[app.cat] || []).push(app);
+  });
+
+  let html = '';
+  for (const [catKey, apps] of Object.entries(bycat)) {
+    html += `<div class="store-category" data-cat="${catKey}">
+      <div class="store-category-title">${STORE_CATEGORIES[catKey] || catKey}</div>
+      <div class="store-grid">`;
+    for (const app of apps) {
+      const imgKey = encodeURIComponent(app.image.split(':')[0]);
+      html += `<div class="store-card" data-search="${(app.name + ' ' + app.desc + ' ' + app.image).toLowerCase()}" data-image="${esc(app.image)}">
+        <div class="store-card-head">
+          <div class="store-icon" id="si-${esc(app.name.replace(/\s/g,''))}">🐳</div>
+          <div class="store-name">${esc(app.name)}</div>
+        </div>
+        <div class="store-desc">${esc(app.desc)}</div>
+        <button class="btn sm primary" onclick="storeInstall(${esc(JSON.stringify(app.image))})">
+          <svg class="icon icon-sm"><use href="#icon-zap"/></svg> Install
+        </button>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+  container.innerHTML = html;
+
+  // Lazy-load icons
+  STORE_CATALOG.forEach((app) => {
+    const el = document.getElementById('si-' + app.name.replace(/\s/g, ''));
+    if (!el) return;
+    const imgKey = encodeURIComponent(app.image.split(':')[0]);
+    const img = new Image();
+    img.onload = () => { el.innerHTML = `<img src="/api/dockerhub/logo?image=${imgKey}" alt="">`; };
+    img.src = `/api/dockerhub/logo?image=${imgKey}`;
+  });
+}
+
+function storeInstall(image) {
+  const app = STORE_CATALOG.find(a => a.image === image);
+  openQuickInstall(image, app);
+}
 
 loadContainers();
 applyRefreshInterval(15);
