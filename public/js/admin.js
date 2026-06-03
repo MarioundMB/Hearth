@@ -11,7 +11,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     t.classList.add('active');
     document.getElementById('view-' + t.dataset.view).classList.add('active');
     if (t.dataset.view === 'images')   loadImages();
-    if (t.dataset.view === 'files')    loadFiles(currentPath);
+    if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
     if (t.dataset.view === 'proxy')    loadProxyRules();
     if (t.dataset.view === 'firewall') loadFirewall();
     if (t.dataset.view === 'vpn')      loadVpn();
@@ -573,16 +573,15 @@ document.getElementById('pull-image').addEventListener('click', async () => {
 
 // ---------- Dateimanager ----------
 let currentPath = '/';
-
-// Navigationsverlauf für Maus-Zurück/Vorwärts-Tasten
+let fileClipboard = null; // { action: 'copy'|'cut', path, name }
 const fileNav = { history: ['/'], idx: 0 };
 
-function navigate(path) {
-  if (path === currentPath) return;
+function navigate(p) {
+  if (p === currentPath) return;
   fileNav.history = fileNav.history.slice(0, fileNav.idx + 1);
-  fileNav.history.push(path);
+  fileNav.history.push(p);
   fileNav.idx = fileNav.history.length - 1;
-  loadFiles(path);
+  loadFiles(p);
 }
 
 function navigateBack() {
@@ -597,8 +596,12 @@ function navigateForward() {
   loadFiles(fileNav.history[fileNav.idx]);
 }
 
-// Maus-Seitentasten (Button 3 = Zurück, Button 4 = Vorwärts)
-// nur wenn der Dateimanager-Tab aktiv ist
+function navigateUp() {
+  if (currentPath === '/') return;
+  const parent = currentPath.split('/').slice(0, -1).join('/') || '/';
+  navigate(parent);
+}
+
 document.addEventListener('mousedown', (e) => {
   if (!document.getElementById('view-files').classList.contains('active')) return;
   if (e.button === 3 || e.button === 4) e.preventDefault();
@@ -609,13 +612,17 @@ document.addEventListener('mouseup', (e) => {
   if (e.button === 4) { e.preventDefault(); navigateForward(); }
 });
 
+document.getElementById('fm-back').addEventListener('click', navigateBack);
+document.getElementById('fm-forward').addEventListener('click', navigateForward);
+document.getElementById('fm-up').addEventListener('click', navigateUp);
+
 function renderCrumbs() {
   const parts = currentPath.split('/').filter(Boolean);
   let acc = '';
-  let html = `<a href="#" data-path="/">⌂ root</a>`;
+  let html = `<a href="#" data-path="/">&#x2302;</a>`;
   parts.forEach((p) => {
     acc += '/' + p;
-    html += ` / <a href="#" data-path="${esc(acc)}">${esc(p)}</a>`;
+    html += ` <span class="crumb-sep">/</span> <a href="#" data-path="${esc(acc)}">${esc(p)}</a>`;
   });
   document.getElementById('crumbs').innerHTML = html;
 }
@@ -627,10 +634,77 @@ document.getElementById('crumbs').addEventListener('click', (e) => {
   navigate(a.dataset.path);
 });
 
+function updateSidebarActive() {
+  document.querySelectorAll('.fm-vol-item').forEach((item) => {
+    const vp = item.dataset.volPath;
+    item.classList.toggle('active', vp && (currentPath === vp || currentPath.startsWith(vp + '/')));
+  });
+}
+
+async function loadVolumes() {
+  const box = document.getElementById('fm-volumes');
+  try {
+    const data = await api('GET', '/api/files/volumes');
+    if (!data.volumes || !data.volumes.length) {
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = data.volumes.map((v) => {
+      const pct = v.total > 0 ? Math.min(100, Math.round((v.used / v.total) * 100)) : 0;
+      const usedStr = v.total > 0 ? fmtBytes(v.used) + ' / ' + fmtBytes(v.total) : '';
+      const bar = v.total > 0
+        ? `<div class="fm-vol-bar"><div class="fm-vol-bar-fill" style="width:${pct}%"></div></div>`
+        : '';
+      const isActive = currentPath === v.path || currentPath.startsWith(v.path + '/');
+      return `<div class="fm-vol-item${isActive ? ' active' : ''}" data-vol-path="${esc(v.path)}">
+        <svg class="fm-vol-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 8H4V6h16v2zm-2-4H6v2h12V4zm4 10v6c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2v-6c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2zm-3 3c0-.55-.45-1-1-1s-1 .45-1 1 .45 1 1 1 1-.45 1-1z"/></svg>
+        <div class="fm-vol-info">
+          <div class="fm-vol-name">${esc(v.name)}</div>
+          ${usedStr ? `<div class="fm-vol-usage">${usedStr}</div>` : ''}
+          ${bar}
+        </div>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    document.getElementById('fm-volumes').innerHTML = '';
+  }
+}
+
+document.getElementById('fm-volumes').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-vol-path]');
+  if (!item) return;
+  navigate(item.dataset.volPath);
+});
+
+function getFileIconClass(name, isDir) {
+  if (isDir) return 'dir';
+  const ext = (name.includes('.') ? name.split('.').pop() : '').toLowerCase();
+  if (['jpg','jpeg','png','gif','svg','webp','bmp','ico','tiff','avif','heic'].includes(ext)) return 'img';
+  if (['mp4','mkv','avi','mov','webm','flv','wmv','m4v','ts'].includes(ext)) return 'vid';
+  if (['mp3','flac','wav','ogg','m4a','aac','opus','wma'].includes(ext)) return 'aud';
+  if (['zip','tar','gz','bz2','7z','rar','xz','zst','lz4','tgz'].includes(ext)) return 'arc';
+  if (['js','ts','jsx','tsx','py','go','sh','bash','zsh','json','yaml','yml','toml','php','rb','c','cpp','h','hpp','html','css','java','rs','lua','r','swift','kt','cs','vue','xml','env','conf','cfg'].includes(ext)) return 'code';
+  if (['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','md','csv','rtf','odt','ods'].includes(ext)) return 'doc';
+  return '';
+}
+
+const FILE_ICONS = {
+  dir:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`,
+  img:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>`,
+  vid:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>`,
+  aud:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`,
+  arc:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20 6h-2.18c.07-.44.18-.88.18-1.36C18 2.98 16.76 2 15.36 2c-.86 0-1.6.36-2.1.93l-.26.29-.26-.29C12.24 2.36 11.5 2 10.64 2 9.24 2 8 2.98 8 4.64c0 .48.11.92.18 1.36H6c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 10h-4v-2h4v2zm1-4H9v-2h6v2z"/></svg>`,
+  code: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  doc:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM8 13h8v2H8zm0-4h3v2H8z"/></svg>`,
+  '':   `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>`,
+};
+
 async function loadFiles(p) {
   currentPath = p || '/';
   renderCrumbs();
+  updateSidebarActive();
   const box = document.getElementById('files');
+  box.innerHTML = `<div class="empty" style="padding:24px 20px"><span style="opacity:.3;font-size:22px">⟳</span></div>`;
   try {
     const data = await api('GET', '/api/files?path=' + encodeURIComponent(currentPath));
     if (!data.items.length) {
@@ -645,29 +719,31 @@ async function loadFiles(p) {
 
 function fileRow(f) {
   const full = (currentPath === '/' ? '' : currentPath) + '/' + f.name;
-  const icon = f.isDir ? '📁' : '📄';
+  const ic = getFileIconClass(f.name, f.isDir);
   const meta = f.isDir ? t('files.folder') : fmtBytes(f.size);
   return `
-    <div class="file-row">
-      <div class="fname ${f.isDir ? 'dir' : ''}" ${f.isDir ? `data-dir="${esc(full)}"` : ''}>
-        <span class="ficon">${icon}</span>${esc(f.name)}
-      </div>
-      <span class="fmeta">${meta} · ${fmtTime(f.mtime)}</span>
-      <div class="fileops">
-        ${
-          f.isDir
-            ? ''
-            : `<button class="iconbtn" title="Download" data-dl="${esc(full)}">⬇</button>`
-        }
-        <button class="iconbtn" title="Umbenennen" data-rn="${esc(full)}" data-name="${esc(f.name)}">✎</button>
-        <button class="iconbtn danger" title="Löschen" data-del="${esc(full)}" data-name="${esc(f.name)}">🗑</button>
+    <div class="fm-file-row" data-path="${esc(full)}" data-isdir="${f.isDir}" data-name="${esc(f.name)}">
+      <div class="fm-file-icon ${ic}">${FILE_ICONS[ic] || FILE_ICONS['']}</div>
+      <div class="fm-file-name">${esc(f.name)}</div>
+      <div class="fm-file-meta">${esc(meta)}&nbsp;·&nbsp;${fmtTime(f.mtime)}</div>
+      <div class="fm-file-actions">
+        ${f.isDir ? '' : `<button class="iconbtn" title="Download" data-dl="${esc(full)}">&#8595;</button>`}
+        <button class="iconbtn" title="${t('files.copy')}" data-cp="${esc(full)}" data-name="${esc(f.name)}">&#9138;</button>
+        <button class="iconbtn" title="${t('files.cut')}" data-cut="${esc(full)}" data-name="${esc(f.name)}">&#9988;</button>
+        <button class="iconbtn" title="${t('files.rename')}" data-rn="${esc(full)}" data-name="${esc(f.name)}">&#9998;</button>
+        <button class="iconbtn danger" title="${t('files.delete')}" data-del="${esc(full)}" data-name="${esc(f.name)}">&#128465;</button>
       </div>
     </div>`;
 }
 
 document.getElementById('files').addEventListener('click', async (e) => {
-  const dir = e.target.closest('[data-dir]');
-  if (dir) return navigate(dir.dataset.dir);
+  const row = e.target.closest('.fm-file-row');
+  if (!row) return;
+
+  if (!e.target.closest('button')) {
+    if (row.dataset.isdir === 'true') return navigate(row.dataset.path);
+    return;
+  }
 
   const dl = e.target.closest('[data-dl]');
   if (dl) {
@@ -675,12 +751,27 @@ document.getElementById('files').addEventListener('click', async (e) => {
     return;
   }
 
+  const cp = e.target.closest('[data-cp]');
+  if (cp) {
+    fileClipboard = { action: 'copy', path: cp.dataset.cp, name: cp.dataset.name };
+    document.getElementById('fm-paste-btn').style.display = '';
+    toast(t('toast.copied') + ': ' + cp.dataset.name);
+    return;
+  }
+
+  const cut = e.target.closest('[data-cut]');
+  if (cut) {
+    fileClipboard = { action: 'cut', path: cut.dataset.cut, name: cut.dataset.name };
+    document.getElementById('fm-paste-btn').style.display = '';
+    toast(t('toast.cut') + ': ' + cut.dataset.name);
+    return;
+  }
+
   const rn = e.target.closest('[data-rn]');
   if (rn) {
     const newName = prompt(t('files.renamePrompt'), rn.dataset.name);
     if (!newName || newName === rn.dataset.name) return;
-    const to =
-      (currentPath === '/' ? '' : currentPath) + '/' + newName;
+    const to = (currentPath === '/' ? '' : currentPath) + '/' + newName;
     try {
       await api('POST', '/api/files/rename', { from: rn.dataset.rn, to });
       toast(t('toast.renamed'));
@@ -704,6 +795,25 @@ document.getElementById('files').addEventListener('click', async (e) => {
   }
 });
 
+document.getElementById('fm-paste-btn').addEventListener('click', async () => {
+  if (!fileClipboard) return;
+  try {
+    if (fileClipboard.action === 'copy') {
+      await api('POST', '/api/files/copy', { from: fileClipboard.path, toDir: currentPath, name: fileClipboard.name });
+      toast(t('toast.pasted'));
+    } else {
+      const to = (currentPath === '/' ? '' : currentPath) + '/' + fileClipboard.name;
+      await api('POST', '/api/files/rename', { from: fileClipboard.path, to });
+      toast(t('toast.moved'));
+      fileClipboard = null;
+      document.getElementById('fm-paste-btn').style.display = 'none';
+    }
+    loadFiles(currentPath);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
 document.getElementById('mkdir').addEventListener('click', async () => {
   const name = prompt(t('files.newFolderPrompt'));
   if (!name) return;
@@ -716,22 +826,17 @@ document.getElementById('mkdir').addEventListener('click', async () => {
   }
 });
 
-// Upload (Drag & Drop + Klick)
+// Upload
 const dz = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileinput');
-dz.addEventListener('click', () => fileInput.click());
+document.getElementById('fm-upload-btn').addEventListener('click', () => fileInput.click());
+dz.addEventListener('click', (e) => { if (e.target !== fileInput) fileInput.click(); });
 fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
 ['dragover', 'dragenter'].forEach((ev) =>
-  dz.addEventListener(ev, (e) => {
-    e.preventDefault();
-    dz.classList.add('drag');
-  })
+  dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); })
 );
 ['dragleave', 'drop'].forEach((ev) =>
-  dz.addEventListener(ev, (e) => {
-    e.preventDefault();
-    dz.classList.remove('drag');
-  })
+  dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); })
 );
 dz.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
 
