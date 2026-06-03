@@ -1012,41 +1012,116 @@ function fmtPulls(n) {
   return String(n);
 }
 
-async function openQuickInstall(image) {
-  // Overlay schließen, falls noch sichtbar
-  document.getElementById('drop-overlay').classList.remove('active');
+// Erkannte Konfiguration für den aktuellen Quick-Install-Dialog
+let _qiConfig  = { ports: [], volumes: [], env: [] };
+let _qiSnippet = { compose: null, run: null };
+let _dataDir   = '/srv/hearth-data';
 
-  // Modal öffnen, Ladestate zeigen
-  document.getElementById('qi-loading').style.display = 'flex';
-  document.getElementById('qi-info').style.display    = 'none';
-  document.getElementById('qi-image').value           = image;
-  document.getElementById('qi-name').value            = imageToName(image);
-  document.getElementById('qi-install').disabled      = false;
-  document.getElementById('qi-install').textContent   = '⚡ Install';
+// dataDir beim ersten Öffnen laden
+api('GET', '/api/settings').then(s => { if (s.dataDir) _dataDir = s.dataDir; }).catch(() => {});
+
+function renderQiChips(cfg) {
+  const el = document.getElementById('qi-detected-chips');
+  const detected = document.getElementById('qi-detected');
+  el.innerHTML = '';
+  const chips = [];
+  cfg.ports.forEach(p => {
+    const s = document.createElement('span');
+    s.className = 'pill';
+    s.style.cssText = 'background:var(--accent-dim);color:var(--accent);font-size:12px';
+    s.textContent = '⇄ ' + p.container;
+    chips.push(s);
+  });
+  if (cfg.volumes.length) {
+    const s = document.createElement('span');
+    s.className = 'pill';
+    s.style.cssText = 'font-size:12px';
+    s.textContent = `📁 ${cfg.volumes.length} volume${cfg.volumes.length > 1 ? 's' : ''}`;
+    chips.push(s);
+  }
+  cfg.env.forEach(e => {
+    const s = document.createElement('span');
+    s.className = 'pill';
+    s.style.cssText = 'font-size:12px';
+    s.textContent = '$ ' + e.key;
+    chips.push(s);
+  });
+  if (chips.length) {
+    chips.forEach(c => el.appendChild(c));
+    detected.style.display = '';
+  } else {
+    detected.style.display = 'none';
+  }
+}
+
+async function openQuickInstall(image) {
+  document.getElementById('drop-overlay').classList.remove('active');
+  _qiConfig  = { ports: [], volumes: [], env: [] };
+  _qiSnippet = { compose: null, run: null };
+
+  document.getElementById('qi-loading').style.display  = 'flex';
+  document.getElementById('qi-info').style.display     = 'none';
+  document.getElementById('qi-detected').style.display = 'none';
+  document.getElementById('qi-image').value            = image;
+  document.getElementById('qi-name').value             = imageToName(image);
+  document.getElementById('qi-install').disabled       = false;
+  document.getElementById('qi-install').textContent    = '⚡ Install';
   openModal('modal-qi');
 
-  // Metadaten von Docker Hub holen
   try {
     const info = await api('GET', `/api/dockerhub/info?image=${encodeURIComponent(image)}`);
     document.getElementById('qi-loading').style.display = 'none';
-    if (info.found) {
-      document.getElementById('qi-info').style.display   = 'flex';
-      document.getElementById('qi-meta-name').textContent = info.image;
-      document.getElementById('qi-meta-desc').textContent = info.description || '';
-      document.getElementById('qi-official').style.display = info.isOfficial ? '' : 'none';
-      document.getElementById('qi-stats').textContent =
-        `↓ ${fmtPulls(info.pullCount)} pulls  ⭐ ${fmtPulls(info.starCount)} stars`;
-      const logoEl = document.getElementById('qi-logo');
-      if (info.logoUrl) {
-        logoEl.innerHTML = `<img src="${esc(info.logoUrl)}" alt="" onerror="this.parentNode.textContent='🐳'">`;
-      } else {
-        logoEl.textContent = '🐳';
-      }
-      // Image-Feld auf kanonischen Namen aktualisieren
-      if (!document.getElementById('qi-image').value.includes(':')) {
-        document.getElementById('qi-image').value = info.image;
-        document.getElementById('qi-name').value  = imageToName(info.image);
-      }
+    if (!info.found) return;
+
+    document.getElementById('qi-info').style.display    = 'flex';
+    document.getElementById('qi-meta-name').textContent  = info.image;
+    document.getElementById('qi-meta-desc').textContent  = info.description || '';
+    document.getElementById('qi-official').style.display = info.isOfficial ? '' : 'none';
+    document.getElementById('qi-stats').textContent =
+      `↓ ${fmtPulls(info.pullCount)} pulls  ⭐ ${fmtPulls(info.starCount)} stars`;
+    const logoEl = document.getElementById('qi-logo');
+    logoEl.innerHTML = info.logoUrl
+      ? `<img src="${esc(info.logoUrl)}" alt="" onerror="this.parentNode.textContent='🐳'">`
+      : '🐳';
+
+    if (!document.getElementById('qi-image').value.includes(':')) {
+      document.getElementById('qi-image').value = info.image;
+      document.getElementById('qi-name').value  = imageToName(info.image);
+    }
+
+    // Konfiguration aus Registry-Manifest aufbauen
+    const cname = document.getElementById('qi-name').value || imageToName(info.image);
+    _qiConfig.ports = (info.ports || []).map(p => {
+      const [port, proto = 'tcp'] = p.split('/');
+      return { host: port, container: port, proto };
+    });
+    _qiConfig.volumes = (info.volumes || []).map(v => {
+      const basename = v.replace(/\/$/, '').split('/').pop() || 'data';
+      return { host: `${_dataDir}/${cname}/${basename}`, container: v };
+    });
+    _qiConfig.env = (info.env || []).map(e => {
+      const idx = e.indexOf('=');
+      return idx >= 0 ? { key: e.slice(0, idx), value: e.slice(idx + 1) } : { key: e, value: '' };
+    });
+
+    // Compose-Snippet als Fallback / für Full-Editor
+    _qiSnippet.compose = info.composeSnippet  || null;
+    _qiSnippet.run     = info.dockerRunSnippet || null;
+
+    // Falls Manifest keine Ports/Volumes lieferte, Compose-Snippet parsen
+    if (!_qiConfig.ports.length && !_qiConfig.volumes.length && _qiSnippet.compose) {
+      const parsed = parseDockerCompose(_qiSnippet.compose);
+      if (parsed.ports?.length)   _qiConfig.ports   = parsed.ports;
+      if (parsed.volumes?.length) _qiConfig.volumes  = parsed.volumes;
+      if (parsed.env?.length && !_qiConfig.env.length) _qiConfig.env = parsed.env;
+    }
+
+    renderQiChips(_qiConfig);
+
+    const hint = document.getElementById('qi-hint');
+    if (_qiConfig.ports.length || _qiConfig.volumes.length) {
+      hint.setAttribute('data-i18n', '');
+      hint.textContent = `Configuration detected. Install will set up ${_qiConfig.ports.length} port(s) and ${_qiConfig.volumes.length} volume(s) automatically.`;
     }
   } catch (_) {
     document.getElementById('qi-loading').style.display = 'none';
@@ -1064,7 +1139,10 @@ document.getElementById('qi-install').addEventListener('click', async () => {
     await api('POST', '/api/containers', {
       image, name: name || undefined,
       pull: true, restart: 'unless-stopped',
-      ports: [], volumes: [], env: [], labels: [],
+      ports:   _qiConfig.ports,
+      volumes: _qiConfig.volumes.filter(v => v.host && v.container),
+      env:     _qiConfig.env.filter(e => e.key),
+      labels:  [],
     });
     toast(t('qi.installed').replace('{name}', name || image));
     closeModal('modal-qi');
@@ -1080,11 +1158,30 @@ document.getElementById('qi-open-full').addEventListener('click', () => {
   const image = document.getElementById('qi-image').value.trim();
   const name  = document.getElementById('qi-name').value.trim();
   closeModal('modal-qi');
-  // Existierendes Create-Modal mit Werten vorausfüllen
-  document.getElementById('c-image').value = image;
-  document.getElementById('c-name').value  = name;
-  ['c-ports','c-vols','c-envs','c-labels'].forEach((id) => (document.getElementById(id).innerHTML = ''));
-  document.getElementById('c-ports').appendChild(portRow());
+
+  // Wenn Compose-Snippet vorhanden → direkt in Compose-Tab einfügen
+  if (_qiSnippet.compose) {
+    document.getElementById('c-image').value = image;
+    document.getElementById('c-name').value  = name;
+    document.getElementById('docker-compose-input').value = _qiSnippet.compose;
+    const parsed = parseDockerCompose(_qiSnippet.compose);
+    // Image + Name aus QI behalten (ist genauer als was im Snippet steht)
+    parsed.image = image;
+    parsed.name  = name;
+    fillCreateForm(parsed);
+    openModal('modal-create');
+    return;
+  }
+
+  // Sonst: erkannte Registry-Daten vorausfüllen (Host-Pfade leer lassen)
+  fillCreateForm({
+    image,
+    name,
+    ports:   _qiConfig.ports,
+    volumes: _qiConfig.volumes.map(v => ({ host: '', container: v.container })),
+    env:     _qiConfig.env,
+    labels:  [],
+  });
   document.getElementById('c-pull').checked = true;
   openModal('modal-create');
 });
