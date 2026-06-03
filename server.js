@@ -898,10 +898,12 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
   if (adminPassword.length < 8) {
     return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
   }
+  const trimmedUser = adminUser.trim();
   saveConfig({
-    adminUser: adminUser.trim(),
+    adminUser: trimmedUser,
     adminPassword,
     serverName: (serverName || 'Hearth').trim(),
+    users: [{ username: trimmedUser, password: adminPassword, role: 'admin' }],
   });
   res.json({ ok: true });
 }));
