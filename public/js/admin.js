@@ -886,79 +886,62 @@ document.getElementById('c-submit').addEventListener('click', async () => {
   }
 });
 
-// ---------- Hearth-Einstellungen ----------
+// ---------- Settings ----------
+let _currentRole = null;
+
 function openSettings() {
   openModal('modal-settings');
   loadSettings();
 }
 document.getElementById('open-settings').addEventListener('click', openSettings);
 document.getElementById('btn-settings').addEventListener('click', openSettings);
+document.getElementById('s-lang').addEventListener('change', function () { applyLang(this.value); });
 
-document.getElementById('s-lang').addEventListener('change', function () {
-  applyLang(this.value);
-});
-
-document.getElementById('pw-toggle').addEventListener('click', () => {
-  const fields = document.getElementById('pw-fields');
-  const btn = document.getElementById('pw-toggle');
-  const open = fields.style.display === 'none';
-  fields.style.display = open ? 'block' : 'none';
-  btn.textContent = open ? '− Passwort ändern' : '+ Passwort ändern';
-  if (!open) ['s-curpw', 's-newpw', 's-newpw2'].forEach((id) => (document.getElementById(id).value = ''));
+// Show/hide auto-update time fields based on toggle
+document.getElementById('s-autoupdate-enabled').addEventListener('change', function () {
+  document.getElementById('s-autoupdate-time').style.display = this.checked ? 'flex' : 'none';
 });
 
 async function loadSettings() {
-  // Passwort-Bereich zurücksetzen
-  document.getElementById('pw-fields').style.display = 'none';
-  document.getElementById('pw-toggle').textContent = '+ Passwort ändern';
-  ['s-curpw', 's-newpw', 's-newpw2'].forEach((id) => (document.getElementById(id).value = ''));
-
   try {
     const s = await api('GET', '/api/settings');
-    applyLang(s.lang || 'de');
-    document.getElementById('s-servername').value = s.serverName;
-    document.getElementById('s-username').value = s.adminUser;
-    document.getElementById('s-lang').value = s.lang || 'de';
-    document.getElementById('s-showoffline').checked = !!s.showOfflineApps;
-    document.getElementById('s-refresh').value = String(s.refreshInterval ?? 15);
-    document.getElementById('s-port').textContent = s.port;
+    applyLang(s.lang || 'en');
+    document.getElementById('s-servername').value       = s.serverName || '';
+    document.getElementById('s-lang').value             = s.lang || 'en';
+    document.getElementById('s-showoffline').checked    = !!s.showOfflineApps;
+    document.getElementById('s-refresh').value          = String(s.refreshInterval ?? 15);
+    document.getElementById('s-port').textContent       = s.port;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
-    document.getElementById('s-filesroot').textContent = s.filesRoot;
-    document.getElementById('s-version').textContent = 'v' + s.version;
+    document.getElementById('s-filesroot').textContent  = s.filesRoot;
+    document.getElementById('s-version').textContent    = `v${s.version}${s.sha && s.sha !== 'unknown' ? ` (${s.sha})` : ''}`;
+
+    const au = s.autoUpdate ?? { enabled: true, hour: 0, minute: 0 };
+    document.getElementById('s-autoupdate-enabled').checked = !!au.enabled;
+    document.getElementById('s-autoupdate-hour').value   = au.hour   ?? 0;
+    document.getElementById('s-autoupdate-minute').value = String(au.minute ?? 0).padStart(2, '0');
+    document.getElementById('s-autoupdate-time').style.display = au.enabled ? 'flex' : 'none';
   } catch (e) {
     toast(e.message, 'error');
   }
 }
 
 document.getElementById('s-save').addEventListener('click', async () => {
-  const serverName = document.getElementById('s-servername').value.trim();
-  const adminUser = document.getElementById('s-username').value.trim();
-  const lang = document.getElementById('s-lang').value;
+  const serverName      = document.getElementById('s-servername').value.trim();
+  const lang            = document.getElementById('s-lang').value;
   const showOfflineApps = document.getElementById('s-showoffline').checked;
   const refreshInterval = Number(document.getElementById('s-refresh').value);
-  const curpw = document.getElementById('s-curpw').value;
-  const newpw = document.getElementById('s-newpw').value;
-  const newpw2 = document.getElementById('s-newpw2').value;
-
-  if (!adminUser) { toast('Benutzername darf nicht leer sein', 'error'); return; }
-
-  const pwOpen = document.getElementById('pw-fields').style.display !== 'none';
-  if (pwOpen && newpw) {
-    if (newpw.length < 8) { toast('Neues Passwort muss mindestens 8 Zeichen haben', 'error'); return; }
-    if (newpw !== newpw2) { toast('Passwörter stimmen nicht überein', 'error'); return; }
-    if (!curpw) { toast('Bitte aktuelles Passwort eingeben', 'error'); return; }
-  }
-
-  const payload = { serverName, adminUser, lang, showOfflineApps, refreshInterval };
-  if (pwOpen && newpw) { payload.newPassword = newpw; payload.currentPassword = curpw; }
+  const autoUpdate = {
+    enabled: document.getElementById('s-autoupdate-enabled').checked,
+    hour:    parseInt(document.getElementById('s-autoupdate-hour').value)   || 0,
+    minute:  parseInt(document.getElementById('s-autoupdate-minute').value) || 0,
+  };
 
   const btn = document.getElementById('s-save');
   btn.disabled = true;
   try {
-    await api('POST', '/api/settings', payload);
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
-    // Auto-Refresh neu starten mit neuem Intervall
     applyRefreshInterval(refreshInterval);
   } catch (e) {
     toast(e.message, 'error');
@@ -966,6 +949,148 @@ document.getElementById('s-save').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// ---------- Notifications ----------
+function toggleNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  const open  = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'flex';
+  if (!open) loadNotifications();
+}
+
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('notif-wrap');
+  if (wrap && !wrap.contains(e.target)) document.getElementById('notif-panel').style.display = 'none';
+});
+
+async function loadNotifications() {
+  try {
+    const list = await api('GET', '/api/notifications');
+    renderNotifications(list);
+  } catch (_) {}
+}
+
+function renderNotifications(list) {
+  const badge = document.getElementById('notif-badge');
+  const el    = document.getElementById('notif-list');
+  const unread = list.filter(n => !n.read).length;
+  badge.textContent   = unread;
+  badge.style.display = unread ? '' : 'none';
+
+  if (!list.length) {
+    el.innerHTML = `<div class="notif-empty">${t('notif.empty')}</div>`;
+    return;
+  }
+  const icons = { update: '🔼', 'update-done': '✅', error: '⚠️', info: 'ℹ️' };
+  el.innerHTML = list.map(n => `
+    <div class="notif-item ${n.read ? '' : 'unread'}" data-id="${n.id}" data-action='${JSON.stringify(n.action || {})}'>
+      <div class="notif-item-icon">${icons[n.type] || 'ℹ️'}</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">${esc(n.title)}</div>
+        <div class="notif-item-msg">${esc(n.body)}</div>
+        <div class="notif-item-time">${new Date(n.ts).toLocaleString()}</div>
+      </div>
+    </div>`).join('');
+
+  el.querySelectorAll('.notif-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const id = Number(item.dataset.id);
+      api('POST', `/api/notifications/${id}/read`).catch(() => {});
+      item.classList.remove('unread');
+      const unreadNow = el.querySelectorAll('.unread').length;
+      const badge = document.getElementById('notif-badge');
+      badge.textContent = unreadNow;
+      badge.style.display = unreadNow ? '' : 'none';
+
+      const action = JSON.parse(item.dataset.action || '{}');
+      if (action.section === 'updates') { document.getElementById('notif-panel').style.display = 'none'; openSettings(); }
+    });
+  });
+}
+
+async function markAllRead() {
+  await api('POST', '/api/notifications/read-all').catch(() => {});
+  document.getElementById('notif-badge').style.display = 'none';
+  document.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+}
+
+// Poll for notifications every 30s
+setInterval(async () => {
+  try { const list = await api('GET', '/api/notifications'); renderNotifications(list); } catch (_) {}
+}, 30000);
+loadNotifications();
+
+// ---------- Security modal ----------
+document.getElementById('sec-save-own').addEventListener('click', async () => {
+  const newUsername = document.getElementById('sec-new-username').value.trim();
+  const newPassword = document.getElementById('sec-new-password').value;
+  const currentPassword = document.getElementById('sec-cur-password').value;
+
+  if (!newUsername && !newPassword) { toast(t('security.nothingToChange'), 'error'); return; }
+  if (!currentPassword) { toast(t('security.currentRequired'), 'error'); return; }
+  if (newPassword && newPassword.length < 8) { toast(t('security.pwTooShort'), 'error'); return; }
+
+  const me = await api('GET', '/api/me');
+  const payload = { currentPassword };
+  if (newUsername) payload.newUsername = newUsername;
+  if (newPassword) payload.newPassword = newPassword;
+
+  try {
+    await api('PATCH', `/api/users/${me.user}`, payload);
+    toast(t('security.saved'));
+    ['sec-new-username', 'sec-new-password', 'sec-cur-password'].forEach(id => document.getElementById(id).value = '');
+    if (newUsername) toast(t('security.usernameChanged'));
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+async function loadUserList() {
+  const section = document.getElementById('sec-users-section');
+  if (_currentRole !== 'admin') { section.style.display = 'none'; return; }
+  section.style.display = '';
+  try {
+    const users = await api('GET', '/api/users');
+    const me    = (await api('GET', '/api/me')).user;
+    const list  = document.getElementById('sec-user-list');
+    list.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="flex:1;font-size:13px">${esc(u.username)}${u.username===me?' <span style="color:var(--text-dim)">(you)</span>':''}</span>
+        <span class="s-badge" style="font-size:11px">${esc(u.role)}</span>
+        ${u.username !== me ? `<button class="btn sm danger" data-del="${esc(u.username)}">✕</button>` : ''}
+      </div>`).join('');
+    list.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Delete user "${btn.dataset.del}"?`)) return;
+        try { await api('DELETE', `/api/users/${btn.dataset.del}`); loadUserList(); } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('sec-add-btn').addEventListener('click', async () => {
+  const username = document.getElementById('sec-add-username').value.trim();
+  const password = document.getElementById('sec-add-password').value;
+  const role     = document.getElementById('sec-add-role').value;
+  if (!username || !password) { toast(t('security.fillAll'), 'error'); return; }
+  try {
+    await api('POST', '/api/users', { username, password, role });
+    document.getElementById('sec-add-username').value = '';
+    document.getElementById('sec-add-password').value = '';
+    toast(t('security.userAdded'));
+    loadUserList();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// Load user list whenever security modal opens
+document.getElementById('modal-security').addEventListener('click', e => {
+  if (e.target.closest('.modal') && !document.getElementById('sec-user-list').children.length) loadUserList();
+});
+// Also load when first opened
+document.querySelectorAll('[onclick*="modal-security"]').forEach(el => {
+  el.addEventListener('click', loadUserList);
+});
+
+// Fetch own role on page load
+api('GET', '/api/me').then(me => { _currentRole = me.role; }).catch(() => {});
 
 document.getElementById('s-restart').addEventListener('click', async () => {
   if (!confirm(t('settings.restart') + '?')) return;

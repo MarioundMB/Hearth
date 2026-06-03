@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hearth · Einrichtung</title>
+    <title>Hearth · Setup</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/css/style.css" />
     <style>
@@ -194,35 +194,35 @@
 
       <div class="setup-panel panel">
 
-        <!-- Schritt 0: Willkommen -->
+        <!-- Step 0: Welcome -->
         <div class="step-view active" id="step-0">
-          <div class="welcome-logo">▲</div>
-          <div class="setup-title">Willkommen bei Hearth</div>
+          <div class="welcome-logo"><img src="/favicon.svg" alt="Hearth" width="52" height="52" style="border-radius:14px;display:block"></div>
+          <div class="setup-title">Welcome to Hearth</div>
           <div class="setup-sub">
-            In wenigen Schritten richtest du dein Home-Server-Panel ein.
-            Du legst ein Admin-Konto an, gibst deinem Server einen Namen
-            und bist dann startklar.
+            Set up your home server panel in just a few steps.
+            Create an admin account, give your server a name,
+            and you're ready to go.
           </div>
           <div class="setup-foot">
-            <button class="btn primary" onclick="goTo(1)">Einrichtung starten →</button>
+            <button class="btn primary" onclick="goTo(1)">Get started →</button>
           </div>
         </div>
 
-        <!-- Schritt 1: Admin-Konto -->
+        <!-- Step 1: Admin account -->
         <div class="step-view" id="step-1">
-          <div class="setup-title">Admin-Konto</div>
-          <div class="setup-sub">Dieser Account ist der einzige Zugang zum Verwaltungsbereich.</div>
+          <div class="setup-title">Admin account</div>
+          <div class="setup-sub">This account is the only way to access the admin panel.</div>
 
           <div class="field">
-            <label for="adminUser">Benutzername</label>
+            <label for="adminUser">Username</label>
             <input class="input" id="adminUser" autocomplete="username"
-              placeholder="z.B. admin" />
+              placeholder="e.g. admin" />
           </div>
 
           <div class="field">
-            <label for="adminPassword">Passwort</label>
+            <label for="adminPassword">Password</label>
             <input class="input" id="adminPassword" type="password"
-              autocomplete="new-password" placeholder="Mindestens 8 Zeichen" />
+              autocomplete="new-password" placeholder="At least 8 characters" />
             <div class="pw-strength">
               <div class="pw-bar" id="bar0"></div>
               <div class="pw-bar" id="bar1"></div>
@@ -233,44 +233,44 @@
           </div>
 
           <div class="field">
-            <label for="adminPasswordConfirm">Passwort bestätigen</label>
+            <label for="adminPasswordConfirm">Confirm password</label>
             <input class="input" id="adminPasswordConfirm" type="password"
-              autocomplete="new-password" placeholder="Passwort wiederholen" />
+              autocomplete="new-password" placeholder="Repeat password" />
           </div>
 
           <div class="setup-foot spread">
-            <button class="btn ghost" onclick="goTo(0)">← Zurück</button>
-            <button class="btn primary" onclick="nextFromAccount()">Weiter →</button>
+            <button class="btn ghost" onclick="goTo(0)">← Back</button>
+            <button class="btn primary" onclick="nextFromAccount()">Next →</button>
           </div>
         </div>
 
-        <!-- Schritt 2: Server-Name -->
+        <!-- Step 2: Server name -->
         <div class="step-view" id="step-2">
-          <div class="setup-title">Server benennen</div>
-          <div class="setup-sub">Der Name erscheint in der Gäste-Ansicht und im Browser-Tab.</div>
+          <div class="setup-title">Name your server</div>
+          <div class="setup-sub">The name appears in the guest view and in the browser tab.</div>
 
           <div class="field">
-            <label for="serverName">Server-Name</label>
+            <label for="serverName">Server name</label>
             <input class="input" id="serverName" placeholder="Hearth" value="Hearth" />
-            <div class="hint">Leer lassen für „Hearth".</div>
+            <div class="hint">Leave blank to use "Hearth".</div>
           </div>
 
           <div class="setup-foot spread">
-            <button class="btn ghost" onclick="goTo(1)">← Zurück</button>
-            <button class="btn primary" id="finishBtn" onclick="finish()">Einrichtung abschließen</button>
+            <button class="btn ghost" onclick="goTo(1)">← Back</button>
+            <button class="btn primary" id="finishBtn" onclick="finish()">Finish setup</button>
           </div>
         </div>
 
-        <!-- Schritt 3: Fertig -->
+        <!-- Step 3: Done -->
         <div class="step-view" id="step-3">
           <div class="success-icon">✓</div>
-          <div class="success-title">Hearth ist bereit!</div>
+          <div class="success-title">Hearth is ready!</div>
           <div class="success-sub" style="margin-bottom:28px">
-            Dein Admin-Konto wurde gespeichert.<br>
-            Du kannst dich jetzt anmelden.
+            Your admin account has been saved.<br>
+            You can now sign in.
           </div>
           <div class="setup-foot" style="justify-content:center">
-            <a class="btn primary" href="/login">Zum Login →</a>
+            <a class="btn primary" href="/login">Go to login →</a>
           </div>
         </div>
 

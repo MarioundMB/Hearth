@@ -62,12 +62,13 @@ let runtimeConfig = {
   serverName: process.env.SERVER_NAME || 'Hearth',
   sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   setupDone: !!(process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD !== 'changeme'),
-  lang: 'de',
+  lang: 'en',
   showOfflineApps: false,
   refreshInterval: 15,
   proxyRules: [],
-  // Container names/IDs hidden from the guest page (admin-controlled)
   guestHidden: [],
+  users: [],
+  autoUpdate: { enabled: true, hour: 0, minute: 0 },
 };
 
 // In-memory URL cache: populated while containers are running so we can
@@ -93,10 +94,20 @@ function saveConfig(updates) {
 
 loadConfig();
 
+// Migrate single-user to users array (runs once on first start after upgrade)
+if (!runtimeConfig.users?.length) {
+  runtimeConfig.users = [{
+    username: runtimeConfig.adminUser || 'admin',
+    password: runtimeConfig.adminPassword || 'changeme',
+    role: 'admin',
+  }];
+  if (runtimeConfig.setupDone) saveConfig({ users: runtimeConfig.users });
+}
+
 if (!runtimeConfig.setupDone) {
-  console.log('\x1b[33m[SETUP] Erster Start → Setup-Wizard unter http://localhost:' + PORT + '/setup\x1b[0m');
+  console.log('\x1b[33m[SETUP] First run → Setup wizard at http://localhost:' + PORT + '/setup\x1b[0m');
 } else if (runtimeConfig.adminPassword === 'changeme') {
-  console.warn('\x1b[33m[WARNUNG] Standard-Passwort "changeme" ist aktiv!\x1b[0m');
+  console.warn('\x1b[33m[WARNING] Default password "changeme" is active!\x1b[0m');
 }
 
 // Nginx starten (läuft parallel zum Express-Server)
@@ -125,7 +136,13 @@ app.use(
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.authed) return next();
-  return res.status(401).json({ error: 'Nicht angemeldet' });
+  return res.status(401).json({ error: 'Not authenticated' });
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.session?.authed) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.session.role !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  next();
 }
 
 // ── Guest-port isolation ─────────────────────────────────────────────────
@@ -815,18 +832,18 @@ app.get('/api/lang', (req, res) => {
 
 app.get('/api/settings', requireAuth, (req, res) => {
   res.json({
-    // Bearbeitbar
     serverName: runtimeConfig.serverName,
-    adminUser: runtimeConfig.adminUser,
-    lang: runtimeConfig.lang || 'de',
-    showOfflineApps: !!runtimeConfig.showOfflineApps,
-    refreshInterval: runtimeConfig.refreshInterval ?? 15,
-    // Nur Info
-    port: PORT,
+    adminUser:  runtimeConfig.adminUser,
+    lang:       runtimeConfig.lang || 'en',
+    showOfflineApps:  !!runtimeConfig.showOfflineApps,
+    refreshInterval:  runtimeConfig.refreshInterval ?? 15,
+    autoUpdate: runtimeConfig.autoUpdate ?? { enabled: true, hour: 0, minute: 0 },
+    port:        PORT,
     dockerSocket: DOCKER_SOCKET,
-    filesRoot: FILES_ROOT,
-    dataDir:   DATA_DIR,
-    version: VERSION,
+    filesRoot:   FILES_ROOT,
+    dataDir:     DATA_DIR,
+    version:     VERSION,
+    sha:         HEARTH_SHA,
   });
 });
 
@@ -835,34 +852,25 @@ app.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const {
-      serverName, adminUser, newPassword, currentPassword,
-      lang, showOfflineApps, refreshInterval,
+      serverName, lang, showOfflineApps, refreshInterval, autoUpdate,
     } = req.body || {};
     const updates = {};
 
     if (serverName !== undefined) updates.serverName = (serverName || '').trim() || 'Hearth';
-    if (adminUser !== undefined) {
-      if (!String(adminUser).trim()) {
-        return res.status(400).json({ error: 'Benutzername darf nicht leer sein' });
-      }
-      updates.adminUser = String(adminUser).trim();
-    }
     if (lang !== undefined) updates.lang = lang;
     if (showOfflineApps !== undefined) updates.showOfflineApps = !!showOfflineApps;
     if (refreshInterval !== undefined) updates.refreshInterval = Number(refreshInterval) || 0;
 
-    if (newPassword) {
-      if (newPassword.length < 8) {
-        return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein' });
-      }
-      const curBuf = Buffer.from(String(currentPassword || ''));
-      const refBuf = Buffer.from(runtimeConfig.adminPassword);
-      const ok = curBuf.length === refBuf.length && crypto.timingSafeEqual(curBuf, refBuf);
-      if (!ok) return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
-      updates.adminPassword = newPassword;
+    if (autoUpdate && typeof autoUpdate === 'object') {
+      updates.autoUpdate = {
+        enabled: autoUpdate.enabled !== false,
+        hour:    Math.max(0, Math.min(23, parseInt(autoUpdate.hour)   || 0)),
+        minute:  Math.max(0, Math.min(59, parseInt(autoUpdate.minute) || 0)),
+      };
     }
 
     saveConfig(updates);
+    if (updates.autoUpdate) scheduleNightlyUpdate();
     res.json({ ok: true });
   })
 );
@@ -903,19 +911,19 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
-  // Konstantzeit-Vergleich, um Timing-Angriffe zu erschweren
-  const userOk = username === runtimeConfig.adminUser;
-  const passBuf = Buffer.from(String(password || ''));
-  const refBuf = Buffer.from(runtimeConfig.adminPassword);
-  const passOk =
-    passBuf.length === refBuf.length && crypto.timingSafeEqual(passBuf, refBuf);
+  const users = runtimeConfig.users || [];
+  const user  = users.find(u => u.username === username);
+  if (!user) return res.status(401).json({ error: 'Invalid username or password' });
 
-  if (userOk && passOk) {
-    req.session.authed = true;
-    req.session.user = username;
-    return res.json({ ok: true });
-  }
-  return res.status(401).json({ error: 'Benutzername oder Passwort falsch' });
+  const passBuf = Buffer.from(String(password || ''));
+  const refBuf  = Buffer.from(user.password);
+  const passOk  = passBuf.length === refBuf.length && crypto.timingSafeEqual(passBuf, refBuf);
+  if (!passOk) return res.status(401).json({ error: 'Invalid username or password' });
+
+  req.session.authed = true;
+  req.session.user   = username;
+  req.session.role   = user.role;
+  res.json({ ok: true, role: user.role });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -923,7 +931,109 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  res.json({ authed: !!(req.session && req.session.authed), user: req.session?.user || null });
+  res.json({
+    authed: !!(req.session?.authed),
+    user:   req.session?.user || null,
+    role:   req.session?.role || null,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User management (admin only)
+// ---------------------------------------------------------------------------
+app.get('/api/users', requireAuth, requireAdmin, (req, res) => {
+  res.json((runtimeConfig.users || []).map(u => ({ username: u.username, role: u.role })));
+});
+
+app.post('/api/users', requireAuth, requireAdmin, (req, res) => {
+  const { username, password, role = 'viewer' } = req.body || {};
+  if (!username?.trim() || !password) return res.status(400).json({ error: 'username and password required' });
+  if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  const users = runtimeConfig.users || [];
+  if (users.find(u => u.username === username.trim())) return res.status(409).json({ error: 'Username already taken' });
+  users.push({ username: username.trim(), password, role });
+  saveConfig({ users });
+  res.json({ ok: true });
+});
+
+app.delete('/api/users/:username', requireAuth, requireAdmin, (req, res) => {
+  const { username } = req.params;
+  if (username === req.session.user) return res.status(400).json({ error: "Cannot delete your own account" });
+  const users = runtimeConfig.users || [];
+  const target = users.find(u => u.username === username);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1)
+    return res.status(400).json({ error: 'Cannot delete the last admin' });
+  saveConfig({ users: users.filter(u => u.username !== username) });
+  res.json({ ok: true });
+});
+
+// Update own credentials (any user) or another user's role (admin only)
+app.patch('/api/users/:username', requireAuth, (req, res) => {
+  const { username } = req.params;
+  const isSelf  = username === req.session.user;
+  const isAdmin = req.session.role === 'admin';
+  if (!isSelf && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  const users = runtimeConfig.users || [];
+  const user  = users.find(u => u.username === username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const { currentPassword, newPassword, newUsername, role } = req.body || {};
+
+  if (newPassword || newUsername) {
+    if (!currentPassword) return res.status(400).json({ error: 'Current password required' });
+    const a = Buffer.from(String(currentPassword)), b = Buffer.from(user.password);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b))
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    if (newPassword) {
+      if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      user.password = newPassword;
+    }
+    if (newUsername) {
+      const trim = newUsername.trim();
+      if (users.find(u => u.username === trim && u.username !== username))
+        return res.status(409).json({ error: 'Username already taken' });
+      user.username = trim;
+      if (isSelf) req.session.user = trim;
+    }
+  }
+  if (role && isAdmin && !isSelf) {
+    if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+    if (user.role === 'admin' && role !== 'admin' && users.filter(u => u.role === 'admin').length <= 1)
+      return res.status(400).json({ error: 'Cannot demote the last admin' });
+    user.role = role;
+  }
+  saveConfig({ users });
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Notifications (in-memory, per session reset)
+// ---------------------------------------------------------------------------
+const _notifs = [];
+let   _notifSeq = 1;
+
+function addNotif(type, title, body, action = null) {
+  if (type === 'update') {
+    const idx = _notifs.findIndex(n => n.type === 'update');
+    if (idx >= 0) _notifs.splice(idx, 1);
+  }
+  _notifs.unshift({ id: _notifSeq++, type, title, body, action, ts: Date.now(), read: false });
+  if (_notifs.length > 50) _notifs.pop();
+}
+
+app.get('/api/notifications', requireAuth, (req, res) => res.json(_notifs));
+
+app.post('/api/notifications/read-all', requireAuth, (req, res) => {
+  _notifs.forEach(n => (n.read = true));
+  res.json({ ok: true });
+});
+
+app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
+  const n = _notifs.find(n => n.id === Number(req.params.id));
+  if (n) n.read = true;
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -1102,6 +1212,12 @@ app.get(
       }
     } catch (_) {}
 
+    if (hearthUpdate?.hasUpdate) {
+      addNotif('update', 'Hearth update available',
+        `${hearthUpdate.localSha} → ${hearthUpdate.sha}: ${hearthUpdate.message}`,
+        { section: 'updates' });
+    }
+
     const result = { containers: containerUpdates, hearth: hearthUpdate, ts: Date.now() };
     _updateCache = { ts: Date.now(), data: result };
     res.json({ ...result, cached: false });
@@ -1189,18 +1305,34 @@ async function runHearthSelfUpdate() {
   return { upToDate: false, sha: newSha };
 }
 
-// Nightly auto-update at 00:00 server time
+// Nightly auto-update — time and enabled flag read from runtimeConfig.autoUpdate
+let _nightlyTimer = null;
+
 function scheduleNightlyUpdate() {
-  const now  = new Date();
-  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
-  const delay = next - now;
-  setTimeout(() => {
-    console.log('[UPDATE] Running nightly auto-update…');
+  if (_nightlyTimer) { clearTimeout(_nightlyTimer); _nightlyTimer = null; }
+  const cfg = runtimeConfig.autoUpdate ?? { enabled: true, hour: 0, minute: 0 };
+  if (!cfg.enabled) { console.log('[UPDATE] Auto-update disabled.'); return; }
+
+  const hour   = Math.max(0, Math.min(23, cfg.hour   ?? 0));
+  const minute = Math.max(0, Math.min(59, cfg.minute ?? 0));
+  const now    = new Date();
+  let   next   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+
+  _nightlyTimer = setTimeout(() => {
+    _nightlyTimer = null;
+    console.log('[UPDATE] Running scheduled auto-update…');
     runHearthSelfUpdate()
-      .then(r => console.log(r.upToDate ? '[UPDATE] Already up to date.' : `[UPDATE] Updated to ${r.sha}.`))
-      .catch(e => console.error('[UPDATE] Nightly update failed:', e.message));
+      .then(r => {
+        if (!r.upToDate) addNotif('update-done', 'Hearth updated', `Successfully updated to ${r.sha}.`, { section: 'updates' });
+        console.log(r.upToDate ? '[UPDATE] Already up to date.' : `[UPDATE] Updated to ${r.sha}.`);
+      })
+      .catch(e => {
+        addNotif('error', 'Auto-update failed', e.message);
+        console.error('[UPDATE] Auto-update failed:', e.message);
+      });
     scheduleNightlyUpdate();
-  }, delay);
+  }, next - now);
   console.log(`[UPDATE] Next auto-update scheduled at ${next.toLocaleString()}`);
 }
 
