@@ -807,7 +807,7 @@ app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { action, port, proto, from = 'any', comment = '' } = req.body || {};
   if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
-  const protoStr = proto ? `/${proto}` : '';
+  const protoStr = proto && proto !== 'any' ? ` proto ${proto}` : '';
   const fromStr  = from && from !== 'any' ? ` from ${from}` : '';
   const cmd = `ufw ${action}${fromStr} to any port ${port}${protoStr} && ufw status numbered`;
   const result = await fwExec(cmd);
