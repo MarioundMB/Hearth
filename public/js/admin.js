@@ -1288,7 +1288,7 @@ document.getElementById('qi-open-full').addEventListener('click', () => {
   if (_qiSnippet.compose) {
     document.getElementById('c-image').value = image;
     document.getElementById('c-name').value  = name;
-    document.getElementById('docker-compose-input').value = _qiSnippet.compose;
+    document.getElementById('compose-input').value = _qiSnippet.compose;
     const parsed = parseDockerCompose(_qiSnippet.compose);
     // Image + Name aus QI behalten (ist genauer als was im Snippet steht)
     parsed.image = image;
@@ -1875,6 +1875,7 @@ async function updateContainer(id, name) {
   if (!confirm(t('update.confirm').replace('{name}', name))) return;
   const btn = document.querySelector(`[data-cid="${id}"] .update-dot`);
   if (btn) btn.textContent = '⟳';
+  toast(t('update.pulling').replace('{name}', name), 'info');
   try {
     await api('POST', `/api/updates/container/${id}`);
     toast(t('update.done').replace('{name}', name));
