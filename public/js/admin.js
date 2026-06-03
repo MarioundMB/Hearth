@@ -503,20 +503,72 @@ document.getElementById('refresh-containers').addEventListener('click', () => {
   updateMonitor();
 });
 
+// ---------- ANSI → HTML ----------
+function ansiToHtml(text) {
+  const FG = { 30:'#555',31:'#e06c75',32:'#98c379',33:'#e5c07b',34:'#61afef',35:'#c678dd',36:'#56b6c2',37:'#abb2bf',
+                90:'#666',91:'#ff6b6b',92:'#a9ff68',93:'#ffe168',94:'#74b9ff',95:'#fd79a8',96:'#81ecec',97:'#fff' };
+  const BG = { 40:'#000',41:'#800',42:'#080',43:'#880',44:'#008',45:'#808',46:'#088',47:'#ccc' };
+  const parts = text.split(/\x1b\[([0-9;]*)m/);
+  let out = '', bold = false, fg = null, bg = null;
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) { out += esc(parts[i]); continue; }
+    for (const code of parts[i].split(';').map(Number)) {
+      if (code === 0) { bold = false; fg = bg = null; }
+      else if (code === 1) bold = true;
+      else if (FG[code]) fg = FG[code];
+      else if (BG[code]) bg = BG[code];
+      else if (code === 39) fg = null;
+      else if (code === 49) bg = null;
+    }
+    const style = [fg ? `color:${fg}` : '', bg ? `background:${bg}` : '', bold ? 'font-weight:bold' : ''].filter(Boolean).join(';');
+    out += `</span><span style="${style}">`;
+  }
+  return `<span>${out}</span>`;
+}
+
 // ---------- Logs-Modal ----------
-async function openLogs(id, name) {
-  document.getElementById('logs-title').textContent = 'Logs · ' + name;
-  document.getElementById('logs-body').textContent = 'Lade…';
-  openModal('modal-logs');
+let _logsInterval = null;
+let _logsCurrentId = null;
+
+function _stopLogsPolling() {
+  if (_logsInterval) { clearInterval(_logsInterval); _logsInterval = null; }
+}
+
+async function _fetchAndRenderLogs(id) {
   try {
     const txt = await api('GET', `/api/containers/${id}/logs?tail=300`);
-    document.getElementById('logs-body').textContent = txt || '(keine Ausgabe)';
     const pre = document.getElementById('logs-body');
-    pre.scrollTop = pre.scrollHeight;
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.innerHTML = ansiToHtml(txt || '(keine Ausgabe)');
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
   } catch (e) {
     document.getElementById('logs-body').textContent = 'Fehler: ' + e.message;
   }
 }
+
+async function openLogs(id, name) {
+  _stopLogsPolling();
+  _logsCurrentId = id;
+  document.getElementById('logs-title').textContent = 'Logs · ' + name;
+  document.getElementById('logs-body').innerHTML = '<span style="opacity:.5">Lade…</span>';
+  document.getElementById('logs-live').checked = false;
+  openModal('modal-logs');
+  await _fetchAndRenderLogs(id);
+}
+
+document.getElementById('logs-live').addEventListener('change', (e) => {
+  _stopLogsPolling();
+  if (e.target.checked && _logsCurrentId) {
+    _logsInterval = setInterval(() => {
+      if (!document.getElementById('modal-logs').classList.contains('open')) {
+        _stopLogsPolling();
+        document.getElementById('logs-live').checked = false;
+        return;
+      }
+      _fetchAndRenderLogs(_logsCurrentId);
+    }, 2000);
+  }
+});
 
 // ---------- Images ----------
 async function loadImages() {
@@ -718,17 +770,32 @@ async function loadFiles(p) {
   }
 }
 
+const _EDITABLE_EXT = new Set([
+  'txt','md','json','yaml','yml','env','conf','cfg','ini','sh','bash','py','js','ts',
+  'html','css','xml','toml','nginx','gitignore','dockerfile','log','properties','htaccess',
+]);
+
+function isEditable(name, isDir) {
+  if (isDir) return false;
+  const ext = name.split('.').pop().toLowerCase();
+  return _EDITABLE_EXT.has(ext) || !name.includes('.');
+}
+
 function fileRow(f) {
   const full = (currentPath === '/' ? '' : currentPath) + '/' + f.name;
   const ic = getFileIconClass(f.name, f.isDir);
   const meta = f.isDir ? t('files.folder') : fmtBytes(f.size);
+  const editBtn = isEditable(f.name, f.isDir)
+    ? `<button class="iconbtn" title="Bearbeiten" data-edit="${esc(full)}" data-name="${esc(f.name)}">&#9997;</button>`
+    : '';
   return `
     <div class="fm-file-row" data-path="${esc(full)}" data-isdir="${f.isDir}" data-name="${esc(f.name)}">
       <div class="fm-file-icon ${ic}">${FILE_ICONS[ic] || FILE_ICONS['']}</div>
       <div class="fm-file-name">${esc(f.name)}</div>
       <div class="fm-file-meta">${esc(meta)}&nbsp;·&nbsp;${fmtTime(f.mtime)}</div>
       <div class="fm-file-actions">
-        ${f.isDir ? '' : `<button class="iconbtn" title="Download" data-dl="${esc(full)}">&#8595;</button>`}
+        <button class="iconbtn" title="${f.isDir ? 'Als .tar.gz herunterladen' : 'Download'}" data-dl="${esc(full)}">&#8595;</button>
+        ${editBtn}
         <button class="iconbtn" title="${t('files.copy')}" data-cp="${esc(full)}" data-name="${esc(f.name)}">&#9138;</button>
         <button class="iconbtn" title="${t('files.cut')}" data-cut="${esc(full)}" data-name="${esc(f.name)}">&#9988;</button>
         <button class="iconbtn" title="${t('files.rename')}" data-rn="${esc(full)}" data-name="${esc(f.name)}">&#9998;</button>
@@ -749,6 +816,12 @@ document.getElementById('files').addEventListener('click', async (e) => {
   const dl = e.target.closest('[data-dl]');
   if (dl) {
     window.location = '/api/files/download?path=' + encodeURIComponent(dl.dataset.dl);
+    return;
+  }
+
+  const ed = e.target.closest('[data-edit]');
+  if (ed) {
+    openFileEditor(ed.dataset.edit, ed.dataset.name);
     return;
   }
 
@@ -2415,3 +2488,47 @@ applyRefreshInterval(15);
 // Update-Check: beim Start und dann alle 30 Minuten
 checkUpdates();
 setInterval(checkUpdates, 30 * 60 * 1000);
+
+// ---------- Text-Datei-Editor ----------
+let _editorPath = null;
+
+async function openFileEditor(filePath, name) {
+  _editorPath = filePath;
+  document.getElementById('editor-title').textContent = 'Bearbeiten · ' + name;
+  const body = document.getElementById('editor-body');
+  body.value = 'Lade…';
+  body.disabled = true;
+  openModal('modal-editor');
+  try {
+    const txt = await fetch('/api/files/content?path=' + encodeURIComponent(filePath), { credentials: 'same-origin' });
+    if (!txt.ok) { const e = await txt.json(); throw new Error(e.error || txt.statusText); }
+    body.value = await txt.text();
+    body.disabled = false;
+    body.focus();
+  } catch (e) {
+    body.value = 'Fehler: ' + e.message;
+  }
+}
+
+document.getElementById('editor-save-btn').addEventListener('click', async () => {
+  if (!_editorPath) return;
+  const btn = document.getElementById('editor-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Speichern…';
+  try {
+    const r = await fetch('/api/files/content', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: _editorPath, content: document.getElementById('editor-body').value }),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || r.statusText); }
+    toast('Datei gespeichert');
+    closeModal('modal-editor');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Speichern';
+  }
+});
