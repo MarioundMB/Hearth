@@ -254,6 +254,9 @@ function openContainerDetail(id, name) {
   pill.className = `pill ${running ? 'running' : 'stopped'}`;
   pill.innerHTML = `<span class="dot"></span>${running ? 'running' : c.state}`;
 
+  // Guest visibility toggle
+  document.getElementById('cd-guest-visible').checked = c.guestVisible !== false;
+
   document.getElementById('cd-m-image').textContent  = c.image;
   document.getElementById('cd-m-status').textContent = c.status;
   document.getElementById('cd-m-id').textContent     = c.shortId || id.slice(0, 12);
@@ -473,6 +476,13 @@ async function cdContainerAction(act) {
     loadContainers();
   } catch (e) { showDockerError(e.message); }
 }
+
+document.getElementById('cd-guest-visible').addEventListener('change', async function () {
+  try {
+    await api('POST', `/api/containers/${_cdCurrentId}/guest-visibility`, { visible: this.checked });
+    toast(this.checked ? 'Visible on guest page' : 'Hidden from guest page');
+  } catch (e) { toast(e.message, 'error'); this.checked = !this.checked; }
+});
 
 document.getElementById('cd-toggle-btn').addEventListener('click', () => {
   const running = document.getElementById('cd-pill').classList.contains('running');

@@ -1446,6 +1446,17 @@
               <div class="cd-meta-cell"><div class="cd-meta-k">Ports</div><div class="cd-meta-v" id="cd-m-ports">–</div></div>
               <div class="cd-meta-cell"><div class="cd-meta-k">ID</div><div class="cd-meta-v mono" id="cd-m-id">–</div></div>
             </div>
+            <!-- Guest page visibility toggle -->
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border);margin-top:4px">
+              <div>
+                <div style="font-size:13.5px;font-weight:500">🌐 Show on guest page</div>
+                <div style="font-size:12px;color:var(--text-faint);margin-top:2px">Visible even when offline</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="cd-guest-visible" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
             <div class="cd-action-row">
               <button class="btn primary cd-action-btn" id="cd-edit-btn" data-i18n="cd.edit">✎ Bearbeiten</button>
               <button class="btn cd-action-btn" id="cd-open-btn" style="display:none" data-i18n="cd.open">↗ Öffnen</button>

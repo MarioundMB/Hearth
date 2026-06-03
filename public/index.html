@@ -136,10 +136,23 @@
         background: var(--accent-glow);
       }
 
-      /* Stopped card */
-      .app-card.stopped .app-open-bar { color: var(--text-faint); }
-      .app-card.stopped .app-icon    { opacity: 0.5; }
-      .app-card.stopped .app-name    { color: var(--text-dim); }
+      /* Offline / stopped card — dimmed */
+      .app-card.offline .app-icon     { opacity: 0.45; filter: grayscale(60%); }
+      .app-card.offline .app-name     { color: var(--text-dim); }
+      .app-card.offline .app-open-bar { color: var(--text-faint); }
+      .app-card.offline:hover         { transform: none; box-shadow: none; }
+      .app-card.offline::after        { display: none; }
+
+      /* Status pill variants */
+      .pill.paused     { color: var(--warn); border-color: rgba(245,196,81,.35); }
+      .pill.paused .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+      .pill.restarting { color: var(--accent); border-color: rgba(196,240,66,.35); animation: blink 1.2s infinite; }
+      .pill.restarting .dot { background: var(--accent); }
+      .pill.starting   { color: var(--accent-dim); border-color: rgba(143,174,58,.35); }
+      .pill.starting .dot { background: var(--accent-dim); }
+      .pill.error      { color: var(--danger); border-color: rgba(255,107,94,.35); }
+      .pill.error .dot { background: var(--danger); }
+      @keyframes blink { 0%,100% { opacity:1 } 50% { opacity:.4 } }
 
       /* Reload button */
       .reload { cursor: pointer; }
