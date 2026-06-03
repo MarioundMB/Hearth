@@ -48,7 +48,8 @@
         flex-direction: column;
         align-items: center;
         justify-content: flex-start;
-        padding: 22px 16px 0;
+        /* bottom padding = open-bar height so content never slides behind it */
+        padding: 16px 12px 38px;
         border-radius: var(--radius);
         background: var(--panel);
         border: 1px solid var(--border);
@@ -81,17 +82,18 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 10px;
+        gap: 8px;
         text-align: center;
         width: 100%;
+        min-height: 0; /* allow shrinking */
       }
       .app-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 14px;
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
         display: grid;
         place-items: center;
-        font-size: 28px;
+        font-size: 24px;
         background: var(--panel-2);
         border: 1px solid var(--border);
         flex-shrink: 0;
