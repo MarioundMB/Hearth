@@ -777,6 +777,41 @@
       button.brand:hover { background: rgba(196, 240, 66, 0.06); }
       button.brand:hover .flame { box-shadow: 0 0 28px rgba(196, 240, 66, 0.3); }
 
+      /* ===== Notification bell ===== */
+      .notif-wrap { position: relative; }
+      .notif-btn  { position: relative; }
+      .notif-badge {
+        position: absolute; top: 2px; right: 2px;
+        background: var(--danger, #e74c3c); color: #fff;
+        font-size: 10px; font-weight: 700; line-height: 1;
+        padding: 2px 4px; border-radius: 99px; pointer-events: none;
+      }
+      .notif-panel {
+        position: absolute; top: calc(100% + 8px); right: 0; z-index: 200;
+        width: 340px; background: var(--panel); border: 1px solid var(--border);
+        border-radius: var(--radius); box-shadow: var(--shadow);
+        display: flex; flex-direction: column; overflow: hidden;
+      }
+      .notif-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
+        font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim);
+      }
+      .notif-empty { padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+      .notif-item {
+        display: flex; gap: 10px; padding: 10px 14px;
+        border-bottom: 1px solid var(--border); cursor: pointer;
+        transition: background 0.12s;
+      }
+      .notif-item:last-child { border-bottom: none; }
+      .notif-item:hover { background: var(--panel-2); }
+      .notif-item.unread { background: rgba(196,240,66,.04); }
+      .notif-item-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+      .notif-item-body { min-width: 0; }
+      .notif-item-title { font-size: 13px; font-weight: 600; }
+      .notif-item-msg   { font-size: 12px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .notif-item-time  { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
       /* ===== Einstellungs-Modal ===== */
       .settings-modal { max-width: 560px; }
       .settings-body {
@@ -904,10 +939,23 @@
     <header class="topbar">
       <div class="wrap topbar-inner">
         <button class="brand" id="open-settings" title="Hearth-Einstellungen">
-          <span class="flame">▲</span>
+          <img src="/favicon.svg" alt="Hearth" class="flame" width="28" height="28">
           <span>Hearth <small>Admin</small></span>
         </button>
         <div class="spacer"></div>
+        <!-- Notification bell -->
+        <div class="notif-wrap" id="notif-wrap">
+          <button class="btn ghost sm notif-btn" id="btn-bell" onclick="toggleNotifPanel()" title="Notifications">
+            🔔<span class="notif-badge" id="notif-badge" style="display:none">0</span>
+          </button>
+          <div class="notif-panel" id="notif-panel" style="display:none">
+            <div class="notif-head">
+              <span data-i18n="notif.title">Notifications</span>
+              <button class="btn ghost sm" onclick="markAllRead()" data-i18n="notif.markAllRead">Mark all read</button>
+            </div>
+            <div id="notif-list"><div class="notif-empty" data-i18n="notif.empty">No notifications</div></div>
+          </div>
+        </div>
         <button class="btn sm update-available" id="topbar-updates" style="display:none" onclick="checkUpdates(true)"></button>
         <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
@@ -1429,38 +1477,18 @@
             </div>
           </div>
 
-          <!-- Sicherheit -->
+          <!-- Security -->
           <div class="s-group">
-            <div class="s-group-title" data-i18n="settings.security">Sicherheit</div>
-
+            <div class="s-group-title" data-i18n="settings.security">Security</div>
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">👤</span>
-                <div><div class="s-label" data-i18n="settings.username">Admin-Benutzername</div></div>
-              </div>
-              <input class="input s-input" id="s-username" autocomplete="username" />
-            </div>
-
-            <div class="s-row" style="flex-direction:column;align-items:stretch;gap:0;min-height:auto;padding:12px 0">
-              <div style="display:flex;align-items:center;gap:13px">
                 <span class="s-icon">🔑</span>
-                <button class="pw-toggle" id="pw-toggle" data-i18n="settings.changePassword">+ Passwort ändern</button>
-              </div>
-              <div id="pw-fields" style="display:none;margin-top:14px;padding-left:37px">
-                <div class="field">
-                  <label data-i18n="settings.currentPassword">Aktuelles Passwort</label>
-                  <input class="input" id="s-curpw" type="password" autocomplete="current-password" />
-                </div>
-                <div class="field">
-                  <label data-i18n="settings.newPassword">Neues Passwort</label>
-                  <input class="input" id="s-newpw" type="password" autocomplete="new-password"
-                    placeholder="Mindestens 8 Zeichen" data-i18n-ph="settings.newPasswordHint" />
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label data-i18n="settings.confirmPassword">Neues Passwort bestätigen</label>
-                  <input class="input" id="s-newpw2" type="password" autocomplete="new-password" />
+                <div>
+                  <div class="s-label" data-i18n="settings.securityManage">Users &amp; Credentials</div>
+                  <div class="s-sub" data-i18n="settings.securityHint">Change password, username, manage users</div>
                 </div>
               </div>
+              <button class="btn sm ghost" onclick="openModal('modal-security')" data-i18n="settings.openSecurity">Open →</button>
             </div>
           </div>
 
@@ -1500,24 +1528,51 @@
               <div class="s-row-l">
                 <span class="s-icon">↑</span>
                 <div>
-                  <div class="s-label" data-i18n="settings.updateAvailable">Update verfügbar</div>
+                  <div class="s-label" data-i18n="settings.updateAvailable">Update available</div>
                   <div class="s-sub" id="hearth-update-hint"></div>
                 </div>
               </div>
-              <button class="btn sm primary" id="btn-hearth-update" onclick="updateHearth()" data-i18n="settings.updateBtn">Aktualisieren</button>
+              <button class="btn sm primary" id="btn-hearth-update" onclick="updateHearth()" data-i18n="settings.updateBtn">Update</button>
+            </div>
+
+            <!-- Auto-update config -->
+            <div class="s-row" style="flex-direction:column;align-items:stretch;gap:10px;min-height:auto;padding:12px 0">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:13px">
+                <div class="s-row-l" style="flex:1">
+                  <span class="s-icon">🔄</span>
+                  <div>
+                    <div class="s-label" data-i18n="settings.autoUpdateLabel">Auto-Update</div>
+                    <div class="s-sub" data-i18n="settings.autoUpdateHint">Automatically pull &amp; rebuild at scheduled time</div>
+                  </div>
+                </div>
+                <label class="toggle"><input type="checkbox" id="s-autoupdate-enabled"><span class="toggle-track"></span></label>
+              </div>
+              <div id="s-autoupdate-time" style="display:flex;align-items:center;gap:8px;padding-left:37px">
+                <span style="font-size:13px;color:var(--text-dim)" data-i18n="settings.autoUpdateAt">Daily at</span>
+                <input class="input" type="number" id="s-autoupdate-hour" min="0" max="23" style="width:56px;text-align:center" placeholder="0">
+                <span style="color:var(--text-dim)">:</span>
+                <input class="input" type="number" id="s-autoupdate-minute" min="0" max="59" style="width:56px;text-align:center" placeholder="00">
+                <span style="font-size:12px;color:var(--text-dim)" data-i18n="settings.serverTime">(server time)</span>
+              </div>
+            </div>
+
+            <!-- Check for updates button -->
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🔍</span>
+                <div><div class="s-label" data-i18n="settings.checkUpdates">Check for updates</div></div>
+              </div>
+              <button class="btn sm ghost" onclick="checkUpdates(true)" data-i18n="settings.checkUpdatesBtn">Check now</button>
             </div>
           </div>
 
         </div>
 
         <div class="modal-foot" style="justify-content:space-between">
+          <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Restart Hearth</button>
           <div style="display:flex;gap:8px">
-            <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Hearth neu starten</button>
-            <button class="btn ghost" id="s-check-updates" onclick="checkUpdates(true)" data-i18n="settings.checkUpdates">🔍 Nach Updates suchen</button>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
-            <button class="btn primary" id="s-save" data-i18n="settings.save">Speichern</button>
+            <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+            <button class="btn primary" id="s-save" data-i18n="settings.save">Save</button>
           </div>
         </div>
       </div>
@@ -1823,6 +1878,56 @@
             <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
             <button class="btn primary" id="qi-install" data-i18n="qi.install">⚡ Install</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security & Users Modal -->
+    <div class="modal-backdrop" id="modal-security">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-head">
+          <h3>🔑 <span data-i18n="security.title">Security &amp; Users</span></h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body" style="padding:0;max-height:70vh;overflow-y:auto">
+
+          <!-- Own credentials -->
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="security.ownAccount">Your account</div>
+            <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:10px">
+              <div class="field" style="margin:0">
+                <label data-i18n="security.newUsername">New username</label>
+                <input class="input" id="sec-new-username" autocomplete="username" placeholder="Leave blank to keep current">
+              </div>
+              <div class="field" style="margin:0">
+                <label data-i18n="security.newPassword">New password</label>
+                <input class="input" id="sec-new-password" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
+              </div>
+              <div class="field" style="margin:0">
+                <label data-i18n="security.currentPassword">Current password (required to save)</label>
+                <input class="input" id="sec-cur-password" type="password" autocomplete="current-password">
+              </div>
+              <button class="btn primary" id="sec-save-own" data-i18n="security.saveCredentials">Save credentials</button>
+            </div>
+          </div>
+
+          <!-- User list (admin only) -->
+          <div class="s-group" id="sec-users-section">
+            <div class="s-group-title" data-i18n="security.users">Users</div>
+            <div id="sec-user-list" style="padding:0 22px 8px"></div>
+            <div style="padding:0 22px 16px">
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <input class="input" id="sec-add-username" placeholder="Username" style="flex:1">
+                <input class="input" id="sec-add-password" type="password" placeholder="Password" style="flex:1">
+                <select class="input" id="sec-add-role" style="width:auto">
+                  <option value="viewer" data-i18n="security.roleViewer">Viewer</option>
+                  <option value="admin" data-i18n="security.roleAdmin">Admin</option>
+                </select>
+              </div>
+              <button class="btn sm ghost" id="sec-add-btn" data-i18n="security.addUser">+ Add user</button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

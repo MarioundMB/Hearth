@@ -128,15 +128,12 @@ textarea {
   letter-spacing: -0.02em;
 }
 .brand .flame {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
+  width: 28px;
+  height: 28px;
   border-radius: 9px;
-  background: var(--accent);
-  color: #0c0e0d;
-  font-size: 17px;
   box-shadow: 0 0 22px var(--accent-glow);
+  display: block;
+  flex-shrink: 0;
 }
 .brand small {
   font-family: var(--font-mono);
