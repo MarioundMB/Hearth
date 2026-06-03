@@ -30,6 +30,7 @@ let _netPrev    = null, _netPrevTs = 0;
 const { version: VERSION } = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
 );
+const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 
 // ---------------------------------------------------------------------------
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
@@ -976,13 +977,14 @@ app.get(
       );
       if (r.ok) {
         const d = await r.json();
-        const remoteTs  = new Date(d.commit?.committer?.date || 0).getTime();
-        const localVer  = VERSION;
+        const remoteSha = d.sha?.slice(0, 7) || 'unknown';
         hearthUpdate = {
-          sha: d.sha?.slice(0, 7),
-          message: d.commit?.message?.split('\n')[0] || '',
-          date: d.commit?.committer?.date,
-          remoteTs,
+          sha:       remoteSha,
+          localSha:  HEARTH_SHA,
+          hasUpdate: HEARTH_SHA !== 'unknown' && remoteSha !== HEARTH_SHA,
+          message:   d.commit?.message?.split('\n')[0] || '',
+          date:      d.commit?.committer?.date,
+          remoteTs:  new Date(d.commit?.committer?.date || 0).getTime(),
         };
       }
     } catch (_) {}
@@ -1035,6 +1037,48 @@ app.post(
     // Cache invalidieren
     _updateCache = { ts: 0, data: null };
     res.json({ ok: true, id: newC.id });
+  })
+);
+
+// Hearth selbst updaten (git pull → docker compose up -d --build)
+app.post(
+  '/api/updates/hearth',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { execFile, spawn } = require('child_process');
+    const REPO = '/app/repo';
+
+    if (!fs.existsSync(path.join(REPO, '.git'))) {
+      return res.status(400).json({
+        error: 'Source directory not mounted. Add "- .:/app/repo" to the hearth volumes in docker-compose.yml.',
+      });
+    }
+
+    const exec = (cmd, args) => new Promise((resolve, reject) =>
+      execFile(cmd, args, (err, stdout, stderr) =>
+        err ? reject(new Error(stderr?.trim() || err.message)) : resolve(stdout.trim())
+      )
+    );
+
+    await exec('git', ['-C', REPO, 'fetch', '--quiet']);
+    const localSha  = await exec('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD']);
+    const remoteSha = await exec('git', ['-C', REPO, 'rev-parse', '--short', 'origin/main']);
+
+    if (localSha === remoteSha) {
+      return res.json({ ok: true, upToDate: true, sha: localSha });
+    }
+
+    await exec('git', ['-C', REPO, 'pull', '--ff-only']);
+    const newSha = await exec('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD']);
+
+    _updateCache = { ts: 0, data: null };
+    res.json({ ok: true, sha: newSha });
+
+    // Rebuild + recreate via docker compose — detached so it outlives this process
+    spawn('sh', ['-c', `sleep 2 && cd /app/repo && GIT_SHA=${newSha} docker compose up -d --build hearth`], {
+      detached: true,
+      stdio:    'ignore',
+    }).unref();
   })
 );
 

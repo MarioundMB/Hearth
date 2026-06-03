@@ -1,6 +1,9 @@
 services:
   hearth:
-    build: .
+    build:
+      context: .
+      args:
+        - GIT_SHA=${GIT_SHA:-unknown}
     container_name: hearth
     restart: unless-stopped
     ports:
@@ -19,6 +22,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR:-/srv/hearth-data}:/mnt/data
+      - .:/app/repo
     labels:
       - "hearth.self=true"
       - "hearth.hide=true"

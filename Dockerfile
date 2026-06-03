@@ -1,7 +1,9 @@
 FROM node:20-alpine
 
-# Nginx für den integrierten Reverse Proxy
-RUN apk add --no-cache nginx
+RUN apk add --no-cache nginx git docker-cli docker-compose
+
+ARG GIT_SHA=unknown
+ENV HEARTH_SHA=${GIT_SHA}
 
 WORKDIR /app
 

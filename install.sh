@@ -248,7 +248,8 @@ fi
 # ── Build and start ────────────────────────────────────────────────────────
 echo ""
 info "Building and starting Hearth…"
-${DC} up -d --build
+export GIT_SHA=$(git -C "${INSTALL_DIR}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_SHA=${GIT_SHA} ${DC} up -d --build
 
 # ── Done ──────────────────────────────────────────────────────────────────
 PORT_DISPLAY=$(grep '^PORT=' .env 2>/dev/null | cut -d= -f2 || echo "4500")
