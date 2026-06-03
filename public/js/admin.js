@@ -14,6 +14,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     if (t.dataset.view === 'files')    loadFiles(currentPath);
     if (t.dataset.view === 'proxy')    loadProxyRules();
     if (t.dataset.view === 'firewall') loadFirewall();
+    if (t.dataset.view === 'vpn')      loadVpn();
   });
 });
 
@@ -1887,6 +1888,48 @@ document.getElementById('fw-mode-advanced').addEventListener('click', () => {
   document.getElementById('fw-mode-normal').classList.remove('active');
   loadFirewall();
 });
+
+// ---------- VPN ----------
+async function loadVpn() {
+  const data = await api('GET', '/api/vpn/status').catch(() => ({ available: false }));
+
+  document.getElementById('vpn-unavail').style.display  = data.available ? 'none' : '';
+  document.getElementById('vpn-content').style.display  = data.available ? '' : 'none';
+
+  const badge = document.getElementById('vpn-status-badge');
+  if (badge) {
+    badge.className = `vpn-status-badge ${data.running ? 'active' : 'inactive'}`;
+    badge.textContent = data.running ? 'Running' : 'Stopped';
+  }
+
+  if (!data.available) return;
+
+  // Parse server URL from wg show output or status string
+  const serverLine = (data.status || '').split('\n').find(l => l.includes('endpoint')) || '';
+  document.getElementById('vpn-server').textContent = serverLine || 'Configure VPN_HOST in .env';
+  document.getElementById('vpn-peer-count').textContent = (data.peers || []).length + ' configured';
+
+  const list = document.getElementById('vpn-peers-list');
+  if (!(data.peers || []).length) {
+    list.innerHTML = '<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>No VPN clients found.<br><span class="muted" style="font-size:13px">Set VPN_PEERS in your .env and restart.</span></div>';
+    return;
+  }
+
+  list.innerHTML = (data.peers || []).map(p => `
+    <div class="vpn-peer-row">
+      <span class="vpn-peer-name">📱 ${esc(p.name)}</span>
+      <button class="btn sm ghost" onclick="openVpnQr('${esc(p.name)}')">🔲 QR Code</button>
+      <a class="btn sm ghost" href="/api/vpn/peers/${encodeURIComponent(p.name)}/conf" download>⬇ .conf</a>
+    </div>`).join('');
+}
+
+async function openVpnQr(name) {
+  document.getElementById('vpn-qr-title').textContent = `VPN Client: ${name}`;
+  document.getElementById('vpn-qr-png').src = `/api/vpn/peers/${encodeURIComponent(name)}/qr?t=${Date.now()}`;
+  document.getElementById('vpn-qr-download').href = `/api/vpn/peers/${encodeURIComponent(name)}/conf`;
+  document.getElementById('vpn-qr-download').setAttribute('download', `${name}.conf`);
+  openModal('modal-vpn-qr');
+}
 
 // ---------- Init ----------
 
