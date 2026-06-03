@@ -1313,13 +1313,25 @@ async function runHearthSelfUpdate() {
   // Fix: run the rebuild in an EXTERNAL helper container that survives hearth being stopped.
   // We use our own image (which already has docker-cli + docker-compose) as the helper.
   const allC = await docker.listContainers({ all: true }).catch(() => []);
-  const self  = allC.find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('hearth')));
+  const self  = allC.find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater')));
   const selfImage = self?.Image || 'hearth-hearth';
+
+  // Resolve the HOST-side path of /app/repo by inspecting the container's bind mounts.
+  // We cannot use _REPO directly because Docker daemon interprets volume paths as host paths,
+  // not container-internal paths — /app/repo doesn't exist on the host.
+  let repoHostPath = _REPO;
+  try {
+    if (self) {
+      const info = await docker.getContainer(self.Id).inspect();
+      const mount = (info.Mounts || []).find(m => m.Destination === '/app/repo');
+      if (mount?.Source) repoHostPath = mount.Source;
+    }
+  } catch (_) {}
 
   _spawn('docker', [
     'run', '--rm', '--name', 'hearth-updater',
     '-v', '/var/run/docker.sock:/var/run/docker.sock',
-    '-v', `${_REPO}:/app/repo`,
+    '-v', `${repoHostPath}:/app/repo`,
     selfImage,
     'sh', '-c',
     `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo; GIT_SHA=${newSha} docker compose up -d --build hearth`,
