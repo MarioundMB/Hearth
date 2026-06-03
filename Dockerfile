@@ -1,6 +1,7 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache nginx git docker-cli docker-compose
+RUN apk add --no-cache nginx git docker-cli docker-compose \
+ && git config --global --add safe.directory /app/repo
 
 ARG GIT_SHA=unknown
 ENV HEARTH_SHA=${GIT_SHA}
