@@ -1171,6 +1171,8 @@ async function runHearthSelfUpdate() {
   if (!fs.existsSync(path.join(_REPO, '.git'))) {
     throw new Error('Source directory not mounted. Add "- .:/app/repo" to the hearth volumes in docker-compose.yml.');
   }
+  // Allow git to operate on the bind-mounted directory (owner may differ inside the container)
+  await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
   await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
   const localSha  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
   const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'origin/main']);
