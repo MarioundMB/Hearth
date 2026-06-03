@@ -1301,9 +1301,23 @@ async function runHearthSelfUpdate() {
   if (HEARTH_SHA !== 'unknown' && HEARTH_SHA === newSha) return { upToDate: true, sha: newSha };
   _updateCache = { ts: 0, data: null };
 
-  _spawn('sh', ['-c', `sleep 2 && cd /app/repo && GIT_SHA=${newSha} docker compose up -d --build hearth`], {
-    detached: true, stdio: 'ignore',
-  }).unref();
+  // Rebuilding from inside the running container is impossible:
+  // when Docker stops this container (as part of `docker compose up --build`),
+  // it sends SIGKILL to ALL processes in the container — including the spawned shell.
+  // Fix: run the rebuild in an EXTERNAL helper container that survives hearth being stopped.
+  // We use our own image (which already has docker-cli + docker-compose) as the helper.
+  const allC = await docker.listContainers({ all: true }).catch(() => []);
+  const self  = allC.find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('hearth')));
+  const selfImage = self?.Image || 'hearth-hearth';
+
+  _spawn('docker', [
+    'run', '--rm', '--name', 'hearth-updater',
+    '-v', '/var/run/docker.sock:/var/run/docker.sock',
+    '-v', `${_REPO}:/app/repo`,
+    selfImage,
+    'sh', '-c',
+    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo; GIT_SHA=${newSha} docker compose up -d --build hearth`,
+  ], { detached: true, stdio: 'ignore' }).unref();
 
   return { upToDate: false, sha: newSha };
 }
