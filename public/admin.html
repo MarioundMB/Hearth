@@ -936,6 +936,13 @@
     </style>
   </head>
   <body>
+    <!-- SVG icon sprite -->
+    <div style="display:none" id="svg-sprite-placeholder"></div>
+    <script>
+      fetch('/img/icons.svg').then(r=>r.text()).then(t=>{
+        document.getElementById('svg-sprite-placeholder').outerHTML=t;
+      });
+    </script>
     <header class="topbar">
       <div class="wrap topbar-inner">
         <button class="brand" id="open-settings" title="Hearth-Einstellungen">
@@ -945,8 +952,9 @@
         <div class="spacer"></div>
         <!-- Notification bell -->
         <div class="notif-wrap" id="notif-wrap">
-          <button class="btn ghost sm notif-btn" id="btn-bell" onclick="toggleNotifPanel()" title="Notifications">
-            🔔<span class="notif-badge" id="notif-badge" style="display:none">0</span>
+          <button class="btn ghost sm notif-btn" id="btn-bell" onclick="toggleNotifPanel()" title="Notifications" style="position:relative">
+            <svg class="icon icon-md"><use href="#icon-bell"/></svg>
+            <span class="notif-badge" id="notif-badge" style="display:none">0</span>
           </button>
           <div class="notif-panel" id="notif-panel" style="display:none">
             <div class="notif-head">
@@ -1394,7 +1402,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🏠</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.serverName">Server-Name</div>
                   <div class="s-sub" data-i18n="settings.serverNameHint">Wird in der Gäste-Ansicht angezeigt</div>
@@ -1405,7 +1413,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🌐</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-proxy"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.language">Sprache</div>
                   <div class="s-sub" data-i18n="settings.languageHint">Interface-Sprache (weitere Sprachen folgen)</div>
@@ -1426,7 +1434,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🔌</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-wifi"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.port">WebUI Port</div>
                   <div class="s-sub" data-i18n="settings.portHint">Änderbar über ENV-Variable PORT</div>
@@ -1442,7 +1450,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">📴</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-package"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.showOffline">Offline-Dienste anzeigen</div>
                   <div class="s-sub" data-i18n="settings.showOfflineHint">Gestoppte Container als inaktive Kacheln zeigen</div>
@@ -1461,7 +1469,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🔄</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-clock"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.autoRefresh">Auto-Refresh Intervall</div>
                   <div class="s-sub" data-i18n="settings.autoRefreshHint">System-Info im Admin-Bereich automatisch aktualisieren</div>
@@ -1482,7 +1490,7 @@
             <div class="s-group-title" data-i18n="settings.security">Security</div>
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🔑</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-shield"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.securityManage">Users &amp; Credentials</div>
                   <div class="s-sub" data-i18n="settings.securityHint">Change password, username, manage users</div>
@@ -1498,7 +1506,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🐳</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.dockerSocket">Docker Socket</div>
                   <div class="s-sub mono" id="s-docker-socket">—</div>
@@ -1508,7 +1516,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">📁</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-folder"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.filesRoot">Dateimanager-Root</div>
                   <div class="s-sub mono" id="s-filesroot">—</div>
@@ -1518,7 +1526,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">ℹ️</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-info"/></svg></span>
                 <div><div class="s-label" data-i18n="settings.version">Version</div></div>
               </div>
               <span class="s-badge" id="s-version">—</span>
@@ -1526,7 +1534,7 @@
 
             <div class="s-row" id="hearth-update-row" style="display:none">
               <div class="s-row-l">
-                <span class="s-icon">↑</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-arrow-up"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.updateAvailable">Update available</div>
                   <div class="s-sub" id="hearth-update-hint"></div>
@@ -1539,7 +1547,7 @@
             <div class="s-row" style="flex-direction:column;align-items:stretch;gap:10px;min-height:auto;padding:12px 0">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:13px">
                 <div class="s-row-l" style="flex:1">
-                  <span class="s-icon">🔄</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
                   <div>
                     <div class="s-label" data-i18n="settings.autoUpdateLabel">Auto-Update</div>
                     <div class="s-sub" data-i18n="settings.autoUpdateHint">Automatically pull &amp; rebuild at scheduled time</div>
@@ -1559,7 +1567,7 @@
             <!-- Check for updates button -->
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon">🔍</span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
                 <div><div class="s-label" data-i18n="settings.checkUpdates">Check for updates</div></div>
               </div>
               <button class="btn sm ghost" onclick="checkUpdates(true)" data-i18n="settings.checkUpdatesBtn">Check now</button>
@@ -1886,7 +1894,7 @@
     <div class="modal-backdrop" id="modal-security">
       <div class="modal" style="max-width:520px">
         <div class="modal-head">
-          <h3>🔑 <span data-i18n="security.title">Security &amp; Users</span></h3>
+          <h3><svg class="icon icon-lg" style="margin-right:6px;vertical-align:-3px"><use href="#icon-shield"/></svg><span data-i18n="security.title">Security &amp; Users</span></h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body" style="padding:0;max-height:70vh;overflow-y:auto">

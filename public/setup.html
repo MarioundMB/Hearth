@@ -14,14 +14,71 @@
         padding: 32px 24px;
       }
 
-      .setup-card {
-        width: 100%;
-        max-width: 460px;
-        position: relative;
-        z-index: 1;
+      /* ── Welcome splash ─────────────────────────────────────────────── */
+      #welcome-splash {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        z-index: 100;
+        animation: splashFadeOut 0.5s ease 2.2s forwards;
+      }
+      #welcome-splash .splash-logo {
+        width: 80px;
+        height: 80px;
+        border-radius: 24px;
+        background: var(--accent);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 0 60px var(--accent-glow), 0 0 120px rgba(196,240,66,0.06);
+        animation: logoPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both;
+      }
+      #welcome-splash .splash-logo img {
+        width: 80px;
+        height: 80px;
+        border-radius: 22px;
+        display: block;
+      }
+      #welcome-splash .splash-name {
+        font-family: var(--font-display);
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        animation: fadeUp 0.5s ease 0.7s both;
+      }
+      #welcome-splash .splash-tagline {
+        font-size: 14px;
+        color: var(--text-dim);
+        animation: fadeUp 0.5s ease 0.9s both;
+      }
+      @keyframes logoPop {
+        from { transform: scale(0.4); opacity: 0; }
+      }
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(10px); }
+      }
+      @keyframes splashFadeOut {
+        to { opacity: 0; pointer-events: none; }
       }
 
-      /* Schritt-Anzeige oben */
+      /* ── Setup card ─────────────────────────────────────────────────── */
+      .setup-card {
+        width: 100%;
+        max-width: 480px;
+        position: relative;
+        z-index: 1;
+        opacity: 0;
+        animation: cardFadeIn 0.45s ease 2.55s forwards;
+      }
+      @keyframes cardFadeIn {
+        to { opacity: 1; }
+      }
+
+      /* Step indicator */
       .steps {
         display: flex;
         align-items: center;
@@ -64,7 +121,7 @@
         background: var(--accent-dim);
       }
 
-      /* Panel-Inhalt */
+      /* Panel content */
       .setup-panel {
         padding: 36px 34px;
       }
@@ -80,7 +137,7 @@
         from { opacity: 0; transform: translateX(12px); }
       }
 
-      /* Willkommen-Schritt */
+      /* Welcome step */
       .welcome-logo {
         width: 52px;
         height: 52px;
@@ -88,8 +145,6 @@
         background: var(--accent);
         display: grid;
         place-items: center;
-        font-size: 28px;
-        color: #0c0e0d;
         box-shadow: 0 0 32px var(--accent-glow);
         margin-bottom: 20px;
       }
@@ -107,7 +162,7 @@
         margin-bottom: 28px;
       }
 
-      /* Fortschritt-Fußzeile */
+      /* Footer */
       .setup-foot {
         display: flex;
         justify-content: flex-end;
@@ -121,7 +176,45 @@
         padding: 11px 22px;
       }
 
-      /* Passwort-Stärke */
+      /* Language picker (step 0) */
+      .lang-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      .lang-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        padding: 12px 8px;
+        border-radius: var(--radius-sm);
+        border: 1.5px solid var(--border-bright);
+        background: var(--bg-soft);
+        cursor: pointer;
+        transition: all 0.15s ease;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-dim);
+        font-family: var(--font-mono);
+      }
+      .lang-btn:hover {
+        border-color: var(--accent-dim);
+        color: var(--text);
+      }
+      .lang-btn.selected {
+        border-color: var(--accent);
+        background: rgba(196,240,66,0.06);
+        color: var(--accent);
+        box-shadow: 0 0 10px var(--accent-glow);
+      }
+      .lang-btn .lang-flag {
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      /* Password strength */
       .pw-strength {
         display: flex;
         gap: 4px;
@@ -142,7 +235,7 @@
         transition: color 0.2s ease;
       }
 
-      /* Erfolg-Schritt */
+      /* Done step */
       .success-icon {
         width: 60px;
         height: 60px;
@@ -180,8 +273,18 @@
     </style>
   </head>
   <body>
+
+    <!-- Welcome splash animation -->
+    <div id="welcome-splash">
+      <div class="splash-logo">
+        <img src="/favicon.svg" alt="Hearth" />
+      </div>
+      <div class="splash-name">Hearth</div>
+      <div class="splash-tagline" data-i18n="setup.splashTagline">Your home server panel</div>
+    </div>
+
     <div class="setup-card">
-      <!-- Schritt-Punkte -->
+      <!-- Step dots: 0=Lang, 1=Welcome, 2=Account, 3=Name, 4=Done -->
       <div class="steps" id="steps">
         <div class="step-dot active" id="dot-0">1</div>
         <div class="step-line" id="line-0"></div>
@@ -189,40 +292,81 @@
         <div class="step-line" id="line-1"></div>
         <div class="step-dot" id="dot-2">3</div>
         <div class="step-line" id="line-2"></div>
-        <div class="step-dot" id="dot-3">✓</div>
+        <div class="step-dot" id="dot-3">4</div>
+        <div class="step-line" id="line-3"></div>
+        <div class="step-dot" id="dot-4">✓</div>
       </div>
 
       <div class="setup-panel panel">
 
-        <!-- Step 0: Welcome -->
+        <!-- Step 0: Language -->
         <div class="step-view active" id="step-0">
+          <div class="setup-title" data-i18n="setup.langTitle">Choose your language</div>
+          <div class="setup-sub" data-i18n="setup.langSub">You can change this later in settings.</div>
+          <div class="lang-grid">
+            <button class="lang-btn" data-lang="en" onclick="pickLang('en')">
+              <span class="lang-flag">🇬🇧</span>English
+            </button>
+            <button class="lang-btn" data-lang="de" onclick="pickLang('de')">
+              <span class="lang-flag">🇩🇪</span>Deutsch
+            </button>
+            <button class="lang-btn" data-lang="fr" onclick="pickLang('fr')">
+              <span class="lang-flag">🇫🇷</span>Français
+            </button>
+            <button class="lang-btn" data-lang="es" onclick="pickLang('es')">
+              <span class="lang-flag">🇪🇸</span>Español
+            </button>
+            <button class="lang-btn" data-lang="it" onclick="pickLang('it')">
+              <span class="lang-flag">🇮🇹</span>Italiano
+            </button>
+            <button class="lang-btn" data-lang="pt" onclick="pickLang('pt')">
+              <span class="lang-flag">🇧🇷</span>Português
+            </button>
+            <button class="lang-btn" data-lang="nl" onclick="pickLang('nl')">
+              <span class="lang-flag">🇳🇱</span>Nederlands
+            </button>
+            <button class="lang-btn" data-lang="pl" onclick="pickLang('pl')">
+              <span class="lang-flag">🇵🇱</span>Polski
+            </button>
+            <button class="lang-btn" data-lang="ro" onclick="pickLang('ro')">
+              <span class="lang-flag">🇷🇴</span>Română
+            </button>
+          </div>
+          <div class="setup-foot">
+            <button class="btn primary" id="langNextBtn" onclick="goTo(1)" data-i18n="setup.next">Next →</button>
+          </div>
+        </div>
+
+        <!-- Step 1: Welcome -->
+        <div class="step-view" id="step-1">
           <div class="welcome-logo"><img src="/favicon.svg" alt="Hearth" width="52" height="52" style="border-radius:14px;display:block"></div>
-          <div class="setup-title">Welcome to Hearth</div>
-          <div class="setup-sub">
+          <div class="setup-title" data-i18n="setup.welcomeTitle">Welcome to Hearth</div>
+          <div class="setup-sub" data-i18n="setup.welcomeSub">
             Set up your home server panel in just a few steps.
             Create an admin account, give your server a name,
             and you're ready to go.
           </div>
-          <div class="setup-foot">
-            <button class="btn primary" onclick="goTo(1)">Get started →</button>
+          <div class="setup-foot spread">
+            <button class="btn ghost" onclick="goTo(0)" data-i18n="setup.back">← Back</button>
+            <button class="btn primary" onclick="goTo(2)" data-i18n="setup.start">Get started →</button>
           </div>
         </div>
 
-        <!-- Step 1: Admin account -->
-        <div class="step-view" id="step-1">
-          <div class="setup-title">Admin account</div>
-          <div class="setup-sub">This account is the only way to access the admin panel.</div>
+        <!-- Step 2: Admin account -->
+        <div class="step-view" id="step-2">
+          <div class="setup-title" data-i18n="setup.accountTitle">Admin account</div>
+          <div class="setup-sub" data-i18n="setup.accountSub">This account is the only way to access the admin panel.</div>
 
           <div class="field">
-            <label for="adminUser">Username</label>
+            <label for="adminUser" data-i18n="login.username">Username</label>
             <input class="input" id="adminUser" autocomplete="username"
-              placeholder="e.g. admin" />
+              data-i18n-ph="setup.userPlaceholder" placeholder="e.g. admin" />
           </div>
 
           <div class="field">
-            <label for="adminPassword">Password</label>
+            <label for="adminPassword" data-i18n="login.password">Password</label>
             <input class="input" id="adminPassword" type="password"
-              autocomplete="new-password" placeholder="At least 8 characters" />
+              autocomplete="new-password" data-i18n-ph="setup.pwPlaceholder" placeholder="At least 8 characters" />
             <div class="pw-strength">
               <div class="pw-bar" id="bar0"></div>
               <div class="pw-bar" id="bar1"></div>
@@ -233,44 +377,43 @@
           </div>
 
           <div class="field">
-            <label for="adminPasswordConfirm">Confirm password</label>
+            <label for="adminPasswordConfirm" data-i18n="setup.confirmPw">Confirm password</label>
             <input class="input" id="adminPasswordConfirm" type="password"
-              autocomplete="new-password" placeholder="Repeat password" />
+              autocomplete="new-password" data-i18n-ph="setup.confirmPwPlaceholder" placeholder="Repeat password" />
           </div>
 
           <div class="setup-foot spread">
-            <button class="btn ghost" onclick="goTo(0)">← Back</button>
-            <button class="btn primary" onclick="nextFromAccount()">Next →</button>
+            <button class="btn ghost" onclick="goTo(1)" data-i18n="setup.back">← Back</button>
+            <button class="btn primary" onclick="nextFromAccount()" data-i18n="setup.next">Next →</button>
           </div>
         </div>
 
-        <!-- Step 2: Server name -->
-        <div class="step-view" id="step-2">
-          <div class="setup-title">Name your server</div>
-          <div class="setup-sub">The name appears in the guest view and in the browser tab.</div>
+        <!-- Step 3: Server name -->
+        <div class="step-view" id="step-3">
+          <div class="setup-title" data-i18n="setup.nameTitle">Name your server</div>
+          <div class="setup-sub" data-i18n="setup.nameSub">The name appears in the guest view and in the browser tab.</div>
 
           <div class="field">
-            <label for="serverName">Server name</label>
+            <label for="serverName" data-i18n="settings.serverName">Server name</label>
             <input class="input" id="serverName" placeholder="Hearth" value="Hearth" />
-            <div class="hint">Leave blank to use "Hearth".</div>
+            <div class="hint" data-i18n="setup.nameHint">Leave blank to use "Hearth".</div>
           </div>
 
           <div class="setup-foot spread">
-            <button class="btn ghost" onclick="goTo(1)">← Back</button>
-            <button class="btn primary" id="finishBtn" onclick="finish()">Finish setup</button>
+            <button class="btn ghost" onclick="goTo(2)" data-i18n="setup.back">← Back</button>
+            <button class="btn primary" id="finishBtn" onclick="finish()" data-i18n="setup.finish">Finish setup</button>
           </div>
         </div>
 
-        <!-- Step 3: Done -->
-        <div class="step-view" id="step-3">
+        <!-- Step 4: Done -->
+        <div class="step-view" id="step-4">
           <div class="success-icon">✓</div>
-          <div class="success-title">Hearth is ready!</div>
-          <div class="success-sub" style="margin-bottom:28px">
-            Your admin account has been saved.<br>
-            You can now sign in.
+          <div class="success-title" data-i18n="setup.done">Hearth is ready!</div>
+          <div class="success-sub" style="margin-bottom:28px" data-i18n="setup.doneSub">
+            Your admin account has been saved. You can now sign in.
           </div>
           <div class="setup-foot" style="justify-content:center">
-            <a class="btn primary" href="/login">Go to login →</a>
+            <a class="btn primary" href="/login" data-i18n="setup.toLogin">Go to login →</a>
           </div>
         </div>
 
@@ -279,6 +422,7 @@
 
     <div id="toast"></div>
     <script src="/js/common.js"></script>
+    <script src="/js/i18n.js"></script>
     <script src="/js/setup.js"></script>
   </body>
 </html>
