@@ -14,7 +14,7 @@ function stateInfo(state) {
 
 function appIcon(app) {
   const ic = app.icon || '';
-  if (/^https?:\/\//.test(ic)) {
+  if (/^https?:\/\//.test(ic) || ic.startsWith('/')) {
     return `<span class="app-icon"><img src="${esc(ic)}" alt="" onerror="this.parentNode.textContent='▣'"></span>`;
   }
   return `<span class="app-icon">${esc(ic) || '▣'}</span>`;
