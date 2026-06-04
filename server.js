@@ -1001,7 +1001,6 @@ app.get('/api/settings', requireAuth, (req, res) => {
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
     version:     VERSION,
-    sha:         HEARTH_SHA,
   });
 });
 
@@ -1383,32 +1382,39 @@ app.get(
       })
     );
 
-    // Hearth-Version gegen GitHub prüfen
+    // Hearth-Version gegen GitHub prüfen (package.json auf dem Branch vergleichen)
     let hearthUpdate = null;
     try {
       const _branch = (runtimeConfig.updateBranch || 'main').trim();
-      const r = await fetch(
-        `https://api.github.com/repos/MarioundMB/Hearth/commits/${_branch}`,
-        { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
-          signal: AbortSignal.timeout(6000) }
-      );
-      if (r.ok) {
-        const d = await r.json();
-        const remoteSha = d.sha?.slice(0, 7) || 'unknown';
+      const [pkgRes, commitRes] = await Promise.all([
+        fetch(
+          `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json`,
+          { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) }
+        ),
+        fetch(
+          `https://api.github.com/repos/MarioundMB/Hearth/commits/${_branch}`,
+          { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
+            signal: AbortSignal.timeout(6000) }
+        ),
+      ]);
+      if (pkgRes.ok && commitRes.ok) {
+        const pkg = await pkgRes.json();
+        const commit = await commitRes.json();
+        const remoteVersion = pkg.version || '0.0.0';
         hearthUpdate = {
-          sha:       remoteSha,
-          localSha:  HEARTH_SHA,
-          hasUpdate: HEARTH_SHA !== 'unknown' && remoteSha !== HEARTH_SHA,
-          message:   d.commit?.message?.split('\n')[0] || '',
-          date:      d.commit?.committer?.date,
-          remoteTs:  new Date(d.commit?.committer?.date || 0).getTime(),
+          remoteVersion,
+          localVersion: VERSION,
+          hasUpdate: remoteVersion !== VERSION,
+          message: commit.commit?.message?.split('\n')[0] || '',
+          date:    commit.commit?.committer?.date,
+          remoteTs: new Date(commit.commit?.committer?.date || 0).getTime(),
         };
       }
     } catch (_) {}
 
     if (hearthUpdate?.hasUpdate) {
       addNotif('update', 'Hearth update available',
-        `${hearthUpdate.localSha} → ${hearthUpdate.sha}: ${hearthUpdate.message}`,
+        `v${hearthUpdate.localVersion} → v${hearthUpdate.remoteVersion}: ${hearthUpdate.message}`,
         { section: 'updates' });
     }
 
@@ -1512,8 +1518,12 @@ async function runHearthSelfUpdate() {
   }
   const newSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
 
-  // Only skip rebuild if the running image already reflects the latest source
-  if (HEARTH_SHA !== 'unknown' && HEARTH_SHA === newSha) return { upToDate: true, sha: newSha };
+  // Only skip rebuild if the running version already matches the source
+  const newPkgPath = path.join(_REPO, 'package.json');
+  const newVersion = fs.existsSync(newPkgPath)
+    ? JSON.parse(fs.readFileSync(newPkgPath, 'utf8')).version
+    : null;
+  if (newVersion && newVersion === VERSION) return { upToDate: true, version: newVersion };
   _updateCache = { ts: 0, data: null };
 
   // Rebuilding from inside the running container is impossible:
