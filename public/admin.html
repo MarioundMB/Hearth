@@ -956,6 +956,22 @@
         padding: 7px 10px !important;
         width: auto;
       }
+      .s-autoupdate-row { border-bottom: none !important; }
+      .s-autoupdate-time {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 0 12px 52px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12.5px;
+        color: var(--text-dim);
+      }
+      .s-autoupdate-time input {
+        width: 52px;
+        text-align: center;
+        padding: 5px 8px !important;
+        font-size: 13px !important;
+      }
       .s-badge {
         font-family: var(--font-mono);
         font-size: 12px;
@@ -1722,7 +1738,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-package"/></svg></span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-layers"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.showOffline">Offline-Dienste anzeigen</div>
                   <div class="s-sub" data-i18n="settings.showOfflineHint">Gestoppte Container als inaktive Kacheln zeigen</div>
@@ -1741,7 +1757,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-clock"/></svg></span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-refresh"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.autoRefresh">Auto-Refresh Intervall</div>
                   <div class="s-sub" data-i18n="settings.autoRefreshHint">System-Info im Admin-Bereich automatisch aktualisieren</div>
@@ -1778,7 +1794,7 @@
 
             <div class="s-row">
               <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
                 <div>
                   <div class="s-label" data-i18n="settings.dockerSocket">Docker Socket</div>
                   <div class="s-sub mono" id="s-docker-socket">—</div>
@@ -1804,6 +1820,48 @@
               <span class="s-badge" id="s-version">—</span>
             </div>
 
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-chevron-right"/></svg></span>
+                <div>
+                  <div class="s-label" data-i18n="settings.updateBranch">Update-Branch</div>
+                  <div class="s-sub" data-i18n="settings.updateBranchHint">Branch der beim Aktualisieren geladen wird</div>
+                </div>
+              </div>
+              <select class="input s-select" id="s-update-branch" style="min-width:160px">
+                <option value="main">main</option>
+              </select>
+            </div>
+
+            <!-- Auto-update config -->
+            <div class="s-row s-autoupdate-row">
+              <div class="s-row-l">
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
+                <div>
+                  <div class="s-label" data-i18n="settings.autoUpdateLabel">Auto-Update</div>
+                  <div class="s-sub" data-i18n="settings.autoUpdateHint">Automatically pull &amp; rebuild at scheduled time</div>
+                </div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="s-autoupdate-enabled"><span class="toggle-track"></span></label>
+            </div>
+            <div class="s-autoupdate-time" id="s-autoupdate-time">
+              <span data-i18n="settings.autoUpdateAt">Daily at</span>
+              <input class="input" type="number" id="s-autoupdate-hour" min="0" max="23" placeholder="0">
+              <span>:</span>
+              <input class="input" type="number" id="s-autoupdate-minute" min="0" max="59" placeholder="00">
+              <span data-i18n="settings.serverTime">(server time)</span>
+            </div>
+
+            <!-- Check for updates -->
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
+                <div><div class="s-label" data-i18n="settings.checkUpdates">Check for updates</div></div>
+              </div>
+              <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()" data-i18n="settings.checkUpdatesBtn">Check now</button>
+            </div>
+
+            <!-- Update available (erscheint direkt nach dem Check) -->
             <div class="s-row" id="hearth-update-row" style="display:none">
               <div class="s-row-l">
                 <span class="s-icon"><svg class="icon icon-md"><use href="#icon-arrow-up"/></svg></span>
@@ -1813,36 +1871,6 @@
                 </div>
               </div>
               <button class="btn sm primary" id="btn-hearth-update" onclick="updateHearth()" data-i18n="settings.updateBtn">Update</button>
-            </div>
-
-            <!-- Auto-update config -->
-            <div class="s-row" style="flex-direction:column;align-items:stretch;gap:10px;min-height:auto;padding:12px 0">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:13px">
-                <div class="s-row-l" style="flex:1">
-                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
-                  <div>
-                    <div class="s-label" data-i18n="settings.autoUpdateLabel">Auto-Update</div>
-                    <div class="s-sub" data-i18n="settings.autoUpdateHint">Automatically pull &amp; rebuild at scheduled time</div>
-                  </div>
-                </div>
-                <label class="toggle"><input type="checkbox" id="s-autoupdate-enabled"><span class="toggle-track"></span></label>
-              </div>
-              <div id="s-autoupdate-time" style="display:flex;align-items:center;gap:8px;padding-left:37px">
-                <span style="font-size:13px;color:var(--text-dim)" data-i18n="settings.autoUpdateAt">Daily at</span>
-                <input class="input" type="number" id="s-autoupdate-hour" min="0" max="23" style="width:56px;text-align:center" placeholder="0">
-                <span style="color:var(--text-dim)">:</span>
-                <input class="input" type="number" id="s-autoupdate-minute" min="0" max="59" style="width:56px;text-align:center" placeholder="00">
-                <span style="font-size:12px;color:var(--text-dim)" data-i18n="settings.serverTime">(server time)</span>
-              </div>
-            </div>
-
-            <!-- Check for updates button -->
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
-                <div><div class="s-label" data-i18n="settings.checkUpdates">Check for updates</div></div>
-              </div>
-              <button class="btn sm ghost" onclick="checkUpdates(true)" data-i18n="settings.checkUpdatesBtn">Check now</button>
             </div>
           </div>
 
