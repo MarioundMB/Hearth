@@ -1008,6 +1008,144 @@
         cursor: pointer;
       }
       .pw-toggle:hover { opacity: 0.8; }
+
+      /* Toggle-Button ist nur auf Mobile sichtbar */
+      .mon-toggle-btn { display: none; }
+
+      /* ── Mobile / Tablet ─────────────────────────────────────────────── */
+      @media (max-width: 768px) {
+
+        /* Topbar: kompakt, Gäste-Link ausblenden */
+        .topbar-inner { gap: 8px; }
+        a[data-i18n="nav.guestView"] { display: none; }
+        #btn-settings { font-size: 0; padding: 6px 10px; min-width: 0; letter-spacing: 0; }
+        #btn-settings::before { content: '⚙'; font-size: 16px; }
+        #logout { font-size: 0; padding: 6px 10px; min-width: 0; letter-spacing: 0; }
+        #logout::before { content: '↩'; font-size: 16px; }
+
+        /* Layout: Hauptbereich oben, Monitor-Panel darunter als Klappleiste */
+        .admin-layout { flex-direction: column; gap: 0; padding-top: 12px; }
+        .admin-main   { order: 1; width: 100%; }
+        .monitor-panel {
+          order: 2;
+          width: 100%;
+          position: static;
+          max-height: none;
+          overflow-y: visible;
+          margin-top: 8px;
+          padding-bottom: 24px;
+          border-top: 1px solid var(--border);
+          padding-top: 16px;
+        }
+        /* Monitor-Panel: 2-Spalten-Grid für CPU/RAM/Disk-Karten */
+        .mon-row2  { gap: 8px; }
+        .mon-card  { padding: 12px 14px; }
+        .mon-chart-svg { height: 40px; }
+
+        /* Tabs */
+        .tab { font-size: 13px; padding: 9px 12px; }
+
+        /* Store: 2 Spalten auf Tablet, 1 Spalte auf kleinen Handys */
+        .store-grid { grid-template-columns: repeat(2, 1fr); }
+
+        /* Container-Zeilen */
+        .row { padding: 12px 14px; }
+        .c-row-icon { width: 30px; height: 30px; font-size: 15px; }
+        .ports { flex-wrap: wrap; gap: 4px; }
+
+        /* Dateimanager: Aktionsbuttons erst bei Touch/Hover */
+        .fm-file-meta   { display: none; }
+        .fm-file-actions { opacity: 1; visibility: visible; }
+
+        /* Modals: fast vollbild */
+        .modal { max-width: 94vw !important; }
+        .modal-body { max-height: 65vh; overflow-y: auto; }
+        .logs { max-height: 50vh; }
+
+        /* Monitoring-Toggle Button */
+        .mon-toggle-btn {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          background: none;
+          border: none;
+          color: var(--text-dim);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          padding: 0 0 12px;
+          cursor: pointer;
+        }
+        .mon-toggle-btn::after { content: '▾'; font-size: 14px; }
+        .mon-toggle-btn.collapsed::after { content: '▸'; }
+        .monitor-panel.collapsed > *:not(.mon-toggle-btn) { display: none !important; }
+      }
+
+      @media (max-width: 768px) {
+        /* Drop-Hinweis in Container-Toolbar ausblenden */
+        span[title="Drag a Docker Hub URL here or press Ctrl+V"] { display: none; }
+
+        /* Store-Suche: volle Breite */
+        #store-search { width: 100% !important; }
+
+        /* Container-Zeilen: Hover-Buttons immer sichtbar */
+        .row-open-btn { opacity: 1; }
+
+        /* Dateimanager: Sidebar horizontal oben als Scroller */
+        .fm-layout { flex-direction: column; height: auto; min-height: auto; }
+        .fm-sidebar {
+          width: 100%;
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          flex-direction: row;
+          overflow-x: auto;
+          padding: 8px 8px;
+          gap: 4px;
+          scrollbar-width: none;
+        }
+        .fm-sidebar::-webkit-scrollbar { display: none; }
+        .fm-sidebar-section { display: contents; }
+        .fm-sidebar-label { display: none; }
+        .fm-vol-item {
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          padding: 8px 12px;
+          border-left: none;
+          border-bottom: 2px solid transparent;
+          white-space: nowrap;
+          border-radius: var(--radius-sm);
+          min-width: 80px;
+        }
+        .fm-vol-item.active { border-bottom-color: var(--accent); border-left-color: transparent; }
+        .fm-vol-info { text-align: center; }
+        .fm-vol-bar, .fm-vol-usage { display: none; }
+        .fm-main { min-height: 50vh; }
+
+        /* 4-Spalten-Grid auf 2 Spalten reduzieren (Port/Vol/Env-Builder im Modal) */
+        .quad { grid-template-columns: 1fr 1fr; }
+
+        /* Proxy und Firewall Zeilen: Actions immer sichtbar */
+        .proxy-row, .fw-rule-row { flex-wrap: wrap; }
+      }
+
+      @media (max-width: 480px) {
+        .wrap { padding: 0 12px; }
+        .store-grid { grid-template-columns: 1fr; }
+        .store-card { padding: 14px; }
+        /* Topbar Brand: nur Logo */
+        .brand span { display: none; }
+        /* Quad auf Mobile: zwei-spaltig plus auto */
+        .quad { grid-template-columns: 1fr auto; }
+        .triple { grid-template-columns: 1fr auto; }
+        /* Modal-Footer: Buttons stacken */
+        .modal-foot { flex-wrap: wrap; }
+        /* Container-Detail-Grid: 2 Spalten bleiben, aber volle Breite */
+        .cd-meta-grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
@@ -1080,7 +1218,7 @@
             <div class="toolbar">
               <h2 data-i18n="tab.store">Store</h2>
               <div class="spacer"></div>
-              <input class="input" id="store-search" style="width:220px;padding:8px 12px;font-size:13px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
+              <input class="input" id="store-search" style="width:220px;max-width:100%;padding:8px 12px;font-size:13px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
             </div>
             <div id="store-categories"></div>
           </section>
@@ -1253,7 +1391,13 @@
         </div><!-- /.admin-main -->
 
         <!-- ── Monitoring-Sidebar (immer sichtbar) ────────────── -->
-        <aside class="monitor-panel">
+        <aside class="monitor-panel collapsed" id="monitor-panel">
+          <button class="mon-toggle-btn collapsed" id="mon-toggle" onclick="
+            const p=document.getElementById('monitor-panel');
+            const b=document.getElementById('mon-toggle');
+            p.classList.toggle('collapsed');
+            b.classList.toggle('collapsed');
+          ">System-Monitoring</button>
 
           <!-- CPU + RAM -->
           <div class="mon-row2">
