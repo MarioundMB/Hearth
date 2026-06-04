@@ -1243,9 +1243,15 @@ app.get(
 // ---------------------------------------------------------------------------
 
 // Hilfsfunktion: prüft Docker Hub ob ein neueres Image vorliegt.
-// Vergleicht Manifest-List-Digests (zuverlässig). Timestamp-Vergleich
-// führt immer zu False Positives, weil Docker Hub last_updated stets
-// einige Minuten nach dem image Created-Zeitpunkt liegt (Build→Push-Latenz).
+//
+// Digest-Vergleich statt Timestamp: Docker Hub last_updated ist immer einige
+// Minuten nach image.Created (Build→Push-Latenz) → Timestamp-Vergleich liefert
+// permanent false positives, auch direkt nach einem frischen Pull.
+//
+// Wichtig: RepoDigests enthält den plattformspezifischen Digest (z. B. arm64),
+// data.digest (Docker Hub) ist der Manifest-List-Digest (Multi-Arch-Wrapper).
+// Diese zwei Ebenen sind strukturell verschieden → nie vergleichbar!
+// Stattdessen: data.images[passende Arch].digest mit dem lokalen Digest matchen.
 async function checkImageUpdate(image) {
   try {
     const [ref] = image.split(':');
@@ -1256,7 +1262,7 @@ async function checkImageUpdate(image) {
     const localInfo = await docker.getImage(image).inspect().catch(() => null);
     if (!localInfo) return { hasUpdate: null };
 
-    // Lokaler Manifest-List-Digest aus RepoDigests: "registry/image@sha256:abc…"
+    // Plattformspezifischer Digest aus RepoDigests: "registry/image@sha256:abc…"
     const localDigest = (localInfo.RepoDigests || [])
       .map(d => d.split('@')[1])
       .find(d => d?.startsWith('sha256:')) || null;
@@ -1268,16 +1274,24 @@ async function checkImageUpdate(image) {
     if (!r.ok) return { hasUpdate: null };
     const data = await r.json();
 
-    // data.digest ist der Manifest-List-Digest des Tags auf Docker Hub.
-    const remoteDigest = data.digest || null;
+    // Plattform-Match: Node.js-Architektur auf Docker-Arch mappen
+    const nodeArch = process.arch === 'arm64' ? 'arm64'
+                   : process.arch === 'arm'   ? 'arm'
+                   :                            'amd64';
+    const platformEntry = (data.images || []).find(
+      img => img.architecture === nodeArch && img.os === 'linux'
+    );
+    // Bei Single-Arch-Images kein images[]-Array → data.digest als Fallback
+    const remoteDigest = platformEntry?.digest
+      || (data.images?.length <= 1 ? data.digest : null)
+      || null;
 
     let hasUpdate;
     if (localDigest && remoteDigest) {
-      // Primär: Digest-Vergleich — korrekt, egal ob arm64/amd64
       hasUpdate = localDigest !== remoteDigest;
     } else {
-      // Fallback für lokal gebaute Images (keine RepoDigests):
-      // Zeitstempel-Vergleich mit 15-Minuten-Toleranz für Build→Push-Latenz
+      // Fallback für lokale Images ohne RepoDigests:
+      // Zeitstempel mit 15-Min-Toleranz für Build→Push-Latenz
       const localTs  = new Date(localInfo.Created).getTime();
       const remoteTs = new Date(data.last_updated).getTime();
       hasUpdate = (remoteTs - localTs) > 15 * 60 * 1000;
@@ -1285,8 +1299,8 @@ async function checkImageUpdate(image) {
 
     return {
       hasUpdate,
-      remoteDate: data.last_updated,
-      localDate:  localInfo.Created,
+      remoteDate:  data.last_updated,
+      localDate:   localInfo.Created,
       remoteDigest,
       localDigest,
     };
