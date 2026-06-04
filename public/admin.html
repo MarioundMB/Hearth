@@ -1013,6 +1013,52 @@
       }
       .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
 
+      /* ===== Update-Fortschritts-Modal ===== */
+      .upd-bar-track {
+        height: 6px;
+        background: var(--border);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 24px;
+      }
+      .upd-bar-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 3px;
+        width: 0%;
+        transition: width 0.6s ease;
+      }
+      .upd-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      .upd-step {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13.5px;
+        color: var(--text-faint);
+        transition: color 0.3s;
+      }
+      .upd-step.active { color: var(--text); }
+      .upd-step.done   { color: var(--ok); }
+      .upd-step-icon {
+        font-size: 16px;
+        width: 20px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .upd-step.active .upd-step-icon { animation: upd-spin 1s linear infinite; display: inline-block; }
+      @keyframes upd-spin { to { transform: rotate(360deg); } }
+      .upd-note {
+        font-size: 12px;
+        color: var(--text-faint);
+        text-align: center;
+        padding-top: 4px;
+      }
+
       /* Passwort-Sektion */
       .pw-toggle {
         font-size: 13px;
@@ -2245,6 +2291,49 @@
             </div>
           </div>
 
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Update-Fortschritts-Modal ─────────────────────────────────── -->
+    <div class="modal-backdrop" id="modal-update-progress" style="display:none;align-items:center">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-head">
+          <h3 style="display:flex;align-items:center;gap:10px">
+            <span id="upd-head-icon" style="font-size:18px">⟳</span>
+            <span id="upd-head-title" data-i18n="update.progressTitle">Hearth wird aktualisiert</span>
+          </h3>
+        </div>
+        <div class="modal-body" style="padding:24px">
+
+          <!-- Fortschrittsbalken -->
+          <div class="upd-bar-track">
+            <div class="upd-bar-fill" id="upd-bar"></div>
+          </div>
+
+          <!-- Schritt-Liste -->
+          <div class="upd-steps" id="upd-steps">
+            <div class="upd-step" id="upd-s1">
+              <span class="upd-step-icon">⟳</span>
+              <span data-i18n="update.step1">Git: Änderungen holen &amp; anwenden</span>
+            </div>
+            <div class="upd-step" id="upd-s2">
+              <span class="upd-step-icon">○</span>
+              <span data-i18n="update.step2">Docker: Image neu bauen</span>
+            </div>
+            <div class="upd-step" id="upd-s3">
+              <span class="upd-step-icon">○</span>
+              <span data-i18n="update.step3">Container neu starten</span>
+            </div>
+            <div class="upd-step" id="upd-s4">
+              <span class="upd-step-icon">○</span>
+              <span data-i18n="update.step4">Warte auf Hearth…</span>
+            </div>
+          </div>
+
+          <div class="upd-note" id="upd-note" data-i18n="update.note">
+            Die Seite lädt automatisch neu sobald Hearth wieder erreichbar ist.
+          </div>
         </div>
       </div>
     </div>

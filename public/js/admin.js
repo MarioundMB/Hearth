@@ -2153,13 +2153,89 @@ async function updateHearth() {
       if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
       return;
     }
-    toast(t('settings.updateStarted'));
-    // Server rebuilds and restarts — reload after a short wait
-    setTimeout(() => location.reload(), 15000);
+    // Einstellungs-Modal schließen und Fortschritts-Modal öffnen
+    closeModal('modal-settings');
+    showUpdateProgress();
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
     showDockerError(e.message);
   }
+}
+
+function showUpdateProgress() {
+  const backdrop = document.getElementById('modal-update-progress');
+  backdrop.style.display = 'flex';
+
+  const bar   = document.getElementById('upd-bar');
+  const steps = ['upd-s1','upd-s2','upd-s3','upd-s4'];
+
+  function setStep(idx, state) {
+    const el = document.getElementById(steps[idx]);
+    if (!el) return;
+    el.className = 'upd-step ' + state;
+    const icon = el.querySelector('.upd-step-icon');
+    if (state === 'active') icon.textContent = '⟳';
+    else if (state === 'done') icon.textContent = '✓';
+  }
+
+  function setBar(pct) {
+    bar.style.width = pct + '%';
+  }
+
+  // Phase 1: Git-Operationen abgeschlossen (API hat geantwortet)
+  setStep(0, 'done');
+  setStep(1, 'active');
+  setBar(25);
+
+  // Phase 2: Docker baut — wir warten bis der Server offline geht
+  let wentOffline = false;
+  let cameBack    = false;
+
+  // Fortschrittsbalken während Build langsam voranschreiten lassen
+  let fakePct = 25;
+  const fakeTimer = setInterval(() => {
+    if (fakePct < 75) {
+      fakePct += 0.8;
+      setBar(fakePct);
+    }
+  }, 400);
+
+  async function poll() {
+    try {
+      await fetch('/api/public/apps', { signal: AbortSignal.timeout(2000) });
+      // Server antwortet noch
+      if (wentOffline) {
+        // Server ist wieder da!
+        clearInterval(fakeTimer);
+        setStep(2, 'done');
+        setStep(3, 'done');
+        setBar(100);
+        document.getElementById('upd-head-icon').textContent  = '✓';
+        document.getElementById('upd-head-title').textContent = t('update.done') || 'Fertig!';
+        document.getElementById('upd-note').textContent       = t('update.reloading') || 'Seite wird neu geladen…';
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
+    } catch (_) {
+      // Server nicht erreichbar → Build/Restart läuft
+      if (!wentOffline) {
+        wentOffline = true;
+        clearInterval(fakeTimer);
+        setStep(1, 'done');
+        setStep(2, 'active');
+        setBar(80);
+        setTimeout(() => {
+          setStep(2, 'done');
+          setStep(3, 'active');
+          setBar(90);
+        }, 3000);
+      }
+    }
+    setTimeout(poll, 1500);
+  }
+
+  // Ersten Poll nach 4s starten (Build braucht etwas Zeit zum Starten)
+  setTimeout(poll, 4000);
 }
 
 // ---------- Reverse Proxy ----------
