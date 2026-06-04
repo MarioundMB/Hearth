@@ -1100,7 +1100,7 @@ async function loadSettings() {
     document.getElementById('s-port').textContent       = s.port;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
     document.getElementById('s-filesroot').textContent  = s.filesRoot;
-    document.getElementById('s-version').textContent    = `v${s.version}${s.sha && s.sha !== 'unknown' ? ` (${s.sha})` : ''}`;
+    document.getElementById('s-version').textContent    = `v${s.version}`;
 
     const au = s.autoUpdate ?? { enabled: true, hour: 0, minute: 0 };
     document.getElementById('s-autoupdate-enabled').checked = !!au.enabled;
@@ -2089,7 +2089,7 @@ async function checkUpdates(force = false) {
     const updateHint = document.getElementById('hearth-update-hint');
     if (hi && updateRow && updateHint) {
       if (hi.hasUpdate) {
-        updateHint.innerHTML = `${esc(hi.localSha)} → <span class="mono">${esc(hi.sha)}</span> · ${esc(hi.message)}`;
+        updateHint.innerHTML = `v${esc(hi.localVersion)} → <span class="mono">v${esc(hi.remoteVersion)}</span> · ${esc(hi.message)}`;
         updateRow.style.display = '';
       } else {
         updateRow.style.display = 'none';
