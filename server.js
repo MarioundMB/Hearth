@@ -1242,7 +1242,10 @@ app.get(
 // Update-Checker
 // ---------------------------------------------------------------------------
 
-// Hilfsfunktion: prüft Docker Hub ob ein neueres Image vorliegt
+// Hilfsfunktion: prüft Docker Hub ob ein neueres Image vorliegt.
+// Vergleicht Manifest-List-Digests (zuverlässig). Timestamp-Vergleich
+// führt immer zu False Positives, weil Docker Hub last_updated stets
+// einige Minuten nach dem image Created-Zeitpunkt liegt (Build→Push-Latenz).
 async function checkImageUpdate(image) {
   try {
     const [ref] = image.split(':');
@@ -1250,25 +1253,42 @@ async function checkImageUpdate(image) {
     const parts = ref.split('/');
     const [ns, name] = parts.length === 1 ? ['library', parts[0]] : [parts[0], parts[1]];
 
-    // Lokales Image-Erstelldatum
     const localInfo = await docker.getImage(image).inspect().catch(() => null);
     if (!localInfo) return { hasUpdate: null };
-    const localTs = new Date(localInfo.Created).getTime();
 
-    // Remote last_updated von Docker Hub
+    // Lokaler Manifest-List-Digest aus RepoDigests: "registry/image@sha256:abc…"
+    const localDigest = (localInfo.RepoDigests || [])
+      .map(d => d.split('@')[1])
+      .find(d => d?.startsWith('sha256:')) || null;
+
     const r = await fetch(
       `https://hub.docker.com/v2/repositories/${ns}/${name}/tags/${tag}/`,
       { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }
     );
     if (!r.ok) return { hasUpdate: null };
     const data = await r.json();
-    const remoteTs = new Date(data.last_updated).getTime();
+
+    // data.digest ist der Manifest-List-Digest des Tags auf Docker Hub.
+    const remoteDigest = data.digest || null;
+
+    let hasUpdate;
+    if (localDigest && remoteDigest) {
+      // Primär: Digest-Vergleich — korrekt, egal ob arm64/amd64
+      hasUpdate = localDigest !== remoteDigest;
+    } else {
+      // Fallback für lokal gebaute Images (keine RepoDigests):
+      // Zeitstempel-Vergleich mit 15-Minuten-Toleranz für Build→Push-Latenz
+      const localTs  = new Date(localInfo.Created).getTime();
+      const remoteTs = new Date(data.last_updated).getTime();
+      hasUpdate = (remoteTs - localTs) > 15 * 60 * 1000;
+    }
 
     return {
-      hasUpdate: remoteTs > localTs,
+      hasUpdate,
       remoteDate: data.last_updated,
-      localDate: localInfo.Created,
-      remoteDigest: data.images?.[0]?.digest || null,
+      localDate:  localInfo.Created,
+      remoteDigest,
+      localDigest,
     };
   } catch (_) {
     return { hasUpdate: null };
