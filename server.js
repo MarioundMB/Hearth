@@ -268,7 +268,7 @@ function buildAppTile(c, reqHost) {
     id: c.id,
     name:        labels['hearth.name']        || c.name,
     description: labels['hearth.description'] || c.image,
-    icon:        labels['hearth.icon']        || '',
+    icon:        labels['hearth.icon']        || `/api/dockerhub/logo?image=${encodeURIComponent(c.image.split(':')[0])}`,
     url,
     state:   c.state,                  // full Docker state
     running: c.state === 'running',
@@ -732,7 +732,7 @@ async function _fetchIconBuffer(ns, name, explicitSlug) {
   return null;
 }
 
-app.get('/api/dockerhub/logo', requireAuth, asyncHandler(async (req, res) => {
+app.get('/api/dockerhub/logo', asyncHandler(async (req, res) => {
   const raw  = (req.query.image || '').split(':')[0].trim();
   const slug = (req.query.slug || '').trim() || null; // optionaler expliziter Slug
   if (!raw) return res.status(400).json({ error: 'image required' });

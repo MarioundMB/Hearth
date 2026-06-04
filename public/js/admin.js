@@ -2034,6 +2034,17 @@ async function autoFetchCdIcon(image) {
 }
 
 // ---------- Update-Checker ----------
+async function checkUpdatesManual() {
+  const btn = document.getElementById('btn-check-updates');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
+  await checkUpdates(true);
+  if (btn) {
+    btn.disabled = false;
+    btn.setAttribute('data-i18n', 'settings.checkUpdatesBtn');
+    btn.textContent = t('settings.checkUpdatesBtn');
+  }
+}
+
 async function checkUpdates(force = false) {
   const badge = document.getElementById('topbar-updates');
   if (badge) badge.textContent = '⟳';
