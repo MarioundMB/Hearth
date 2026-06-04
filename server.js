@@ -1274,17 +1274,13 @@ async function checkImageUpdate(image) {
     if (!r.ok) return { hasUpdate: null };
     const data = await r.json();
 
-    // Plattform-Match: Node.js-Architektur auf Docker-Arch mappen
-    const nodeArch = process.arch === 'arm64' ? 'arm64'
-                   : process.arch === 'arm'   ? 'arm'
-                   :                            'amd64';
-    const platformEntry = (data.images || []).find(
-      img => img.architecture === nodeArch && img.os === 'linux'
-    );
-    // Bei Single-Arch-Images kein images[]-Array → data.digest als Fallback
-    const remoteDigest = platformEntry?.digest
-      || (data.images?.length <= 1 ? data.digest : null)
-      || null;
+    // data.digest ist der Manifest-List-Digest des Tags (top-level, arch-unabhängig).
+    // RepoDigests speichert ebenfalls den Manifest-List-Digest, da Docker beim Pull
+    // den gesamten Multi-Arch-Index referenziert.
+    // → Beide befinden sich auf derselben Hierarchieebene → direkter Vergleich korrekt.
+    // data.images[arch].digest wäre die plattformspezifische Manifest-Ebene darunter —
+    // nie kompatibel mit RepoDigests.
+    const remoteDigest = data.digest || null;
 
     let hasUpdate;
     if (localDigest && remoteDigest) {
