@@ -1907,25 +1907,16 @@
               <span data-i18n="settings.serverTime">(server time)</span>
             </div>
 
-            <!-- Check for updates -->
-            <div class="s-row">
+            <!-- Check / Update — eine Zeile, wechselt den Zustand -->
+            <div class="s-row" id="hearth-update-row">
               <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
-                <div><div class="s-label" data-i18n="settings.checkUpdates">Check for updates</div></div>
-              </div>
-              <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()" data-i18n="settings.checkUpdatesBtn">Check now</button>
-            </div>
-
-            <!-- Update available (erscheint direkt nach dem Check) -->
-            <div class="s-row" id="hearth-update-row" style="display:none">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-arrow-up"/></svg></span>
+                <span class="s-icon" id="upd-check-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
                 <div>
-                  <div class="s-label" data-i18n="settings.updateAvailable">Update available</div>
-                  <div class="s-sub" id="hearth-update-hint"></div>
+                  <div class="s-label" id="upd-check-label" data-i18n="settings.checkUpdates">Nach Updates suchen</div>
+                  <div class="s-sub" id="hearth-update-hint" style="display:none"></div>
                 </div>
               </div>
-              <button class="btn sm primary" id="btn-hearth-update" onclick="updateHearth()" data-i18n="settings.updateBtn">Update</button>
+              <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()" data-i18n="settings.checkUpdatesBtn">Jetzt prüfen</button>
             </div>
           </div>
 
