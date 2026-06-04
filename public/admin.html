@@ -1031,6 +1031,15 @@
       /* ── Mobile / Tablet ─────────────────────────────────────────────── */
       @media (max-width: 768px) {
 
+        /* Sticky tabs: negativen Margin-Trick abschalten, voll opak damit
+           kein Inhalt von unten durchscheint (backdrop-filter oft unsupported) */
+        .tabs-wrap {
+          margin-top: 0;
+          padding-top: 8px;
+          top: 64px;
+          background: var(--bg);
+        }
+
         /* Topbar: kompakt, Gäste-Link ausblenden */
         .topbar-inner { gap: 8px; }
         a[data-i18n="nav.guestView"] { display: none; }
