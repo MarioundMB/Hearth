@@ -1386,19 +1386,20 @@ app.get(
     let hearthUpdate = null;
     try {
       const _branch = (runtimeConfig.updateBranch || 'main').trim();
+      const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
       const [pkgRes, commitRes] = await Promise.all([
         fetch(
-          `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json`,
-          { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) }
+          `https://api.github.com/repos/MarioundMB/Hearth/contents/package.json?ref=${encodeURIComponent(_branch)}`,
+          { headers: ghHeaders, signal: AbortSignal.timeout(6000) }
         ),
         fetch(
-          `https://api.github.com/repos/MarioundMB/Hearth/commits/${_branch}`,
-          { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
-            signal: AbortSignal.timeout(6000) }
+          `https://api.github.com/repos/MarioundMB/Hearth/commits/${encodeURIComponent(_branch)}`,
+          { headers: ghHeaders, signal: AbortSignal.timeout(6000) }
         ),
       ]);
       if (pkgRes.ok && commitRes.ok) {
-        const pkg = await pkgRes.json();
+        const pkgData = await pkgRes.json();
+        const pkg = JSON.parse(Buffer.from(pkgData.content, 'base64').toString('utf8'));
         const commit = await commitRes.json();
         const remoteVersion = pkg.version || '0.0.0';
         hearthUpdate = {
