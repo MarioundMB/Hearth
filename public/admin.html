@@ -17,6 +17,14 @@
         flex-wrap: nowrap;
         scrollbar-width: none;
         -ms-overflow-style: none;
+        /* Stick below the topbar (64px height + 1px border) */
+        position: sticky;
+        top: 65px;
+        z-index: 10;
+        background: var(--bg);
+        /* Compensate for admin-layout padding-top so sticky visually sits flush */
+        margin-top: -18px;
+        padding-top: 18px;
       }
       .tabs::-webkit-scrollbar { display: none; }
       .tab {

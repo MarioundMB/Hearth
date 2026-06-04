@@ -41,6 +41,12 @@ body {
   height: 100%;
 }
 
+html {
+  /* Reserve scrollbar space permanently so the layout never shifts
+     when switching between short tabs (no scrollbar) and long ones (store). */
+  scrollbar-gutter: stable;
+}
+
 body {
   font-family: var(--font-body);
   background-color: var(--bg);
