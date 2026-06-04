@@ -1382,33 +1382,35 @@ app.get(
       })
     );
 
-    // Hearth-Version gegen GitHub prüfen (package.json auf dem Branch vergleichen)
+    // Hearth-Version gegen GitHub prüfen
+    // raw.githubusercontent.com für package.json (kein Rate-Limit-Problem),
+    // GitHub Commits API nur für Commit-Message (optional, kein Fehler wenn nicht erreichbar)
     let hearthUpdate = null;
     try {
       const _branch = (runtimeConfig.updateBranch || 'main').trim();
-      const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
-      const [pkgRes, commitRes] = await Promise.all([
-        fetch(
-          `https://api.github.com/repos/MarioundMB/Hearth/contents/package.json?ref=${encodeURIComponent(_branch)}`,
-          { headers: ghHeaders, signal: AbortSignal.timeout(6000) }
-        ),
-        fetch(
-          `https://api.github.com/repos/MarioundMB/Hearth/commits/${encodeURIComponent(_branch)}`,
-          { headers: ghHeaders, signal: AbortSignal.timeout(6000) }
-        ),
-      ]);
-      if (pkgRes.ok && commitRes.ok) {
-        const pkgData = await pkgRes.json();
-        const pkg = JSON.parse(Buffer.from(pkgData.content, 'base64').toString('utf8'));
-        const commit = await commitRes.json();
+      const rawUrl = `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json?_=${Date.now()}`;
+      const pkgRes = await fetch(rawUrl, { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) });
+      if (pkgRes.ok) {
+        const pkg = await pkgRes.json();
         const remoteVersion = pkg.version || '0.0.0';
+        // Commit-Message optional via GitHub API (ignorieren wenn Rate-Limit)
+        let message = '';
+        try {
+          const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
+          const commitRes = await fetch(
+            `https://api.github.com/repos/MarioundMB/Hearth/commits/${_branch}`,
+            { headers: ghHeaders, signal: AbortSignal.timeout(4000) }
+          );
+          if (commitRes.ok) {
+            const c = await commitRes.json();
+            message = c.commit?.message?.split('\n')[0] || '';
+          }
+        } catch (_) {}
         hearthUpdate = {
           remoteVersion,
           localVersion: VERSION,
           hasUpdate: remoteVersion !== VERSION,
-          message: commit.commit?.message?.split('\n')[0] || '',
-          date:    commit.commit?.committer?.date,
-          remoteTs: new Date(commit.commit?.committer?.date || 0).getTime(),
+          message,
         };
       }
     } catch (_) {}
