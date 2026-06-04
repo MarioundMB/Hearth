@@ -172,6 +172,15 @@
         transition: border-color 0.15s;
       }
       .lang-select:focus { outline: none; border-color: var(--accent-dim); }
+
+      @media (max-width: 480px) {
+        .wrap { padding: 0 12px; }
+        .brand span { display: none; }
+        /* Reload Button: nur Icon */
+        .reload span { display: none; }
+        /* Grid: 2 kompakte Spalten */
+        .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+      }
     </style>
   </head>
   <body>
