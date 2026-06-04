@@ -56,6 +56,7 @@ body {
       transparent 38%
     ),
     radial-gradient(circle at 88% 92%, rgba(88, 214, 141, 0.04), transparent 42%);
+  background-attachment: fixed;
   color: var(--text);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
