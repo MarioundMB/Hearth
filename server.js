@@ -1480,9 +1480,14 @@ async function runHearthSelfUpdate() {
   await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
   const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'origin/main']);
 
-  // Pull if source dir is behind remote
+  // Hard-reset to origin/main instead of pull --ff-only.
+  // This discards any local file modifications (e.g. files copied in during
+  // manual deploys) that would otherwise block the merge and abort the update.
   const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
-  if (sourceSha !== remoteSha) await _exec('git', ['-C', _REPO, 'pull', '--ff-only']);
+  if (sourceSha !== remoteSha) {
+    await _exec('git', ['-C', _REPO, 'reset', '--hard', 'origin/main']);
+    await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
+  }
   const newSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
 
   // Only skip rebuild if the running image already reflects the latest source
