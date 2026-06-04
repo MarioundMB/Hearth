@@ -2048,6 +2048,35 @@ async function autoFetchCdIcon(image) {
 }
 
 // ---------- Update-Checker ----------
+function setUpdateRowState(hi) {
+  const icon  = document.getElementById('upd-check-icon');
+  const label = document.getElementById('upd-check-label');
+  const hint  = document.getElementById('hearth-update-hint');
+  const btn   = document.getElementById('btn-check-updates');
+  if (!icon || !label || !hint || !btn) return;
+
+  if (hi?.hasUpdate) {
+    // Update verfügbar — Zeile wird grün und zeigt Update-Button
+    icon.innerHTML = '<svg class="icon icon-md" style="color:var(--accent)"><use href="#icon-arrow-up"/></svg>';
+    label.textContent = t('settings.updateAvailable') || 'Update verfügbar';
+    label.style.color = 'var(--accent)';
+    hint.innerHTML = `v${esc(hi.localVersion)} → <span class="mono">v${esc(hi.remoteVersion)}</span> · ${esc(hi.message)}`;
+    hint.style.display = '';
+    btn.className = 'btn sm primary';
+    btn.textContent = t('settings.updateBtn') || 'Update';
+    btn.onclick = updateHearth;
+  } else {
+    // Aktuell oder noch nicht geprüft — normale Such-Zeile
+    icon.innerHTML = '<svg class="icon icon-md"><use href="#icon-search"/></svg>';
+    label.textContent = t('settings.checkUpdates') || 'Nach Updates suchen';
+    label.style.color = '';
+    hint.style.display = 'none';
+    btn.className = 'btn sm ghost';
+    btn.textContent = t('settings.checkUpdatesBtn') || 'Jetzt prüfen';
+    btn.onclick = checkUpdatesManual;
+  }
+}
+
 async function checkUpdatesManual() {
   const btn = document.getElementById('btn-check-updates');
   if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
@@ -2083,18 +2112,9 @@ async function checkUpdates(force = false) {
     }
     // Container-Liste neu rendern damit Badges sichtbar werden
     if (_cdListData) loadContainers();
-    // Hearth-Update-Hinweis
+    // Hearth-Update-Zeile transformieren
     const hi = data.hearth;
-    const updateRow  = document.getElementById('hearth-update-row');
-    const updateHint = document.getElementById('hearth-update-hint');
-    if (hi && updateRow && updateHint) {
-      if (hi.hasUpdate) {
-        updateHint.innerHTML = `v${esc(hi.localVersion)} → <span class="mono">v${esc(hi.remoteVersion)}</span> · ${esc(hi.message)}`;
-        updateRow.style.display = '';
-      } else {
-        updateRow.style.display = 'none';
-      }
-    }
+    setUpdateRowState(hi);
   } catch (_) {
     if (badge) badge.style.display = 'none';
   }
@@ -2144,22 +2164,71 @@ async function updateAllContainers() {
 
 async function updateHearth() {
   if (!confirm(t('settings.updateConfirm'))) return;
-  const btn = document.getElementById('btn-hearth-update');
+  const btn = document.getElementById('btn-check-updates');
   if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
   try {
     const data = await api('POST', '/api/updates/hearth');
     if (data.upToDate) {
       toast(t('settings.alreadyUpToDate'));
-      if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
+      setUpdateRowState(null);
       return;
     }
-    toast(t('settings.updateStarted'));
-    // Server rebuilds and restarts — reload after a short wait
-    setTimeout(() => location.reload(), 15000);
+    closeModal('modal-settings');
+    showUpdateProgress();
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
     showDockerError(e.message);
   }
+}
+
+function showUpdateProgress() {
+  document.getElementById('modal-update-progress').style.display = 'flex';
+
+  const bar    = document.getElementById('upd-bar');
+  const status = document.getElementById('upd-status');
+  const icon   = document.getElementById('upd-head-icon');
+  const title  = document.getElementById('upd-head-title');
+
+  let fakePct     = 10;
+  let wentOffline = false;
+
+  bar.style.width = '10%';
+  status.textContent = 'Änderungen werden geladen…';
+
+  // Balken kriecht langsam bis 75% während Docker baut
+  const fakeTimer = setInterval(() => {
+    if (fakePct < 75) {
+      fakePct += wentOffline ? 0.4 : 0.6;
+      bar.style.width = fakePct + '%';
+    }
+  }, 400);
+
+  async function poll() {
+    try {
+      await fetch('/api/public/apps', { signal: AbortSignal.timeout(2000) });
+      if (wentOffline) {
+        // Server ist wieder online → fertig
+        clearInterval(fakeTimer);
+        bar.style.width = '100%';
+        icon.style.animation = 'none';
+        icon.textContent = '✓';
+        title.childNodes[title.childNodes.length - 1].textContent = ' Fertig!';
+        status.textContent = 'Seite wird neu geladen…';
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
+    } catch (_) {
+      if (!wentOffline) {
+        wentOffline = true;
+        fakePct = Math.max(fakePct, 60);
+        bar.style.width = fakePct + '%';
+        status.textContent = 'Docker baut neues Image…';
+      }
+    }
+    setTimeout(poll, 1500);
+  }
+
+  setTimeout(poll, 4000);
 }
 
 // ---------- Reverse Proxy ----------

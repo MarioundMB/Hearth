@@ -954,7 +954,8 @@
         flex-shrink: 0;
         font-size: 13px !important;
         padding: 7px 10px !important;
-        width: auto;
+        width: auto !important;
+        max-width: 180px;
       }
       .s-autoupdate-row { border-bottom: none !important; }
       .s-autoupdate-time {
@@ -1013,6 +1014,23 @@
       }
       .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
 
+      /* ===== Update-Fortschritts-Modal ===== */
+      .upd-bar-track {
+        height: 6px;
+        background: var(--border);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .upd-bar-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 3px;
+        width: 0%;
+        transition: width 0.6s ease;
+      }
+      .upd-spin-icon { display: inline-block; animation: upd-spin 1s linear infinite; }
+      @keyframes upd-spin { to { transform: rotate(360deg); } }
+
       /* Passwort-Sektion */
       .pw-toggle {
         font-size: 13px;
@@ -1030,6 +1048,15 @@
 
       /* ── Mobile / Tablet ─────────────────────────────────────────────── */
       @media (max-width: 768px) {
+
+        /* Sticky tabs: negativen Margin-Trick abschalten, voll opak damit
+           kein Inhalt von unten durchscheint (backdrop-filter oft unsupported) */
+        .tabs-wrap {
+          margin-top: 0;
+          padding-top: 8px;
+          top: 64px;
+          background: var(--bg);
+        }
 
         /* Topbar: kompakt, Gäste-Link ausblenden */
         .topbar-inner { gap: 8px; }
@@ -1852,25 +1879,16 @@
               <span data-i18n="settings.serverTime">(server time)</span>
             </div>
 
-            <!-- Check for updates -->
-            <div class="s-row">
+            <!-- Check / Update — eine Zeile, wechselt den Zustand -->
+            <div class="s-row" id="hearth-update-row">
               <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
-                <div><div class="s-label" data-i18n="settings.checkUpdates">Check for updates</div></div>
-              </div>
-              <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()" data-i18n="settings.checkUpdatesBtn">Check now</button>
-            </div>
-
-            <!-- Update available (erscheint direkt nach dem Check) -->
-            <div class="s-row" id="hearth-update-row" style="display:none">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-arrow-up"/></svg></span>
+                <span class="s-icon" id="upd-check-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
                 <div>
-                  <div class="s-label" data-i18n="settings.updateAvailable">Update available</div>
-                  <div class="s-sub" id="hearth-update-hint"></div>
+                  <div class="s-label" id="upd-check-label" data-i18n="settings.checkUpdates">Nach Updates suchen</div>
+                  <div class="s-sub" id="hearth-update-hint" style="display:none"></div>
                 </div>
               </div>
-              <button class="btn sm primary" id="btn-hearth-update" onclick="updateHearth()" data-i18n="settings.updateBtn">Update</button>
+              <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()" data-i18n="settings.checkUpdatesBtn">Jetzt prüfen</button>
             </div>
           </div>
 
@@ -2236,6 +2254,26 @@
             </div>
           </div>
 
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Update-Fortschritts-Modal ─────────────────────────────────── -->
+    <div class="modal-backdrop" id="modal-update-progress" style="display:none;align-items:center">
+      <div class="modal" style="max-width:400px">
+        <div class="modal-head">
+          <h3 id="upd-head-title" style="display:flex;align-items:center;gap:10px">
+            <span id="upd-head-icon" class="upd-spin-icon">⟳</span>
+            Hearth wird aktualisiert…
+          </h3>
+        </div>
+        <div class="modal-body" style="padding:22px 24px 24px">
+          <div class="upd-bar-track">
+            <div class="upd-bar-fill" id="upd-bar"></div>
+          </div>
+          <div id="upd-status" style="font-size:12.5px;color:var(--text-faint);margin-top:12px;text-align:center">
+            Änderungen werden geladen…
+          </div>
         </div>
       </div>
     </div>
