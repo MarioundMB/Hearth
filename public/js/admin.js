@@ -2182,78 +2182,52 @@ async function updateHearth() {
 }
 
 function showUpdateProgress() {
-  const backdrop = document.getElementById('modal-update-progress');
-  backdrop.style.display = 'flex';
+  document.getElementById('modal-update-progress').style.display = 'flex';
 
-  const bar   = document.getElementById('upd-bar');
-  const steps = ['upd-s1','upd-s2','upd-s3','upd-s4'];
+  const bar    = document.getElementById('upd-bar');
+  const status = document.getElementById('upd-status');
+  const icon   = document.getElementById('upd-head-icon');
+  const title  = document.getElementById('upd-head-title');
 
-  function setStep(idx, state) {
-    const el = document.getElementById(steps[idx]);
-    if (!el) return;
-    el.className = 'upd-step ' + state;
-    const icon = el.querySelector('.upd-step-icon');
-    if (state === 'active') icon.textContent = '⟳';
-    else if (state === 'done') icon.textContent = '✓';
-  }
-
-  function setBar(pct) {
-    bar.style.width = pct + '%';
-  }
-
-  // Phase 1: Git-Operationen abgeschlossen (API hat geantwortet)
-  setStep(0, 'done');
-  setStep(1, 'active');
-  setBar(25);
-
-  // Phase 2: Docker baut — wir warten bis der Server offline geht
+  let fakePct     = 10;
   let wentOffline = false;
-  let cameBack    = false;
 
-  // Fortschrittsbalken während Build langsam voranschreiten lassen
-  let fakePct = 25;
+  bar.style.width = '10%';
+  status.textContent = 'Änderungen werden geladen…';
+
+  // Balken kriecht langsam bis 75% während Docker baut
   const fakeTimer = setInterval(() => {
     if (fakePct < 75) {
-      fakePct += 0.8;
-      setBar(fakePct);
+      fakePct += wentOffline ? 0.4 : 0.6;
+      bar.style.width = fakePct + '%';
     }
   }, 400);
 
   async function poll() {
     try {
       await fetch('/api/public/apps', { signal: AbortSignal.timeout(2000) });
-      // Server antwortet noch
       if (wentOffline) {
-        // Server ist wieder da!
+        // Server ist wieder online → fertig
         clearInterval(fakeTimer);
-        setStep(2, 'done');
-        setStep(3, 'done');
-        setBar(100);
-        document.getElementById('upd-head-icon').textContent  = '✓';
-        document.getElementById('upd-head-title').textContent = t('update.done') || 'Fertig!';
-        document.getElementById('upd-note').textContent       = t('update.reloading') || 'Seite wird neu geladen…';
+        bar.style.width = '100%';
+        icon.style.animation = 'none';
+        icon.textContent = '✓';
+        title.childNodes[title.childNodes.length - 1].textContent = ' Fertig!';
+        status.textContent = 'Seite wird neu geladen…';
         setTimeout(() => location.reload(), 1500);
         return;
       }
     } catch (_) {
-      // Server nicht erreichbar → Build/Restart läuft
       if (!wentOffline) {
         wentOffline = true;
-        clearInterval(fakeTimer);
-        setStep(1, 'done');
-        setStep(2, 'active');
-        setBar(80);
-        setTimeout(() => {
-          setStep(2, 'done');
-          setStep(3, 'active');
-          setBar(90);
-        }, 3000);
+        fakePct = Math.max(fakePct, 60);
+        bar.style.width = fakePct + '%';
+        status.textContent = 'Docker baut neues Image…';
       }
     }
     setTimeout(poll, 1500);
   }
 
-  // Ersten Poll nach 4s starten (Build braucht etwas Zeit zum Starten)
   setTimeout(poll, 4000);
 }
 
