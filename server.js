@@ -1427,16 +1427,34 @@ app.get(
 
 // List available remote branches for the update branch selector
 app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
-  if (!fs.existsSync(path.join(_REPO, '.git'))) return res.json({ branches: ['main'] });
-  await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
-  await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
-  const raw = await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => '');
-  const branches = raw
-    .split('\n')
-    .map(b => b.trim().replace(/^origin\//, ''))
-    .filter(b => b && b !== 'HEAD' && !b.includes('->'))
-    .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
-  res.json({ branches: branches.length ? branches : ['main'] });
+  // Try git first (fast, works when volume is mounted)
+  if (fs.existsSync(path.join(_REPO, '.git'))) {
+    await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
+    await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
+    const raw = await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => '');
+    const branches = raw
+      .split('\n')
+      .map(b => b.trim().replace(/^origin\//, ''))
+      .filter(b => b && b !== 'HEAD' && !b.includes('->'))
+      .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
+    if (branches.length) return res.json({ branches });
+  }
+  // Fallback: GitHub API
+  try {
+    const r = await fetch(
+      'https://api.github.com/repos/MarioundMB/Hearth/branches?per_page=100',
+      { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
+        signal: AbortSignal.timeout(6000) }
+    );
+    if (r.ok) {
+      const data = await r.json();
+      const branches = data
+        .map(b => b.name)
+        .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
+      return res.json({ branches });
+    }
+  } catch (_) {}
+  res.json({ branches: ['main'] });
 }));
 
 
