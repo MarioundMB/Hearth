@@ -2062,8 +2062,36 @@ async function updateContainer(id, name) {
     toast(t('update.done').replace('{name}', name));
     _updateMap[id] = { hasUpdate: false };
     loadContainers();
-    checkUpdates();
+    checkUpdates(true);
   } catch (e) { showDockerError(e.message); }
+}
+
+async function updateAllContainers() {
+  const pending = Object.entries(_updateMap).filter(([, v]) => v.hasUpdate);
+  if (!pending.length) return;
+  if (!confirm(`${pending.length} Container updaten?\n\n${pending.map(([, v]) => v.name).join(', ')}`)) return;
+
+  const badge = document.getElementById('topbar-updates');
+  if (badge) { badge.textContent = '⟳'; badge.onclick = null; }
+
+  let done = 0, failed = 0;
+  for (const [id, info] of pending) {
+    const dot = document.querySelector(`[data-cid="${id}"] .update-dot`);
+    if (dot) dot.textContent = '⟳';
+    try {
+      await api('POST', `/api/updates/container/${id}`);
+      _updateMap[id] = { hasUpdate: false };
+      done++;
+    } catch (e) {
+      failed++;
+      toast(`${info.name}: ${e.message}`, 'error');
+    }
+    loadContainers();
+  }
+
+  toast(failed ? `${done} updated, ${failed} fehlgeschlagen` : `${done} Container erfolgreich aktualisiert`);
+  checkUpdates(true);
+  if (badge) badge.onclick = updateAllContainers;
 }
 
 async function updateHearth() {
