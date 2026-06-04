@@ -683,55 +683,96 @@ function extractDockerSnippets(fullDesc) {
 // ---------------------------------------------------------------------------
 // Docker Hub Logo-Cache (lädt einmalig herunter, speichert lokal)
 // ---------------------------------------------------------------------------
+// Hilfsfunktion: versucht ein Icon von mehreren Quellen zu laden.
+// Reihenfolge: Docker Hub logo_url → selfhst/icons CDN → dashboard-icons CDN
+async function _fetchIconBuffer(ns, name, explicitSlug) {
+  // Slug-Kandidaten: explizit > name > name ohne Suffixe > namespace
+  const nameLower = name.toLowerCase();
+  const stripped  = nameLower.replace(/-(ce|ee|oss|community|server|docker|app|ui)$/i, '');
+  const slugs = [...new Set([
+    explicitSlug,
+    nameLower,
+    stripped !== nameLower ? stripped : null,
+    ns !== 'library' ? ns.toLowerCase() : null,
+  ].filter(Boolean))];
+
+  const SELFHST = 'https://cdn.jsdelivr.net/gh/selfhst/icons/png';
+  const DASH    = 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png';
+
+  // Quellen in Priorität
+  const sources = [];
+
+  // 1. Docker Hub logo_url (sofern vorhanden)
+  try {
+    const hubRes = await fetch(`https://hub.docker.com/v2/repositories/${ns}/${name}/`,
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000) });
+    if (hubRes.ok) {
+      const info = await hubRes.json();
+      const url  = info.logo_url?.large || info.logo_url?.small;
+      if (url) sources.push(url);
+    }
+  } catch (_) {}
+
+  // 2. selfhst/icons + dashboard-icons für jeden Slug-Kandidaten
+  for (const slug of slugs) {
+    sources.push(`${SELFHST}/${slug}.png`, `${DASH}/${slug}.png`);
+  }
+
+  for (const url of sources) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const ct = r.headers.get('content-type') || '';
+      if (!ct.startsWith('image/')) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length < 200) continue; // Leere / Fehler-Placeholder überspringen
+      return { buffer: buf, contentType: ct };
+    } catch (_) {}
+  }
+  return null;
+}
+
 app.get('/api/dockerhub/logo', requireAuth, asyncHandler(async (req, res) => {
-  const raw = (req.query.image || '').split(':')[0].trim();
+  const raw  = (req.query.image || '').split(':')[0].trim();
+  const slug = (req.query.slug || '').trim() || null; // optionaler expliziter Slug
   if (!raw) return res.status(400).json({ error: 'image required' });
 
-  const parts = raw.split('/');
-  const [ns, name] = parts.length === 1 ? ['library', parts[0]] : [parts[0], parts[1]];
-  const key = `${ns}-${name}`.replace(/[^a-z0-9_-]/gi, '_');
+  // Letztes Segment des Image-Namens (z. B. "jellyfin" aus "linuxserver/jellyfin")
+  const rawParts = raw.split('/');
+  const name = rawParts[rawParts.length - 1];
+  const ns   = rawParts.length > 1 ? rawParts[rawParts.length - 2] : 'library';
+  const cacheKey = (slug || `${ns}-${name}`).replace(/[^a-z0-9_-]/gi, '_');
 
   const cacheDir  = path.join(FILES_ROOT, '.hearth-cache', 'logos');
-  const cacheMeta = path.join(cacheDir, `${key}.json`);
-  const cacheImg  = path.join(cacheDir, `${key}.img`);
+  const cacheMeta = path.join(cacheDir, `${cacheKey}.json`);
+  const cacheImg  = path.join(cacheDir, `${cacheKey}.img`);
 
-  // Cache-Hit: direkt ausliefern
+  // Cache-Hit
   if (fs.existsSync(cacheImg) && fs.existsSync(cacheMeta)) {
     try {
-      const { contentType } = JSON.parse(fs.readFileSync(cacheMeta, 'utf8'));
+      const { contentType, notFound } = JSON.parse(fs.readFileSync(cacheMeta, 'utf8'));
+      if (notFound) return res.status(404).end();
       res.setHeader('Content-Type', contentType || 'image/png');
       res.setHeader('Cache-Control', 'public, max-age=604800');
       return res.sendFile(cacheImg);
     } catch (_) {}
   }
 
-  try {
-    const infoRes = await fetch(`https://hub.docker.com/v2/repositories/${ns}/${name}/`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!infoRes.ok) return res.status(404).end();
+  fs.mkdirSync(cacheDir, { recursive: true });
 
-    const info = await infoRes.json();
-    const logoUrl = info.logo_url?.large || info.logo_url?.small;
-    if (!logoUrl) return res.status(404).end();
-
-    const imgRes = await fetch(logoUrl, { signal: AbortSignal.timeout(8000) });
-    if (!imgRes.ok) return res.status(404).end();
-
-    const contentType = imgRes.headers.get('content-type') || 'image/png';
-    const buffer = Buffer.from(await imgRes.arrayBuffer());
-
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(cacheImg,  buffer);
-    fs.writeFileSync(cacheMeta, JSON.stringify({ contentType, ts: Date.now() }));
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=604800');
-    res.send(buffer);
-  } catch (e) {
-    res.status(500).end();
+  const result = await _fetchIconBuffer(ns, name, slug);
+  if (!result) {
+    // Negative-Cache: 1 Tag kein Retry, verhindert Spam bei jedem Seitenaufruf
+    fs.writeFileSync(cacheMeta, JSON.stringify({ notFound: true, ts: Date.now() }));
+    return res.status(404).end();
   }
+
+  fs.writeFileSync(cacheImg,  result.buffer);
+  fs.writeFileSync(cacheMeta, JSON.stringify({ contentType: result.contentType, ts: Date.now() }));
+
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('Cache-Control', 'public, max-age=604800');
+  res.send(result.buffer);
 }));
 
 // ---------------------------------------------------------------------------
