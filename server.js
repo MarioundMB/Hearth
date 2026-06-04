@@ -1500,46 +1500,14 @@ function _exec(cmd, args) {
 }
 
 async function runHearthSelfUpdate() {
-  if (!fs.existsSync(path.join(_REPO, '.git'))) {
-    throw new Error('Source directory not mounted. Add "- .:/app/repo" to the hearth volumes in docker-compose.yml.');
-  }
-  // Allow git to operate on the bind-mounted directory (owner may differ inside the container)
-  await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
-  await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
   const branch = (runtimeConfig.updateBranch || 'main').trim();
-  const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
 
-  // Hard-reset to the selected branch instead of pull --ff-only.
-  // This discards any local file modifications (e.g. files copied in during
-  // manual deploys) that would otherwise block the merge and abort the update.
-  const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
-  if (sourceSha !== remoteSha) {
-    await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
-    await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
-  }
-  const newSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
-
-  // Only skip rebuild if the running version already matches the source
-  const newPkgPath = path.join(_REPO, 'package.json');
-  const newVersion = fs.existsSync(newPkgPath)
-    ? JSON.parse(fs.readFileSync(newPkgPath, 'utf8')).version
-    : null;
-  if (newVersion && newVersion === VERSION) return { upToDate: true, version: newVersion };
-  _updateCache = { ts: 0, data: null };
-
-  // Rebuilding from inside the running container is impossible:
-  // when Docker stops this container (as part of `docker compose up --build`),
-  // it sends SIGKILL to ALL processes in the container — including the spawned shell.
-  // Fix: run the rebuild in an EXTERNAL helper container that survives hearth being stopped.
-  // We use our own image (which already has docker-cli + docker-compose) as the helper.
   const allC = await docker.listContainers({ all: true }).catch(() => []);
   const self  = allC.find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater')));
   const selfImage = self?.Image || 'hearth-hearth';
 
-  // Resolve the HOST-side path of /app/repo by inspecting the container's bind mounts.
-  // We cannot use _REPO directly because Docker daemon interprets volume paths as host paths,
-  // not container-internal paths — /app/repo doesn't exist on the host.
-  let repoHostPath = _REPO;
+  // Resolve the HOST-side repo path via bind-mount inspection.
+  let repoHostPath = null;
   try {
     if (self) {
       const info = await docker.getContainer(self.Id).inspect();
@@ -1548,10 +1516,46 @@ async function runHearthSelfUpdate() {
     }
   } catch (_) {}
 
-  // Read the compose project name from the running container's labels.
-  // The updater runs from /app/repo, so docker compose would infer project name
-  // "repo" from the directory — breaking the update (builds repo-hearth instead
-  // of hearth-hearth and never replaces the running container). Pass -p explicitly.
+  // ── Fallback: volume not mounted → clone repo on the HOST via docker run ──
+  if (!repoHostPath || !fs.existsSync(path.join(_REPO, '.git'))) {
+    const tmpHostPath = '/tmp/hearth-src';
+    console.log('[UPDATE] /app/repo not mounted — cloning from GitHub to HOST ' + tmpHostPath);
+    await new Promise((resolve, reject) => {
+      const p = _spawn('docker', [
+        'run', '--rm',
+        '-v', `${tmpHostPath}:/dst`,
+        selfImage,
+        'sh', '-c',
+        `rm -rf /dst && git clone --depth=1 --branch ${branch} https://github.com/MarioundMB/Hearth.git /dst`,
+      ], { stdio: 'ignore' });
+      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen')));
+    });
+    repoHostPath = tmpHostPath;
+  } else {
+    // Volume is mounted — fetch + reset inside the container as usual
+    await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
+    await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
+    const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
+    const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+    if (sourceSha !== remoteSha) {
+      await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
+      await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
+    }
+  }
+
+  // Version aus dem (ggf. frisch geklonten) Repo lesen
+  const newPkgPath = fs.existsSync(path.join(_REPO, 'package.json'))
+    ? path.join(_REPO, 'package.json')
+    : path.join('/tmp/hearth-src', 'package.json');
+  const newVersion = fs.existsSync(newPkgPath)
+    ? JSON.parse(fs.readFileSync(newPkgPath, 'utf8')).version
+    : null;
+  if (newVersion && newVersion === VERSION) return { upToDate: true, version: newVersion };
+  _updateCache = { ts: 0, data: null };
+
+  const newSha = await _exec('git', ['-C', repoHostPath === '/tmp/hearth-src' ? _REPO : repoHostPath,
+    'rev-parse', '--short', 'HEAD']).catch(() => 'unknown');
+
   const projectName = self?.Labels?.['com.docker.compose.project']
     || path.basename(repoHostPath)
     || 'hearth';
@@ -1564,10 +1568,10 @@ async function runHearthSelfUpdate() {
     '-v', `${repoHostPath}:/app/repo`,
     selfImage,
     'sh', '-c',
-    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo; GIT_SHA=${newSha} docker compose -p ${projectName} up -d --build hearth`,
+    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo 2>/dev/null; docker compose -p ${projectName} up -d --build hearth`,
   ], { detached: true, stdio: 'ignore' }).unref();
 
-  return { upToDate: false, sha: newSha };
+  return { upToDate: false, version: newVersion };
 }
 
 // Nightly auto-update — time and enabled flag read from runtimeConfig.autoUpdate
