@@ -1715,6 +1715,16 @@ app.post(
 
     const container = await docker.createContainer(createOpts);
     await container.start();
+
+    // Auto-firewall: open host ports in UFW for the new container (best-effort).
+    if (await fwAvailable()) {
+      const publicPorts = (b.ports || []).filter(p => p.host && p.container);
+      for (const p of publicPorts) {
+        const proto = (p.proto || 'tcp').toLowerCase();
+        await fwExec(`ufw allow ${p.host}/${proto} comment "hearth: ${b.name || b.image}"`).catch(() => {});
+      }
+    }
+
     res.json({ ok: true, id: container.id });
   })
 );

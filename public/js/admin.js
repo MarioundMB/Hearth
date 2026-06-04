@@ -200,8 +200,16 @@ function containerRow(c) {
   const updateBadge = upd?.hasUpdate
     ? `<span class="update-dot" title="Update available" data-update-id="${esc(c.id)}" data-update-name="${esc(c.name)}">↑</span>`
     : '';
+  // Icon: hearth.icon label takes priority; fallback to Docker Hub logo
+  const iconSrc = (c.labels || {})['hearth.icon']
+    || `/api/dockerhub/logo?image=${encodeURIComponent(c.image.split(':')[0])}`;
+  const iconEl = `<div class="c-row-icon" data-cid-icon="${esc(c.id)}">
+    <img src="${esc(iconSrc)}" alt="" loading="lazy"
+         onerror="this.style.display='none';this.parentNode.textContent='🐳'">
+  </div>`;
   return `
     <div class="row row-clickable" data-cid="${esc(c.id)}" data-cname="${esc(c.name)}">
+      ${iconEl}
       <div class="main">
         <div class="title">
           ${esc(c.name)}
@@ -1361,8 +1369,8 @@ function renderQiChips(cfg) {
 async function openQuickInstall(image, storeApp) {
   document.getElementById('drop-overlay').classList.remove('active');
   _qiConfig  = storeApp
-    ? { ports: storeApp.ports || [], volumes: (storeApp.volumes || []).map(v => ({ ...v, host: v.host.replace('{data}', _dataDir) })), env: storeApp.env || [] }
-    : { ports: [], volumes: [], env: [] };
+    ? { ports: storeApp.ports || [], volumes: (storeApp.volumes || []).map(v => ({ ...v, host: v.host.replace('{data}', _dataDir) })), env: storeApp.env || [], logoUrl: null, displayName: storeApp.name || null }
+    : { ports: [], volumes: [], env: [], logoUrl: null, displayName: null };
   _qiSnippet = { compose: null, run: null };
 
   document.getElementById('qi-loading').style.display  = 'flex';
@@ -1389,6 +1397,12 @@ async function openQuickInstall(image, storeApp) {
     logoEl.innerHTML = info.logoUrl
       ? `<img src="${esc(info.logoUrl)}" alt="" onerror="this.parentNode.textContent='🐳'">`
       : '🐳';
+    // Store logo URL so the install handler can set hearth.icon automatically
+    if (info.logoUrl) {
+      const imgBase = encodeURIComponent(image.split(':')[0]);
+      _qiConfig.logoUrl = `/api/dockerhub/logo?image=${imgBase}`;
+    }
+    _qiConfig.displayName = _qiConfig.displayName || info.image || null;
 
     if (!document.getElementById('qi-image').value.includes(':')) {
       document.getElementById('qi-image').value = info.image;
@@ -1442,13 +1456,22 @@ document.getElementById('qi-install').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = t('qi.installing');
   try {
+    // Build hearth.* labels for icon + display name automatically
+    const hearthLabels = [];
+    const displayName = _qiConfig.displayName || name || null;
+    if (displayName) hearthLabels.push({ key: 'hearth.name', value: displayName });
+    if (_qiConfig.logoUrl) hearthLabels.push({ key: 'hearth.icon', value: _qiConfig.logoUrl });
+    // Set hearth.port to the first mapped TCP port so the guest view builds a URL
+    const firstTcpPort = (_qiConfig.ports || []).find(p => (p.proto || 'tcp') === 'tcp' && p.host);
+    if (firstTcpPort) hearthLabels.push({ key: 'hearth.port', value: String(firstTcpPort.container) });
+
     await api('POST', '/api/containers', {
       image, name: name || undefined,
       pull: true, restart: 'unless-stopped',
       ports:   _qiConfig.ports,
       volumes: _qiConfig.volumes.filter(v => v.host && v.container),
       env:     _qiConfig.env.filter(e => e.key),
-      labels:  [],
+      labels:  hearthLabels,
     });
     toast(t('qi.installed').replace('{name}', name || image));
     closeModal('modal-qi');
