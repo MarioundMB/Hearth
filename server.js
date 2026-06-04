@@ -1517,6 +1517,8 @@ async function runHearthSelfUpdate() {
 
   _spawn('docker', [
     'run', '--rm', '--name', 'hearth-updater',
+    '--label', 'hearth.self=true',
+    '--label', 'hearth.hide=true',
     '-v', '/var/run/docker.sock:/var/run/docker.sock',
     '-v', `${repoHostPath}:/app/repo`,
     selfImage,
