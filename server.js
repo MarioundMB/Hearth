@@ -1515,6 +1515,14 @@ async function runHearthSelfUpdate() {
     }
   } catch (_) {}
 
+  // Read the compose project name from the running container's labels.
+  // The updater runs from /app/repo, so docker compose would infer project name
+  // "repo" from the directory — breaking the update (builds repo-hearth instead
+  // of hearth-hearth and never replaces the running container). Pass -p explicitly.
+  const projectName = self?.Labels?.['com.docker.compose.project']
+    || path.basename(repoHostPath)
+    || 'hearth';
+
   _spawn('docker', [
     'run', '--rm', '--name', 'hearth-updater',
     '--label', 'hearth.self=true',
@@ -1523,7 +1531,7 @@ async function runHearthSelfUpdate() {
     '-v', `${repoHostPath}:/app/repo`,
     selfImage,
     'sh', '-c',
-    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo; GIT_SHA=${newSha} docker compose up -d --build hearth`,
+    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo; GIT_SHA=${newSha} docker compose -p ${projectName} up -d --build hearth`,
   ], { detached: true, stdio: 'ignore' }).unref();
 
   return { upToDate: false, sha: newSha };
