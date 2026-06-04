@@ -478,27 +478,42 @@ function getCpuPercent() {
 // Ersten Sample nehmen damit die nächste Abfrage einen sinnvollen Delta hat
 _cpuPrev = _readProcStat();
 
-// Disk info: query host filesystem mounted at /host (read-only), fall back to own mounts
+// Disk info: query host filesystem mounted at /host (read-only), fall back to own mounts.
+// Uses POSIX df (-P) which works with both BusyBox (Alpine) and GNU coreutils.
 function getDiskInfo() {
   return new Promise((resolve) => {
     const useHost = fs.existsSync('/host/proc');
-    const cmd = useHost
-      ? "df -B1 -x tmpfs -x devtmpfs -x overlay -x squashfs --output=source,size,used,avail,target /host 2>/dev/null"
-      : "df -B1 -x tmpfs -x devtmpfs -x squashfs --output=source,size,used,avail,target 2>/dev/null";
-    exec(cmd, (err, stdout) => {
+    // BusyBox df does not support --output or -x; use POSIX format and filter in JS.
+    exec('df -P -B1 2>/dev/null', (err, stdout) => {
       if (err || !stdout) return resolve([]);
+      const SKIP_FS = /^(tmpfs|devtmpfs|shm|udev|overlay|squashfs|none|rootfs|cgroupfs)/;
       try {
-        resolve(
-          stdout.trim().split('\n').slice(1)
-            .map((l) => {
-              const p = l.trim().split(/\s+/);
-              const mount = useHost
-                ? ((p[4] || '').replace(/^\/host/, '') || '/')
-                : p[4];
-              return { fs: p[0], total: +p[1], used: +p[2], avail: +p[3], mount };
-            })
-            .filter((d) => d.total > 0 && !isNaN(d.total))
-        );
+        // Collect all candidates, then deduplicate: keep shortest mount path per device
+        // so bind-mounts of the same partition don't create duplicate entries.
+        const byDevice = new Map();
+        for (const line of stdout.trim().split('\n').slice(1)) {
+          const p = line.trim().split(/\s+/);
+          if (p.length < 6) continue;
+          const [fsName, , , , , mountRaw] = p;
+          const total = +p[1], used = +p[2], avail = +p[3];
+          if (SKIP_FS.test(fsName) || total === 0 || isNaN(total)) continue;
+
+          // In host mode: only accept mounts inside /host, strip the prefix.
+          // In container-only mode: accept everything remaining.
+          let mount;
+          if (useHost) {
+            if (!mountRaw.startsWith('/host')) continue;
+            mount = mountRaw.replace(/^\/host/, '') || '/';
+          } else {
+            mount = mountRaw;
+          }
+
+          const prev = byDevice.get(fsName);
+          if (!prev || mount.length < prev.mount.length) {
+            byDevice.set(fsName, { fs: fsName, total, used, avail, mount });
+          }
+        }
+        resolve([...byDevice.values()]);
       } catch (_) { resolve([]); }
     });
   });
