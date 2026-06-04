@@ -21,8 +21,13 @@
         position: sticky;
         top: 65px;
         z-index: 10;
-        background: var(--bg);
-        /* Compensate for admin-layout padding-top so sticky visually sits flush */
+        /* Frosted glass — same treatment as the topbar so the grid texture
+           and gradient bleed through instead of showing a solid black bar. */
+        background: rgba(12, 14, 13, 0.88);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        /* Compensate for admin-layout padding-top so the bar sits flush
+           under the topbar when pinned, with no 18px gap visible. */
         margin-top: -18px;
         padding-top: 18px;
       }
