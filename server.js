@@ -71,6 +71,7 @@ let runtimeConfig = {
   guestHidden: [],
   users: [],
   autoUpdate: { enabled: true, hour: 0, minute: 0 },
+  updateBranch: 'main',
 };
 
 // In-memory URL cache: populated while containers are running so we can
@@ -268,7 +269,7 @@ function buildAppTile(c, reqHost) {
     id: c.id,
     name:        labels['hearth.name']        || c.name,
     description: labels['hearth.description'] || c.image,
-    icon:        labels['hearth.icon']        || '',
+    icon:        labels['hearth.icon']        || `/api/dockerhub/logo?image=${encodeURIComponent(c.image.split(':')[0])}`,
     url,
     state:   c.state,                  // full Docker state
     running: c.state === 'running',
@@ -732,7 +733,7 @@ async function _fetchIconBuffer(ns, name, explicitSlug) {
   return null;
 }
 
-app.get('/api/dockerhub/logo', requireAuth, asyncHandler(async (req, res) => {
+app.get('/api/dockerhub/logo', asyncHandler(async (req, res) => {
   const raw  = (req.query.image || '').split(':')[0].trim();
   const slug = (req.query.slug || '').trim() || null; // optionaler expliziter Slug
   if (!raw) return res.status(400).json({ error: 'image required' });
@@ -993,7 +994,8 @@ app.get('/api/settings', requireAuth, (req, res) => {
     lang:       runtimeConfig.lang || 'en',
     showOfflineApps:  !!runtimeConfig.showOfflineApps,
     refreshInterval:  runtimeConfig.refreshInterval ?? 15,
-    autoUpdate: runtimeConfig.autoUpdate ?? { enabled: true, hour: 0, minute: 0 },
+    autoUpdate:   runtimeConfig.autoUpdate ?? { enabled: true, hour: 0, minute: 0 },
+    updateBranch: runtimeConfig.updateBranch || 'main',
     port:        PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
@@ -1008,7 +1010,7 @@ app.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const {
-      serverName, lang, showOfflineApps, refreshInterval, autoUpdate,
+      serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
     } = req.body || {};
     const updates = {};
 
@@ -1023,6 +1025,9 @@ app.post(
         hour:    Math.max(0, Math.min(23, parseInt(autoUpdate.hour)   || 0)),
         minute:  Math.max(0, Math.min(59, parseInt(autoUpdate.minute) || 0)),
       };
+    }
+    if (updateBranch && typeof updateBranch === 'string') {
+      updates.updateBranch = updateBranch.trim().replace(/[^a-zA-Z0-9/_.-]/g, '') || 'main';
     }
 
     saveConfig(updates);
@@ -1381,8 +1386,9 @@ app.get(
     // Hearth-Version gegen GitHub prüfen
     let hearthUpdate = null;
     try {
+      const _branch = (runtimeConfig.updateBranch || 'main').trim();
       const r = await fetch(
-        'https://api.github.com/repos/MarioundMB/Hearth/commits/main',
+        `https://api.github.com/repos/MarioundMB/Hearth/commits/${_branch}`,
         { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
           signal: AbortSignal.timeout(6000) }
       );
@@ -1411,6 +1417,21 @@ app.get(
     res.json({ ...result, cached: false });
   })
 );
+
+// List available remote branches for the update branch selector
+app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
+  if (!fs.existsSync(path.join(_REPO, '.git'))) return res.json({ branches: ['main'] });
+  await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
+  await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
+  const raw = await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => '');
+  const branches = raw
+    .split('\n')
+    .map(b => b.trim().replace(/^origin\//, ''))
+    .filter(b => b && b !== 'HEAD' && !b.includes('->'))
+    .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
+  res.json({ branches: branches.length ? branches : ['main'] });
+}));
+
 
 // Einzelnen Container auf neues Image updaten (pull → recreate)
 app.post(
@@ -1478,14 +1499,15 @@ async function runHearthSelfUpdate() {
   // Allow git to operate on the bind-mounted directory (owner may differ inside the container)
   await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
   await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
-  const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'origin/main']);
+  const branch = (runtimeConfig.updateBranch || 'main').trim();
+  const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
 
-  // Hard-reset to origin/main instead of pull --ff-only.
+  // Hard-reset to the selected branch instead of pull --ff-only.
   // This discards any local file modifications (e.g. files copied in during
   // manual deploys) that would otherwise block the merge and abort the update.
   const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
   if (sourceSha !== remoteSha) {
-    await _exec('git', ['-C', _REPO, 'reset', '--hard', 'origin/main']);
+    await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
     await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
   }
   const newSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);

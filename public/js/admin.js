@@ -1107,6 +1107,19 @@ async function loadSettings() {
     document.getElementById('s-autoupdate-hour').value   = au.hour   ?? 0;
     document.getElementById('s-autoupdate-minute').value = String(au.minute ?? 0).padStart(2, '0');
     document.getElementById('s-autoupdate-time').style.display = au.enabled ? 'flex' : 'none';
+
+    // Branch-Selector befüllen
+    const branchSel = document.getElementById('s-update-branch');
+    const currentBranch = s.updateBranch || 'main';
+    branchSel.innerHTML = '<option value="main">main</option>';
+    try {
+      const { branches } = await api('GET', '/api/updates/branches');
+      branchSel.innerHTML = branches.map(b =>
+        `<option value="${esc(b)}"${b === currentBranch ? ' selected' : ''}>${esc(b)}</option>`
+      ).join('');
+    } catch (_) {
+      branchSel.value = currentBranch;
+    }
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -1126,7 +1139,8 @@ document.getElementById('s-save').addEventListener('click', async () => {
   const btn = document.getElementById('s-save');
   btn.disabled = true;
   try {
-    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate });
+    const updateBranch = document.getElementById('s-update-branch').value || 'main';
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);
@@ -2034,6 +2048,17 @@ async function autoFetchCdIcon(image) {
 }
 
 // ---------- Update-Checker ----------
+async function checkUpdatesManual() {
+  const btn = document.getElementById('btn-check-updates');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
+  await checkUpdates(true);
+  if (btn) {
+    btn.disabled = false;
+    btn.setAttribute('data-i18n', 'settings.checkUpdatesBtn');
+    btn.textContent = t('settings.checkUpdatesBtn');
+  }
+}
+
 async function checkUpdates(force = false) {
   const badge = document.getElementById('topbar-updates');
   if (badge) badge.textContent = '⟳';
