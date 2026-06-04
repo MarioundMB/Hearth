@@ -8,6 +8,22 @@
     <link rel="stylesheet" href="/css/style.css" />
     <script src="/js/i18n.js"></script>
     <style>
+      /* Sticky wrapper — has no overflow so the gap-fill and frosted glass
+         both work correctly. overflow-x:auto on .tabs would clip box-shadow
+         and ::before, so all sticky + visual logic lives on the wrapper. */
+      .tabs-wrap {
+        position: sticky;
+        top: 65px;
+        z-index: 10;
+        /* Pull into admin-layout padding-top so wrapper starts right under
+           the topbar. The 18px padding-top + frosted background covers the
+           gap, preventing scrolled content from bleeding through. */
+        margin-top: -18px;
+        padding-top: 18px;
+        background: rgba(12, 14, 13, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+      }
       .tabs {
         display: flex;
         gap: 4px;
@@ -17,19 +33,7 @@
         flex-wrap: nowrap;
         scrollbar-width: none;
         -ms-overflow-style: none;
-        /* Stick below the topbar (64px height + 1px border) */
-        position: sticky;
-        top: 65px;
-        z-index: 10;
-        /* Frosted glass — same treatment as the topbar so the grid texture
-           and gradient bleed through instead of showing a solid black bar. */
-        background: rgba(12, 14, 13, 0.88);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        /* Compensate for admin-layout padding-top so the bar sits flush
-           under the topbar when pinned, with no 18px gap visible. */
-        margin-top: -18px;
-        padding-top: 18px;
+        background: transparent;
       }
       .tabs::-webkit-scrollbar { display: none; }
       .tab {
@@ -1046,14 +1050,16 @@
 
         <!-- ── Hauptbereich ───────────────────────────────────── -->
         <div class="admin-main">
-          <div class="tabs">
-            <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
-            <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
-            <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
-            <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
-            <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
-            <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
-            <div class="tab" data-view="vpn">VPN</div>
+          <div class="tabs-wrap">
+            <div class="tabs">
+              <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
+              <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
+              <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
+              <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
+              <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
+              <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
+              <div class="tab" data-view="vpn">VPN</div>
+            </div>
           </div>
 
           <!-- Container -->
