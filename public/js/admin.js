@@ -188,8 +188,15 @@ let _updateMap = {};
 // Container-Zeile: kein Aktionsbutton, nur klickbar
 function containerRow(c) {
   const running = c.state === 'running';
-  const ports = c.ports.filter((p) => p.publicPort);
-  const portBadges = ports.map((p) => `<span class="port">${p.publicPort}→${p.privatePort}</span>`).join('');
+  const seen = new Set();
+  const ports = c.ports.filter((p) => {
+    if (!p.publicPort) return false;
+    const key = `${p.publicPort}→${p.privatePort}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+  const portBadges = ports.slice(0, 4).map((p) => `<span class="port">${p.publicPort}→${p.privatePort}</span>`).join('') +
+    (ports.length > 4 ? `<span class="port" style="opacity:.6">+${ports.length - 4}</span>` : '');
   const webUrl = getContainerWebUrl(c);
   const openBtn = webUrl
     ? `<a href="${esc(webUrl)}" target="_blank" rel="noopener"
@@ -589,10 +596,16 @@ async function loadImages() {
     }
     box.innerHTML = list
       .map((img) => {
-        const tags = img.tags.length ? img.tags.join(', ') : '<untagged>';
+        const tags = img.tags.length ? img.tags : ['<untagged>'];
+        const tag0 = tags[0];
+        const registry = tag0.includes('/') ? tag0.split('/')[0] : 'docker.io';
+        const isGhcr = registry.includes('ghcr.io');
+        const isGitlab = registry.includes('gitlab');
+        const regIcon = isGhcr ? '⬡' : isGitlab ? '🦊' : '🐳';
+        const tagDisplay = tags.join(', ');
         return `<div class="row">
           <div class="main">
-            <div class="title">${esc(tags)}</div>
+            <div class="title"><span style="opacity:.5;margin-right:5px">${regIcon}</span>${esc(tagDisplay)}</div>
             <div class="meta">${esc(img.id.replace('sha256:', '').slice(0, 12))} · ${fmtBytes(img.size)}</div>
           </div>
           <div class="actions">
@@ -2255,7 +2268,7 @@ function cfSettingsToggle() {
 function _cfUpdateStatus() {
   const statusEl = document.getElementById('cf-settings-status');
   if (!statusEl) return;
-  statusEl.textContent   = _cfConfigured ? 'Configured' : 'Not configured';
+  statusEl.textContent   = _cfConfigured ? t('cf.configured') : t('cf.notConfigured');
   statusEl.className     = `cf-settings-status ${_cfConfigured ? 'configured' : 'unconfigured'}`;
 }
 
@@ -2750,7 +2763,7 @@ async function loadFirewall() {
 
   document.getElementById('fw-quick-ports').innerHTML = FW_QUICK_PORTS.map(p => {
     const allowed = allowedPorts.has(p.port);
-    return `<div class="fw-port-card">
+    return `<div class="fw-port-card${allowed ? ' active' : ''}">
       <div><div class="fw-port-name">${esc(p.name)}</div><div class="fw-port-num">${p.port}/${p.proto}</div></div>
       <label class="toggle" title="${allowed ? t('firewall.allowed') : t('firewall.denied')}">
         <input type="checkbox" ${allowed ? 'checked' : ''} data-fw-port="${p.port}" data-fw-proto="${p.proto}" />
@@ -2790,9 +2803,9 @@ async function loadFirewall() {
   }
 
   if (unmanaged.length) {
-    if (managed.length) html += `<div style="font-size:11px;color:var(--text-faint);margin:10px 0 6px;padding-left:4px">External UFW rules (not managed by Hearth)</div>`;
+    if (managed.length) html += `<div style="font-size:12px;color:var(--text-dim);font-weight:600;margin:14px 0 6px;padding:6px 10px;background:var(--panel-2);border-radius:var(--radius-sm);border-left:3px solid var(--border-bright)">Externe UFW-Regeln (nicht von Hearth verwaltet)</div>`;
     html += unmanaged.map(r => `
-      <div class="fw-rule-row" style="opacity:.7">
+      <div class="fw-rule-row" style="opacity:.85">
         <span class="fw-rule-num">${r.num}</span>
         <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action}</span>
         <span class="fw-dir-badge">${r.dir}</span>
@@ -2981,7 +2994,7 @@ async function loadVpn() {
 
   list.innerHTML = (data.peers || []).map(p => `
     <div class="vpn-peer-row">
-      <span class="vpn-peer-name">📱 ${esc(p.name)}</span>
+      <span class="vpn-peer-name" title="${esc(p.name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">📱 ${esc(p.name)}</span>
       <button class="btn sm ghost" onclick="openVpnQr('${esc(p.name)}')">🔲 QR Code</button>
       <a class="btn sm ghost" href="/api/vpn/peers/${encodeURIComponent(p.name)}/conf" download>⬇ .conf</a>
     </div>`).join('');
@@ -3081,9 +3094,14 @@ async function renderStore() {
     (bycat[app.cat] = bycat[app.cat] || []).push(app);
   });
 
-  let html = '';
+  // Category jump bar (mobile)
+  const catKeys = Object.keys(bycat);
+  let html = `<div class="store-cat-bar" id="store-cat-bar">${catKeys.map(k =>
+    `<button class="store-cat-chip" onclick="document.getElementById('store-cat-${k}')?.scrollIntoView({behavior:'smooth',block:'start'})">${STORE_CATEGORIES[k] || k}</button>`
+  ).join('')}</div>`;
+
   for (const [catKey, apps] of Object.entries(bycat)) {
-    html += `<div class="store-category" data-cat="${catKey}">
+    html += `<div class="store-category" data-cat="${catKey}" id="store-cat-${catKey}">
       <div class="store-category-title">${STORE_CATEGORIES[catKey] || catKey}</div>
       <div class="store-grid">`;
     for (const app of apps) {
