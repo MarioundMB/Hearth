@@ -535,6 +535,16 @@ function nginxConfForRule(rule) {
 
   return `# Hearth Proxy: ${rule.id} (${rule.domain})
 server {
+    listen ${HTTP_PORT};
+    server_name ${rule.domain};
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+server {
     listen ${PROXY_PORT} ssl;
     server_name ${rule.domain};
     ssl_certificate     ${cert};
