@@ -503,12 +503,38 @@
         padding: 8px 0 16px; border-bottom: 1px solid var(--border);
         margin-bottom: 16px;
       }
-      .proxy-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
-      .proxy-row .proxy-domain { font-weight: 700; font-size: 14px; }
+      .proxy-row { display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; transition: border-color .15s; }
+      .proxy-row:hover { border-color: var(--accent); }
+      .proxy-row .proxy-domain { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
       .proxy-row .proxy-target { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); margin-top: 3px; }
       .proxy-row .proxy-main { flex: 1; min-width: 0; }
-      .proxy-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); display: inline-block; margin-right: 6px; }
+      .proxy-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); display: inline-block; flex-shrink: 0; }
       .proxy-status-dot.off { background: var(--text-faint); box-shadow: none; }
+      .proxy-row .proxy-actions { display: flex; align-items: center; gap: 4px; }
+      .proxy-test-btn { font-size: 11px !important; padding: 3px 8px !important; min-width: 0 !important; }
+      .proxy-test-ok  { color: var(--ok) !important; }
+      .proxy-test-err { color: var(--danger) !important; }
+      .proxy-copy-btn { opacity: .5; transition: opacity .15s; }
+      .proxy-copy-btn:hover { opacity: 1; }
+      .cf-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: .3px; }
+      .cf-badge.synced { background: rgba(249,130,52,.15); color: #f98234; border: 1px solid rgba(249,130,52,.3); }
+      .cf-badge.unsynced { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
+      /* Tunnel card */
+      .proxy-tunnel-card { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 16px; }
+      .proxy-tunnel-card .tunnel-logo { width: 32px; height: 32px; flex-shrink: 0; }
+      .proxy-tunnel-card .tunnel-info { flex: 1; }
+      .proxy-tunnel-card .tunnel-title { font-weight: 700; font-size: 14px; }
+      .proxy-tunnel-card .tunnel-sub { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+      .tunnel-status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--text-faint); }
+      .tunnel-status-dot.running { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+      /* Container picker */
+      .prl-picker { display: flex; gap: 8px; margin-top: 6px; }
+      .prl-picker select { flex: 1; }
+      .prl-pick-btn { flex-shrink: 0; }
+      /* CF sync row in modal */
+      .cf-sync-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 10px; }
+      .cf-sync-row .cf-sync-label { flex: 1; font-size: 13px; }
+      .cf-sync-row .cf-sync-sub { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
 
       /* ===== Firewall ===== */
       .fw-quick-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 20px; }
@@ -1173,6 +1199,8 @@
 
         /* Proxy und Firewall Zeilen: Actions immer sichtbar */
         .proxy-row, .fw-rule-row { flex-wrap: wrap; }
+        .proxy-row .proxy-actions { flex-wrap: wrap; gap: 3px; }
+        .cf-tunnel-card { flex-wrap: wrap; }
       }
 
       @media (max-width: 480px) {
@@ -1318,6 +1346,17 @@
             </div>
             <div class="proxy-info-bar" id="proxy-info-bar">
               <span data-i18n="proxy.infoBar">Routes incoming requests by domain to containers · WebSocket supported</span>
+            </div>
+            <!-- Cloudflare Tunnel Card -->
+            <div class="proxy-tunnel-card" id="cf-tunnel-card" style="display:none">
+              <svg class="tunnel-logo" viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F" opacity=".9"/>
+              </svg>
+              <div class="tunnel-info">
+                <div class="tunnel-title"><span class="tunnel-status-dot" id="cf-tunnel-dot"></span>Cloudflare Tunnel</div>
+                <div class="tunnel-sub" id="cf-tunnel-sub">Checking…</div>
+              </div>
+              <button class="btn sm ghost" id="cf-tunnel-btn" onclick="cfTunnelToggle()">–</button>
             </div>
             <div class="list" id="proxy-rules-list"></div>
           </section>
@@ -1879,6 +1918,57 @@
               <span data-i18n="settings.serverTime">(server time)</span>
             </div>
 
+            <!-- Cloudflare Integration -->
+            <div class="s-group-title">Cloudflare</div>
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">
+                  <svg width="18" height="18" viewBox="0 0 100 60" fill="none"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F" opacity=".8"/></svg>
+                </span>
+                <div>
+                  <div class="s-label">API Token</div>
+                  <div class="s-sub">Cloudflare API token with DNS edit permission</div>
+                </div>
+              </div>
+              <input class="input s-select" id="s-cf-token" type="password" placeholder="••••••••" style="max-width:200px" autocomplete="off" />
+            </div>
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-globe"/></svg></span>
+                <div>
+                  <div class="s-label">Zone ID</div>
+                  <div class="s-sub">Found in your domain's Cloudflare dashboard</div>
+                </div>
+              </div>
+              <input class="input s-select" id="s-cf-zone" placeholder="abc123…" style="max-width:200px" autocomplete="off" />
+            </div>
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-network"/></svg></span>
+                <div>
+                  <div class="s-label">Public IP</div>
+                  <div class="s-sub">Your server's public IP for DNS records</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input class="input s-select" id="s-cf-ip" placeholder="auto-detect" style="max-width:140px" autocomplete="off" />
+                <button class="btn sm ghost" id="s-cf-detect-ip" onclick="cfDetectPublicIp()">Detect</button>
+              </div>
+            </div>
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-vpn"/></svg></span>
+                <div>
+                  <div class="s-label">Tunnel Token</div>
+                  <div class="s-sub">Token from your Cloudflare Tunnel dashboard</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input class="input s-select" id="s-cf-tunnel" type="password" placeholder="••••••••" style="max-width:140px" autocomplete="off" />
+                <button class="btn sm ghost" id="s-cf-verify" onclick="cfVerifyCredentials()">Verify</button>
+              </div>
+            </div>
+
             <!-- Check / Update — eine Zeile, wechselt den Zustand -->
             <div class="s-row" id="hearth-update-row">
               <div class="s-row-l">
@@ -2058,10 +2148,25 @@
           <div class="field">
             <label><span data-i18n="proxy.target">Target</span> <span class="muted" style="font-size:11px" data-i18n="proxy.targetHint">(e.g. http://192.168.1.50:8096)</span></label>
             <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
+            <div class="prl-picker" id="prl-picker" style="display:none">
+              <select class="input" id="prl-container-select">
+                <option value="" data-i18n="proxy.pickerPlaceholder">– Pick a container –</option>
+              </select>
+              <button class="btn sm ghost prl-pick-btn" id="prl-pick-btn" data-i18n="proxy.pickerApply">Use</button>
+            </div>
           </div>
           <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
             <input type="checkbox" id="prl-enabled" checked style="width:auto" />
             <label for="prl-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
+          </div>
+          <!-- Cloudflare DNS Sync -->
+          <div class="cf-sync-row" id="prl-cf-row" style="display:none">
+            <svg width="20" height="20" viewBox="0 0 100 60" fill="none" style="flex-shrink:0"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F"/></svg>
+            <div class="cf-sync-label">
+              <div data-i18n="proxy.cfSync">Cloudflare DNS sync</div>
+              <div class="cf-sync-sub" data-i18n="proxy.cfSyncHint">Auto-create A record when saving</div>
+            </div>
+            <input type="checkbox" id="prl-cf-sync" style="width:auto" />
           </div>
         </div>
         <div class="modal-foot">

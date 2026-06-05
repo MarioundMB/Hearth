@@ -15,6 +15,7 @@ const session = require('express-session');
 const multer = require('multer');
 const Docker = require('dockerode');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -72,6 +73,10 @@ let runtimeConfig = {
   users: [],
   autoUpdate: { enabled: true, hour: 0, minute: 0 },
   updateBranch: 'main',
+  cfApiToken: '',
+  cfZoneId: '',
+  cfTunnelToken: '',
+  serverPublicIp: '',
 };
 
 // In-memory URL cache: populated while containers are running so we can
@@ -875,38 +880,43 @@ app.get('/api/proxy/status', requireAuth, (req, res) => {
 });
 
 app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
-  const { domain, target, enabled = true, strip = '' } = req.body || {};
+  const { domain, target, enabled = true, strip = '', cfSync = false } = req.body || {};
   if (!domain || !target) return res.status(400).json({ error: 'domain and target are required' });
   validateProxyInputs(domain.trim(), target.trim());
 
   const rules = [...(runtimeConfig.proxyRules || [])];
   const id = Date.now().toString(36);
-  rules.push({ id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''), enabled: !!enabled, strip: strip.trim() });
+  const rule = { id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''), enabled: !!enabled, strip: strip.trim(), cfSync: !!cfSync, cfDnsId: null };
+  rules.push(rule);
   saveConfig({ proxyRules: rules });
   writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
   }
+  if (cfSync) cfSyncRule(rule).catch(e => console.warn('[CF]', e.message));
   res.json({ ok: true, id });
 }));
 
 app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
-  const { domain, target, enabled, strip } = req.body || {};
+  const { domain, target, enabled, strip, cfSync } = req.body || {};
   const existing = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   const newDomain = domain !== undefined ? domain.trim() : existing?.domain;
   const newTarget = target !== undefined ? target.trim() : existing?.target;
   if (newDomain && newTarget) validateProxyInputs(newDomain, newTarget);
 
+  let updatedRule;
   const rules = (runtimeConfig.proxyRules || []).map((r) => {
     if (r.id !== req.params.id) return r;
-    return {
+    updatedRule = {
       ...r,
       domain:  domain  !== undefined ? domain.trim()  : r.domain,
       target:  target  !== undefined ? target.trim().replace(/\/$/, '') : r.target,
       enabled: enabled !== undefined ? !!enabled        : r.enabled,
       strip:   strip   !== undefined ? strip.trim()    : (r.strip || ''),
+      cfSync:  cfSync  !== undefined ? !!cfSync         : r.cfSync,
     };
+    return updatedRule;
   });
   saveConfig({ proxyRules: rules });
   writeProxyConfigs(rules);
@@ -914,10 +924,12 @@ app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
   }
+  if (updatedRule?.cfSync) cfSyncRule(updatedRule).catch(e => console.warn('[CF]', e.message));
   res.json({ ok: true });
 }));
 
 app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  const toDelete = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   const rules = (runtimeConfig.proxyRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ proxyRules: rules });
   writeProxyConfigs(rules);
@@ -925,7 +937,210 @@ app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) =>
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
   }
+  if (toDelete?.cfSync) cfDeleteDnsRecord(toDelete).catch(e => console.warn('[CF]', e.message));
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Proxy – Test endpoint
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/test/:id', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false, error: 'Rule not found' });
+  const t0 = Date.now();
+  try {
+    const url = new URL(rule.target);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    await new Promise((resolve, reject) => {
+      const req2 = mod.request(
+        { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: '/', method: 'HEAD', timeout: 5000 },
+        (r) => { r.resume(); resolve(r.statusCode); }
+      );
+      req2.on('timeout', () => { req2.destroy(); reject(new Error('timeout')); });
+      req2.on('error', reject);
+      req2.end();
+    });
+    res.json({ ok: true, latency: Date.now() - t0 });
+  } catch (e) {
+    res.json({ ok: false, error: e.message, latency: Date.now() - t0 });
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// System – Public IP
+// ---------------------------------------------------------------------------
+app.get('/api/system/public-ip', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const ip = await new Promise((resolve, reject) => {
+      https.get('https://api.ipify.org?format=json', (r) => {
+        let d = '';
+        r.on('data', c => d += c);
+        r.on('end', () => { try { resolve(JSON.parse(d).ip); } catch(e) { reject(e); } });
+      }).on('error', reject).setTimeout(5000, function() { this.destroy(); reject(new Error('timeout')); });
+    });
+    res.json({ ok: true, ip });
+  } catch(e) {
+    res.json({ ok: false, error: e.message });
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// Cloudflare – helpers
+// ---------------------------------------------------------------------------
+async function cfFetch(path, method = 'GET', body = null) {
+  const token = runtimeConfig.cfApiToken;
+  if (!token) throw Object.assign(new Error('Kein Cloudflare API-Token konfiguriert'), { statusCode: 400 });
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const options = {
+      hostname: 'api.cloudflare.com',
+      path: `/client/v4${path}`,
+      method,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      },
+      timeout: 10000,
+    };
+    const req = https.request(options, (r) => {
+      let d = '';
+      r.on('data', c => d += c);
+      r.on('end', () => {
+        try { resolve(JSON.parse(d)); }
+        catch(e) { reject(new Error('CF API: ungültige Antwort')); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('CF API: timeout')); });
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+async function cfGetPublicIp() {
+  if (runtimeConfig.serverPublicIp) return runtimeConfig.serverPublicIp;
+  return new Promise((resolve, reject) => {
+    https.get('https://api.ipify.org?format=json', (r) => {
+      let d = '';
+      r.on('data', c => d += c);
+      r.on('end', () => { try { resolve(JSON.parse(d).ip); } catch(e) { reject(e); } });
+    }).on('error', reject).setTimeout(5000, function() { this.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+async function cfSyncRule(rule) {
+  if (!rule.cfSync || !runtimeConfig.cfApiToken || !runtimeConfig.cfZoneId) return;
+  const ip = await cfGetPublicIp();
+  const zoneId = runtimeConfig.cfZoneId;
+  const record = { type: 'A', name: rule.domain, content: ip, ttl: 1, proxied: true };
+  if (rule.cfDnsId) {
+    await cfFetch(`/zones/${zoneId}/dns_records/${rule.cfDnsId}`, 'PUT', record);
+  } else {
+    const result = await cfFetch(`/zones/${zoneId}/dns_records`, 'POST', record);
+    if (result.success && result.result?.id) {
+      const rules = (runtimeConfig.proxyRules || []).map(r =>
+        r.id === rule.id ? { ...r, cfDnsId: result.result.id } : r
+      );
+      saveConfig({ proxyRules: rules });
+    }
+  }
+}
+
+async function cfDeleteDnsRecord(rule) {
+  if (!rule.cfDnsId || !runtimeConfig.cfApiToken || !runtimeConfig.cfZoneId) return;
+  await cfFetch(`/zones/${runtimeConfig.cfZoneId}/dns_records/${rule.cfDnsId}`, 'DELETE').catch(() => {});
+}
+
+// Cloudflare – verify credentials
+app.post('/api/cloudflare/verify', requireAuth, asyncHandler(async (req, res) => {
+  const result = await cfFetch('/user/tokens/verify');
+  if (result.success) {
+    res.json({ ok: true, message: result.result?.status || 'active' });
+  } else {
+    res.status(400).json({ ok: false, error: result.errors?.[0]?.message || 'Ungültige Credentials' });
+  }
+}));
+
+// Cloudflare – manual DNS sync for one rule
+app.post('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.ruleId);
+  if (!rule) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+  const ip = await cfGetPublicIp();
+  const zoneId = runtimeConfig.cfZoneId;
+  if (!zoneId) return res.status(400).json({ ok: false, error: 'Keine Zone-ID konfiguriert' });
+  const record = { type: 'A', name: rule.domain, content: ip, ttl: 1, proxied: true };
+  let cfDnsId = rule.cfDnsId;
+  if (cfDnsId) {
+    const r = await cfFetch(`/zones/${zoneId}/dns_records/${cfDnsId}`, 'PUT', record);
+    if (!r.success) throw Object.assign(new Error(r.errors?.[0]?.message || 'CF-Fehler'), { statusCode: 400 });
+  } else {
+    const r = await cfFetch(`/zones/${zoneId}/dns_records`, 'POST', record);
+    if (!r.success) throw Object.assign(new Error(r.errors?.[0]?.message || 'CF-Fehler'), { statusCode: 400 });
+    cfDnsId = r.result?.id;
+  }
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.ruleId ? { ...r, cfSync: true, cfDnsId } : r
+  );
+  saveConfig({ proxyRules: rules });
+  res.json({ ok: true, cfDnsId, ip });
+}));
+
+// Cloudflare – delete DNS record for one rule
+app.delete('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.ruleId);
+  if (!rule) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+  await cfDeleteDnsRecord(rule);
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.ruleId ? { ...r, cfSync: false, cfDnsId: null } : r
+  );
+  saveConfig({ proxyRules: rules });
+  res.json({ ok: true });
+}));
+
+// Cloudflare – Tunnel status
+const CF_TUNNEL_CONTAINER = 'hearth-cloudflared';
+
+app.get('/api/cloudflare/tunnel/status', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const c = docker.getContainer(CF_TUNNEL_CONTAINER);
+    const info = await c.inspect();
+    res.json({ ok: true, running: info.State.Running, status: info.State.Status });
+  } catch (e) {
+    res.json({ ok: true, running: false, status: 'not_found' });
+  }
+}));
+
+app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, res) => {
+  const token = runtimeConfig.cfTunnelToken;
+  if (!token) return res.status(400).json({ ok: false, error: 'Kein Tunnel-Token konfiguriert' });
+  try {
+    const existing = docker.getContainer(CF_TUNNEL_CONTAINER);
+    const info = await existing.inspect().catch(() => null);
+    if (info) {
+      if (info.State.Running) return res.json({ ok: true, already: true });
+      await existing.start();
+      return res.json({ ok: true });
+    }
+  } catch(_) {}
+  const container = await docker.createContainer({
+    name: CF_TUNNEL_CONTAINER,
+    Image: 'cloudflare/cloudflared:latest',
+    Cmd: ['tunnel', '--no-autoupdate', 'run', '--token', token],
+    HostConfig: { RestartPolicy: { Name: 'unless-stopped' }, NetworkMode: 'host' },
+  });
+  await container.start();
+  res.json({ ok: true });
+}));
+
+app.post('/api/cloudflare/tunnel/stop', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const c = docker.getContainer(CF_TUNNEL_CONTAINER);
+    await c.stop();
+    res.json({ ok: true });
+  } catch(e) {
+    res.json({ ok: false, error: e.message });
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -1001,6 +1216,10 @@ app.get('/api/settings', requireAuth, (req, res) => {
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
     version:     VERSION,
+    cfApiToken:     runtimeConfig.cfApiToken || '',
+    cfZoneId:       runtimeConfig.cfZoneId || '',
+    cfTunnelToken:  runtimeConfig.cfTunnelToken || '',
+    serverPublicIp: runtimeConfig.serverPublicIp || '',
   });
 });
 
@@ -1010,6 +1229,7 @@ app.post(
   asyncHandler(async (req, res) => {
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
+      cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp,
     } = req.body || {};
     const updates = {};
 
@@ -1028,6 +1248,10 @@ app.post(
     if (updateBranch && typeof updateBranch === 'string') {
       updates.updateBranch = updateBranch.trim().replace(/[^a-zA-Z0-9/_.-]/g, '') || 'main';
     }
+    if (cfApiToken !== undefined) updates.cfApiToken = (cfApiToken || '').trim();
+    if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();
+    if (cfTunnelToken !== undefined) updates.cfTunnelToken = (cfTunnelToken || '').trim();
+    if (serverPublicIp !== undefined) updates.serverPublicIp = (serverPublicIp || '').trim();
 
     saveConfig(updates);
     if (updates.autoUpdate) scheduleNightlyUpdate();
