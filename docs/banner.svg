@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" width="900" height="220">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c0e0d"/>
+      <stop offset="100%" stop-color="#141714"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c4f042" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#c4f042" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="220" rx="16" fill="url(#bg)"/>
+
+  <!-- Subtle border -->
+  <rect width="900" height="220" rx="16" fill="none" stroke="#c4f042" stroke-width="1" stroke-opacity="0.15"/>
+
+  <!-- Glow blob -->
+  <ellipse cx="220" cy="110" rx="160" ry="90" fill="#c4f042" fill-opacity="0.07" filter="url(#blur)"/>
+
+  <!-- Logo icon -->
+  <rect x="60" y="76" width="68" height="68" rx="16" fill="#c4f042"/>
+  <polygon points="94,88 122,140 66,140" fill="#0c0e0d"/>
+
+  <!-- Title -->
+  <text x="154" y="116" font-family="system-ui,-apple-system,sans-serif" font-size="52" font-weight="800" fill="#ffffff" letter-spacing="-2">Hearth</text>
+
+  <!-- Subtitle -->
+  <text x="156" y="146" font-family="system-ui,-apple-system,sans-serif" font-size="17" fill="#8a9a8a" letter-spacing="0.2">Self-hosted Docker Management Panel</text>
+
+  <!-- Feature pills -->
+  <rect x="156" y="164" width="108" height="24" rx="6" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+  <text x="210" y="180" font-family="system-ui,-apple-system,sans-serif" font-size="11.5" fill="#c4f042" text-anchor="middle" font-weight="600">🐳 Docker</text>
+
+  <rect x="274" y="164" width="128" height="24" rx="6" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+  <text x="338" y="180" font-family="system-ui,-apple-system,sans-serif" font-size="11.5" fill="#c4f042" text-anchor="middle" font-weight="600">🔀 Reverse Proxy</text>
+
+  <rect x="412" y="164" width="104" height="24" rx="6" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+  <text x="464" y="180" font-family="system-ui,-apple-system,sans-serif" font-size="11.5" fill="#c4f042" text-anchor="middle" font-weight="600">🛡 Firewall</text>
+
+  <rect x="526" y="164" width="114" height="24" rx="6" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+  <text x="583" y="180" font-family="system-ui,-apple-system,sans-serif" font-size="11.5" fill="#c4f042" text-anchor="middle" font-weight="600">🌐 9 Languages</text>
+
+  <!-- Version badge -->
+  <rect x="754" y="82" width="90" height="26" rx="13" fill="#c4f042" fill-opacity="0.12" stroke="#c4f042" stroke-opacity="0.3" stroke-width="1"/>
+  <text x="799" y="99" font-family="system-ui,-apple-system,sans-serif" font-size="12" fill="#c4f042" text-anchor="middle" font-weight="700">v 1.1.0</text>
+
+  <!-- Node.js badge -->
+  <rect x="754" y="118" width="90" height="26" rx="13" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+  <text x="799" y="135" font-family="system-ui,-apple-system,sans-serif" font-size="12" fill="#8a9a8a" text-anchor="middle">Node.js</text>
+</svg>
