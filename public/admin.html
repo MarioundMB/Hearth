@@ -24,6 +24,16 @@
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
       }
+      .tabs-wrap { position: relative; }
+      .tabs-wrap::after {
+        content: '';
+        position: absolute;
+        right: 0; top: 0; bottom: 1px;
+        width: 48px;
+        background: linear-gradient(to right, transparent, rgba(12,14,13,.95));
+        pointer-events: none;
+        z-index: 1;
+      }
       .tabs {
         display: flex;
         gap: 4px;
@@ -64,6 +74,10 @@
       }
       /* Store */
       .store-category { margin-bottom: 32px; }
+      .store-cat-bar { display: none; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 0 0 12px; scrollbar-width: none; }
+      .store-cat-bar::-webkit-scrollbar { display: none; }
+      .store-cat-chip { flex-shrink: 0; padding: 5px 12px; font-size: 12px; font-weight: 600; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; color: var(--text-dim); cursor: pointer; transition: border-color .15s, color .15s; }
+      .store-cat-chip:hover { border-color: var(--accent-dim); color: var(--text); }
       .store-category-title {
         font-family: var(--font-display);
         font-size: 13px;
@@ -249,6 +263,10 @@
       }
       .file-row:hover .fileops {
         opacity: 1;
+      }
+      @media (hover: none) {
+        .fileops { opacity: 1; gap: 2px; }
+        .fileops .iconbtn { min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; }
       }
       .iconbtn {
         background: none;
@@ -530,7 +548,7 @@
       .log-status.s5 { background: var(--danger); }
       /* Cert panel in modal */
       .cert-panel { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px; }
-      .cert-panel-title { font-size: 12px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+      .cert-panel-title { font-size: 13px; font-weight: 700; color: var(--text-dim); margin-bottom: 10px; }
       .cert-method-btns { display: flex; gap: 8px; flex-wrap: wrap; }
       .proxy-info-bar {
         font-size: 12.5px; color: var(--text-faint);
@@ -587,7 +605,8 @@
 
       /* ===== Firewall ===== */
       .fw-quick-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 20px; }
-      .fw-port-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+      .fw-port-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; transition: border-color .15s, background .15s; }
+      .fw-port-card.active { background: rgba(88,214,141,.06); border-color: rgba(88,214,141,.3); }
       .fw-port-name { font-weight: 600; font-size: 13px; }
       .fw-port-num  { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
       .fw-rule-row  { display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
@@ -595,20 +614,27 @@
       .fw-rule-action { font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
       .fw-rule-action.allow { background: rgba(88,214,141,0.15); color: var(--ok); }
       .fw-rule-action.deny  { background: rgba(255,107,94,0.15);  color: var(--danger); }
+      .fw-rule-action.limit { background: rgba(255,187,51,0.15);  color: #ffbb33; }
       .fw-status-badge { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 20px; }
       .fw-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
       .fw-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
-      .fw-mode-toggle { display: flex; gap: 4px; margin-right: 4px; }
+      .fw-mode-toggle { display: flex; gap: 4px; margin-right: 8px; }
       .fw-mode-btn { background: var(--panel-2); border-color: var(--border-bright); color: var(--text-dim); }
-      /* Separator between mode toggle and Aktiv badge */
-      .fw-mode-sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; flex-shrink: 0; align-self: center; }
-      /* Live Firewall Log */
+      .fw-mode-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+      .fw-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #0c0e0d; font-weight: 700; }
+      .fw-mode-btn.active:hover { box-shadow: 0 0 16px var(--accent-glow); }
+      /* Drag & Drop */
+      .fw-rule-row { cursor: grab; }
+      .fw-rule-row.dragging { opacity: .4; cursor: grabbing; }
+      .fw-rule-row.drag-over { border-color: var(--accent); background: var(--panel-2); }
+      .fw-drag-handle { color: var(--text-faint); font-size: 14px; cursor: grab; padding: 0 4px; flex-shrink: 0; user-select: none; }
+      /* Live Logs */
       .fw-log-panel { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
       .fw-log-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
       .fw-log-title { font-size: 13px; font-weight: 700; flex: 1; }
       .fw-log-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
-      .fw-log-dot.live { background: var(--ok); box-shadow: 0 0 5px var(--ok); animation: fwpulse 1.5s infinite; }
-      @keyframes fwpulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+      .fw-log-dot.live { background: var(--ok); box-shadow: 0 0 5px var(--ok); animation: pulse 1.5s infinite; }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
       .fw-log-body { max-height: 280px; overflow-y: auto; font-family: var(--font-mono); font-size: 11.5px; }
       .fw-log-entry { display: flex; gap: 8px; padding: 5px 14px; border-bottom: 1px solid var(--border); }
       .fw-log-entry:last-child { border-bottom: none; }
@@ -616,9 +642,7 @@
       .fw-log-action.BLOCK { color: var(--danger); }
       .fw-log-action.ALLOW { color: var(--ok); }
       .fw-log-entry-meta { color: var(--text-faint); font-size: 11px; }
-      .fw-mode-btn:hover { border-color: var(--accent-dim); color: var(--text); }
-      .fw-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #0c0e0d; font-weight: 700; }
-      .fw-mode-btn.active:hover { box-shadow: 0 0 16px var(--accent-glow); }
+      .fw-dir-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--panel-2); color: var(--text-faint); flex-shrink: 0; }
 
       /* ===== Container-Detail-Modal ===== */
       .row-clickable { cursor: pointer; }
@@ -817,6 +841,7 @@
         padding: 12px;
         margin-bottom: 8px;
       }
+      .mon-section-divider { height: 1px; background: var(--border); margin: 8px 0; }
       .mon-row2 .mon-card { margin-bottom: 0; }
       .mon-head {
         display: flex;
@@ -827,10 +852,11 @@
       }
       .mon-title {
         font-family: var(--font-mono);
-        font-size: 10px;
-        letter-spacing: 0.1em;
+        font-size: 11px;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: var(--text-faint);
+        color: var(--text-dim);
+        font-weight: 600;
         flex-shrink: 0;
       }
       .mon-value {
@@ -1159,7 +1185,7 @@
 
         /* Layout: Hauptbereich oben, Monitor-Panel darunter als Klappleiste */
         .admin-layout { flex-direction: column; gap: 0; padding-top: 12px; }
-        .admin-main   { order: 1; width: 100%; }
+        .admin-main   { order: 1; width: 100%; max-width: 100%; }
         .monitor-panel {
           order: 2;
           width: 100%;
@@ -1271,6 +1297,7 @@
       @media (max-width: 480px) {
         .wrap { padding: 0 12px; }
         .store-grid { grid-template-columns: 1fr; }
+        .store-cat-bar { display: flex; }
         .store-card { padding: 14px; }
         /* Topbar Brand: nur Logo */
         .brand span { display: none; }
@@ -1353,8 +1380,8 @@
           <section class="view" id="view-store">
             <div class="toolbar">
               <h2 data-i18n="tab.store">Store</h2>
+              <input class="input" id="store-search" style="flex:1;max-width:320px;padding:8px 12px;font-size:13px;margin-left:16px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
               <div class="spacer"></div>
-              <input class="input" id="store-search" style="width:220px;max-width:100%;padding:8px 12px;font-size:13px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
             </div>
             <div id="store-categories"></div>
           </section>
@@ -1426,33 +1453,33 @@
                 <div class="cf-settings-grid">
                   <div class="cf-field">
                     <label class="cf-field-label">API Token</label>
-                    <div class="cf-field-sub" data-i18n="cf.apiTokenHint">DNS-Bearbeitungsrechte erforderlich</div>
+                    <div class="cf-field-sub">DNS edit permission required</div>
                     <div style="display:flex;gap:6px">
                       <input class="input" id="s-cf-token" type="password" placeholder="••••••••" autocomplete="off" style="flex:1" />
-                      <button class="btn sm ghost" onclick="cfVerifyCredentials(this)" data-i18n="cf.verify">Prüfen</button>
+                      <button class="btn sm ghost" onclick="cfVerifyCredentials(this)">Verify</button>
                     </div>
                   </div>
                   <div class="cf-field">
                     <label class="cf-field-label">Zone ID</label>
-                    <div class="cf-field-sub" data-i18n="cf.zoneIdHint">Aus deinem Cloudflare-Dashboard</div>
+                    <div class="cf-field-sub">From your domain's CF dashboard</div>
                     <input class="input" id="s-cf-zone" placeholder="abc123…" autocomplete="off" />
                   </div>
                   <div class="cf-field">
                     <label class="cf-field-label">Public IP</label>
-                    <div class="cf-field-sub" data-i18n="cf.publicIpHint">Für DNS-A-Einträge</div>
+                    <div class="cf-field-sub">Used for DNS A records</div>
                     <div style="display:flex;gap:6px">
                       <input class="input" id="s-cf-ip" placeholder="auto-detect" autocomplete="off" style="flex:1" />
-                      <button class="btn sm ghost" onclick="cfDetectPublicIp(this)" data-i18n="cf.detect">Erkennen</button>
+                      <button class="btn sm ghost" onclick="cfDetectPublicIp(this)">Detect</button>
                     </div>
                   </div>
                   <div class="cf-field">
                     <label class="cf-field-label">Tunnel Token</label>
-                    <div class="cf-field-sub" data-i18n="cf.tunnelHint">Vom Cloudflare-Tunnel-Dashboard</div>
+                    <div class="cf-field-sub">From Cloudflare Tunnel dashboard</div>
                     <input class="input" id="s-cf-tunnel" type="password" placeholder="••••••••" autocomplete="off" />
                   </div>
                 </div>
                 <div class="cf-settings-foot">
-                  <button class="btn primary sm" onclick="saveCfSettings()" data-i18n="cf.save">Cloudflare-Einstellungen speichern</button>
+                  <button class="btn primary sm" onclick="saveCfSettings()">Save Cloudflare Settings</button>
                 </div>
               </div>
             </div>
@@ -1480,7 +1507,7 @@
                 <button class="btn sm fw-mode-btn active" id="fw-mode-normal" data-i18n="firewall.normalMode">Normal</button>
                 <button class="btn sm fw-mode-btn" id="fw-mode-advanced" data-i18n="firewall.expertMode">Expert</button>
               </div>
-              <div class="fw-mode-sep"></div>
+              <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
               <div class="fw-status-badge" id="fw-status-badge"></div>
             </div>
 
@@ -1502,15 +1529,15 @@
                 </div>
                 <div class="list" id="fw-rules-list"></div>
 
-                <!-- Live Firewall Log -->
-                <div class="fw-log-panel" id="fw-log-panel">
+                <!-- Live Firewall Logs -->
+                <div class="fw-log-panel" id="fw-log-panel" style="display:none">
                   <div class="fw-log-header">
                     <span class="fw-log-dot" id="fw-log-dot"></span>
-                    <span class="fw-log-title" data-i18n="firewall.liveLog">Live-Firewall-Protokoll</span>
-                    <button class="btn sm ghost" id="fw-log-toggle-btn" onclick="fwToggleLiveLog()" data-i18n="firewall.logStart">Starten</button>
+                    <span class="fw-log-title">Live Firewall Log</span>
+                    <button class="btn sm ghost" id="fw-log-toggle-btn" onclick="fwToggleLiveLog()">Start</button>
                   </div>
                   <div class="fw-log-body" id="fw-log-body">
-                    <div style="padding:16px;color:var(--text-faint);font-size:12px" data-i18n="firewall.logHint">„Starten" drücken um Firewall-Ereignisse zu überwachen.</div>
+                    <div style="padding:16px;color:var(--text-faint);font-size:12px">Press "Start" to begin monitoring firewall events.</div>
                   </div>
                 </div>
               </div>
@@ -1518,7 +1545,7 @@
 
             <!-- Advanced Mode -->
             <div id="fw-advanced" style="display:none">
-              <pre class="logs" id="fw-raw-output" style="max-height:60vh;font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all">Loading…</pre>
+              <pre class="logs" id="fw-raw-output" style="max-height:60vh;font-family:var(--font-mono);font-size:12px;line-height:1.6;tab-size:4;white-space:pre-wrap;word-break:break-all">Loading…</pre>
             </div>
           </section>
 
@@ -1537,7 +1564,7 @@
                 <div class="muted" style="margin-top:8px;font-size:13px">
                   Add the <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">hearth-vpn</code>
                   service to your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">docker-compose.yml</code>
-                  and set <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">VPN_HOST</code> in your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code>.
+                  Danach die öffentliche IP oder Domain des Servers als <strong>VPN_HOST</strong> in der <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code>-Datei eintragen.
                 </div>
               </div>
             </div>
@@ -1562,7 +1589,7 @@
               <!-- Peer list -->
               <div class="toolbar" style="margin-top:20px">
                 <h2 style="font-size:16px">VPN Clients</h2>
-                <div class="muted" style="font-size:12px" data-i18n="vpn.scanHint">QR-Code mit der WireGuard-App scannen</div>
+                <div class="muted" style="font-size:12px">Scan the QR code with the WireGuard app</div>
               </div>
               <div class="list" id="vpn-peers-list"></div>
             </div>
@@ -1575,19 +1602,19 @@
                   <button class="iconbtn" data-close>✕</button>
                 </div>
                 <div class="modal-body" style="text-align:center">
-                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px" data-i18n="vpn.qrHint">
-                    Scanne mit der <strong>WireGuard-App</strong> auf deinem Handy oder importiere die .conf-Datei am Computer.
+                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+                    Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
                   </p>
                   <div id="vpn-qr-img" style="background:white;padding:16px;border-radius:12px;display:inline-block">
                     <img id="vpn-qr-png" src="" alt="QR Code" style="width:220px;height:220px;display:block" />
                   </div>
-                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px" data-i18n="vpn.qrPrivate">
-                    Dieser QR-Code gewährt vollen VPN-Zugang — nicht teilen.
+                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px">
+                    Keep this QR code private — it grants full VPN access.
                   </p>
                 </div>
                 <div class="modal-foot" style="justify-content:space-between">
-                  <a id="vpn-qr-download" href="#" download class="btn ghost sm" data-i18n="vpn.downloadConf">⬇ .conf herunterladen</a>
-                  <button class="btn ghost" data-close data-i18n="vpn.close">Schließen</button>
+                  <a id="vpn-qr-download" href="#" download class="btn ghost sm">⬇ Download .conf</a>
+                  <button class="btn ghost" data-close>Close</button>
                 </div>
               </div>
             </div>
@@ -1624,6 +1651,7 @@
             </div>
           </div>
 
+          <div class="mon-section-divider"></div>
           <!-- Network -->
           <div class="mon-card">
             <div class="mon-head">
@@ -1656,6 +1684,7 @@
             </div>
           </div>
 
+          <div class="mon-section-divider"></div>
           <!-- Storage -->
           <div class="mon-card">
             <div class="mon-head">
@@ -1669,6 +1698,7 @@
             <div id="mon-disk-each" style="display:none"></div>
           </div>
 
+          <div class="mon-section-divider"></div>
           <!-- Temperatures -->
           <div class="mon-card" id="mon-temps-card">
             <div class="mon-head">
@@ -1681,6 +1711,7 @@
 
           <!-- System -->
           <div class="mon-card">
+          <div class="mon-section-divider"></div>
             <div class="mon-title" style="margin-bottom:10px" data-i18n="mon.system">System</div>
             <div class="mon-info-grid">
               <span class="mon-info-key" data-i18n="mon.host">Host</span>
@@ -1717,8 +1748,8 @@
 
         <!-- Panel: docker run -->
         <div class="modal-body" id="ctab-run" style="display:none">
-          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px" data-i18n="create.runDesc">
-            Füge einen <code style="font-family:var(--font-mono)">docker run</code> Befehl ein — er wird geparst und das Formular vorausgefüllt.
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
+            Paste a <code style="font-family:var(--font-mono)">docker run</code> command — it will be parsed and the form pre-filled.
           </p>
           <div class="field">
             <textarea class="input" id="docker-run-input" rows="7"
@@ -1730,8 +1761,8 @@
 
         <!-- Panel: docker-compose -->
         <div class="modal-body" id="ctab-compose" style="display:none">
-          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px" data-i18n="create.composeDesc">
-            Füge einen <code style="font-family:var(--font-mono)">docker-compose.yml</code> Service-Block ein — der erste Service wird importiert.
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
+            Paste a <code style="font-family:var(--font-mono)">docker-compose.yml</code> service block — the first service will be imported.
           </p>
           <div class="field">
             <textarea class="input" id="compose-input" rows="12"
@@ -1761,7 +1792,7 @@
 
           <!-- App-Einstellungen (Hearth-Labels) -->
           <details class="c-app-details">
-            <summary><span data-i18n="create.appSettings">App-Einstellungen</span> <span style="color:var(--text-faint);font-size:12px" data-i18n="create.appSettingsHint">(Name, Icon, URL für Gäste-Ansicht)</span></summary>
+            <summary><span data-i18n="create.appSettings">App Settings</span> <span style="color:var(--text-faint);font-size:12px">(name, icon, URL for guest view)</span></summary>
             <div style="padding-top:12px">
               <div class="field">
                 <label>Display Name</label>
@@ -2066,12 +2097,10 @@
 
         </div>
 
-        <div class="modal-foot" style="justify-content:space-between">
-          <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Restart Hearth</button>
-          <div style="display:flex;gap:8px">
-            <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
-            <button class="btn primary" id="s-save" data-i18n="settings.save">Save</button>
-          </div>
+        <div class="modal-foot" style="justify-content:flex-end;gap:8px">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn ghost" id="s-restart" data-i18n="settings.restart" style="color:var(--danger);border-color:var(--danger)">⟳ Restart</button>
+          <button class="btn primary" id="s-save" data-i18n="settings.save">Save</button>
         </div>
       </div>
     </div>
@@ -2092,16 +2121,16 @@
               <span class="cd-status-name" id="cd-name-label">–</span>
             </div>
             <div class="cd-meta-grid">
-              <div class="cd-meta-cell"><div class="cd-meta-k" data-i18n="cd.metaImage">Image</div><div class="cd-meta-v" id="cd-m-image">–</div></div>
-              <div class="cd-meta-cell"><div class="cd-meta-k" data-i18n="cd.metaStatus">Status</div><div class="cd-meta-v" id="cd-m-status">–</div></div>
-              <div class="cd-meta-cell"><div class="cd-meta-k" data-i18n="cd.metaPorts">Ports</div><div class="cd-meta-v" id="cd-m-ports">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k">Image</div><div class="cd-meta-v" id="cd-m-image">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k">Status</div><div class="cd-meta-v" id="cd-m-status">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k">Ports</div><div class="cd-meta-v" id="cd-m-ports">–</div></div>
               <div class="cd-meta-cell"><div class="cd-meta-k">ID</div><div class="cd-meta-v mono" id="cd-m-id">–</div></div>
             </div>
             <!-- Guest page visibility toggle -->
             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border);margin-top:4px">
               <div>
-                <div style="font-size:13.5px;font-weight:500" data-i18n="cd.showGuest">🌐 In Gäste-Ansicht anzeigen</div>
-                <div style="font-size:12px;color:var(--text-faint);margin-top:2px" data-i18n="cd.offlineHint">Auch offline sichtbar</div>
+                <div style="font-size:13.5px;font-weight:500">🌐 Show on guest page</div>
+                <div style="font-size:12px;color:var(--text-faint);margin-top:2px">Visible even when offline</div>
               </div>
               <label class="toggle">
                 <input type="checkbox" id="cd-guest-visible" checked>
@@ -2109,8 +2138,8 @@
               </label>
             </div>
             <div class="cd-action-row">
-              <button class="btn ghost cd-action-btn" id="cd-edit-btn" data-i18n="cd.edit">✎ Bearbeiten</button>
-              <button class="btn primary cd-action-btn" id="cd-open-btn" style="display:none" data-i18n="cd.open">↗ Öffnen</button>
+              <button class="btn primary cd-action-btn" id="cd-edit-btn" data-i18n="cd.edit">✎ Bearbeiten</button>
+              <button class="btn cd-action-btn" id="cd-open-btn" style="display:none" data-i18n="cd.open">↗ Öffnen</button>
             </div>
           </div>
           <div class="cd-foot-ops">
@@ -2225,10 +2254,10 @@
         <div class="modal-body" style="padding-top:0">
           <!-- Tabs -->
           <div class="prl-tabs">
-            <button class="prl-tab active" data-tab="general">General</button>
-            <button class="prl-tab" data-tab="cert">SSL / Cert</button>
-            <button class="prl-tab" data-tab="security">Security</button>
-            <button class="prl-tab" data-tab="advanced">Advanced</button>
+            <button class="prl-tab active" data-tab="general" data-i18n="proxy.tabGeneral">Allgemein</button>
+            <button class="prl-tab" data-tab="cert" data-i18n="proxy.tabSSL">SSL / Zertifikat</button>
+            <button class="prl-tab" data-tab="security" data-i18n="proxy.tabSecurity">Sicherheit</button>
+            <button class="prl-tab" data-tab="advanced" data-i18n="proxy.tabAdvanced">Erweitert</button>
           </div>
 
           <!-- Tab: General -->
@@ -2241,8 +2270,8 @@
               <label><span data-i18n="proxy.target">Target</span> <span class="muted" style="font-size:11px">(e.g. http://192.168.1.50:8096)</span></label>
               <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
               <div class="prl-picker" id="prl-picker" style="display:none">
-                <select class="input" id="prl-container-select"><option value="" data-i18n="proxy.pickContainer">– Container auswählen –</option></select>
-                <button class="btn sm ghost" id="prl-pick-btn" data-i18n="proxy.useContainer">Übernehmen</button>
+                <select class="input" id="prl-container-select"><option value="">– Pick a container –</option></select>
+                <button class="btn sm ghost" id="prl-pick-btn">Use</button>
               </div>
             </div>
             <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
@@ -2259,8 +2288,8 @@
           <!-- Tab: SSL / Cert -->
           <div class="prl-tab-panel" id="prl-panel-cert">
             <div class="cert-panel">
-              <div class="cert-panel-title">Current Certificate</div>
-              <div id="prl-cert-info" style="font-size:13px;color:var(--text-faint)" data-i18n="proxy.saveCertFirst">Regel zuerst speichern, um Zertifikat zu verwalten.</div>
+              <div class="cert-panel-title" data-i18n="proxy.certCurrent">Aktuelles Zertifikat</div>
+              <div id="prl-cert-info" style="font-size:13px;color:var(--text-faint)">Save rule first to manage certificate.</div>
             </div>
             <div class="cert-panel">
               <div class="cert-panel-title" data-i18n="proxy.certReplace">Zertifikat holen / ersetzen</div>
@@ -2268,15 +2297,15 @@
                 <button class="btn sm primary" id="prl-le-btn" onclick="prlRequestLE()">
                   🔒 Let's Encrypt
                 </button>
-                <label class="btn sm ghost" style="cursor:pointer" data-i18n="proxy.uploadCert">
-                  ⬆ Eigenes Zertifikat hochladen
+                <label class="btn sm ghost" style="cursor:pointer">
+                  ⬆ Upload Custom Cert
                   <input type="file" id="prl-cert-file" accept=".pem,.crt" style="display:none" />
                 </label>
-                <label class="btn sm ghost" style="cursor:pointer" data-i18n="proxy.uploadKey">
-                  ⬆ Schlüssel hochladen
+                <label class="btn sm ghost" style="cursor:pointer">
+                  ⬆ Upload Key
                   <input type="file" id="prl-key-file" accept=".pem,.key" style="display:none" />
                 </label>
-                <button class="btn sm ghost" id="prl-upload-btn" onclick="prlUploadCert()" data-i18n="proxy.applyUpload">Upload anwenden</button>
+                <button class="btn sm ghost" id="prl-upload-btn" onclick="prlUploadCert()">Apply Upload</button>
               </div>
               <div id="prl-cert-status" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
             </div>
@@ -2285,24 +2314,24 @@
           <!-- Tab: Security -->
           <div class="prl-tab-panel" id="prl-panel-security">
             <div class="field">
-              <label style="font-weight:600" data-i18n="proxy.basicAuth">Passwortschutz</label>
+              <label style="font-weight:600" data-i18n="proxy.baTitle">Passwortschutz</label>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
                 <input type="checkbox" id="prl-ba-enabled" style="width:auto" />
-                <label for="prl-ba-enabled" style="margin:0" data-i18n="proxy.basicAuthEnable">Passwortschutz aktivieren</label>
+                <label for="prl-ba-enabled" style="margin:0" data-i18n="proxy.baEnable">Passwortschutz aktivieren</label>
               </div>
               <div id="prl-ba-fields" style="display:none;gap:8px;flex-direction:column">
-                <input class="input" id="prl-ba-user" data-i18n-ph="proxy.usernamePH" placeholder="Benutzername" autocomplete="off" />
-                <input class="input" type="password" id="prl-ba-pass" data-i18n-ph="proxy.passwordPH" placeholder="Passwort (leer lassen um bestehendes zu behalten)" autocomplete="new-password" />
+                <input class="input" id="prl-ba-user" placeholder="Username" autocomplete="off" />
+                <input class="input" type="password" id="prl-ba-pass" placeholder="Password (leave empty to keep existing)" autocomplete="new-password" />
               </div>
             </div>
             <div class="field">
-              <label style="font-weight:600" data-i18n="proxy.ipAllowlist">IP-Erlaubnisliste</label>
-              <input class="input" id="prl-ip-allow" data-i18n-ph="proxy.ipPH" placeholder="192.168.0.0/24, 10.0.0.1 (kommagetrennt)" autocomplete="off" />
+              <label style="font-weight:600" data-i18n="proxy.ipAllow">IP-Erlaubnisliste</label>
+              <input class="input" id="prl-ip-allow" placeholder="192.168.0.0/24, 10.0.0.1 (comma separated)" autocomplete="off" />
               <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipAllowHint">Nur diese IPs haben Zugriff. Leer = alle.</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600" data-i18n="proxy.ipDenylist">IP-Sperrliste</label>
-              <input class="input" id="prl-ip-deny" data-i18n-ph="proxy.ipPH2" placeholder="1.2.3.4, 5.6.7.0/24 (kommagetrennt)" autocomplete="off" />
+              <label style="font-weight:600" data-i18n="proxy.ipDeny">IP-Sperrliste</label>
+              <input class="input" id="prl-ip-deny" placeholder="1.2.3.4, 5.6.7.0/24 (comma separated)" autocomplete="off" />
               <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipDenyHint">Diese IPs werden immer blockiert.</div>
             </div>
           </div>
@@ -2313,25 +2342,25 @@
               <input type="checkbox" id="prl-sec-headers" style="width:auto" />
               <div>
                 <label for="prl-sec-headers" style="margin:0;font-weight:600" data-i18n="proxy.secHeaders">Security-Header</label>
-                <div class="s-sub">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
+                <div class="s-sub" data-i18n="proxy.secHeadersHint">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
               </div>
             </div>
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
               <input type="checkbox" id="prl-cache-static" style="width:auto" />
               <div>
-                <label for="prl-cache-static" style="margin:0;font-weight:600" data-i18n="proxy.staticCache">Statische Dateien cachen</label>
-                <div class="s-sub" data-i18n="proxy.staticCacheHint">CSS, JS, Bilder 7 Tage im Browser cachen</div>
+                <label for="prl-cache-static" style="margin:0;font-weight:600" data-i18n="proxy.cacheStatic">Statische Dateien cachen</label>
+                <div class="s-sub" data-i18n="proxy.cacheStaticHint">CSS, JS, Bilder 7 Tage im Browser cachen</div>
               </div>
             </div>
             <div class="field">
-              <label style="font-weight:600" data-i18n="proxy.maxUpload">Max. Upload-Größe</label>
-              <input class="input" id="prl-max-body" data-i18n-ph="proxy.uploadSizePH" placeholder="z.B. 100m, 2g" autocomplete="off" style="max-width:140px" />
-              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.maxUploadHint">nginx client_max_body_size (Standard: 1m)</div>
+              <label style="font-weight:600" data-i18n="proxy.maxBody">Max. Upload-Größe</label>
+              <input class="input" id="prl-max-body" placeholder="e.g. 100m, 2g" autocomplete="off" style="max-width:140px" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.maxBodyHint">nginx client_max_body_size (Standard: 1m)</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600" data-i18n="proxy.nginxSnippet">Eigenes nginx-Snippet</label>
+              <label style="font-weight:600" data-i18n="proxy.snippet">Eigenes nginx-Snippet</label>
               <textarea class="input" id="prl-snippet" rows="4" placeholder="add_header X-Custom-Header value;&#10;proxy_buffer_size 128k;" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
-              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.nginxSnippetHint">Wird in den location / Block eingefügt.</div>
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.snippetHint">Wird in den location / Block eingefügt.</div>
             </div>
           </div>
         </div>
@@ -2367,26 +2396,26 @@
 
     <!-- Firewall-Regel Modal -->
     <div class="modal-backdrop" id="modal-fw-rule">
-      <div class="modal" style="max-width:460px">
+      <div class="modal" style="max-width:480px">
         <div class="modal-head">
-          <h3 data-i18n="firewall.addTitle">Firewall-Regel hinzufügen</h3>
+          <h3 data-i18n="firewall.addTitle">Add Firewall Rule</h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
             <div class="field" style="margin:0">
-              <label data-i18n="firewall.action">Aktion</label>
+              <label data-i18n="firewall.action">Action</label>
               <select class="input" id="fw-action">
-                <option value="allow" data-i18n="firewall.allow">Erlauben</option>
-                <option value="deny" data-i18n="firewall.deny">Blockieren</option>
-                <option value="limit" data-i18n="firewall.limit">Limit (Anti-Brute)</option>
+                <option value="allow">Allow</option>
+                <option value="deny">Deny</option>
+                <option value="limit">Limit (Anti-Brute)</option>
               </select>
             </div>
             <div class="field" style="margin:0">
-              <label data-i18n="firewall.direction">Richtung</label>
+              <label>Direction</label>
               <select class="input" id="fw-direction">
-                <option value="in" data-i18n="firewall.inbound">Eingehend (in)</option>
-                <option value="out" data-i18n="firewall.outbound">Ausgehend (out)</option>
+                <option value="in">Inbound (in)</option>
+                <option value="out">Outbound (out)</option>
               </select>
             </div>
           </div>
@@ -2396,9 +2425,9 @@
               <input class="input" id="fw-port" placeholder="22 or 8000:9000" />
             </div>
             <div class="field" style="margin:0">
-              <label data-i18n="firewall.protocol">Protokoll</label>
+              <label data-i18n="firewall.protocol">Protocol</label>
               <select class="input" id="fw-proto">
-                <option value="any" data-i18n="firewall.protoAny">beliebig</option>
+                <option value="any">any</option>
                 <option value="tcp">tcp</option>
                 <option value="udp">udp</option>
               </select>
@@ -2406,25 +2435,25 @@
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
             <div class="field" style="margin:0">
-              <label data-i18n="firewall.fromSubnet">Von IP / Subnetz</label>
-              <input class="input" id="fw-from" data-i18n-ph="firewall.fromPH" placeholder="beliebig / 192.168.1.0/24" />
+              <label>From IP / Subnet</label>
+              <input class="input" id="fw-from" placeholder="any / 192.168.1.0/24" />
             </div>
             <div class="field" style="margin:0">
-              <label><span data-i18n="firewall.interface">Netzwerkschnittstelle</span> <span class="muted" style="font-size:11px" data-i18n="firewall.optional">(optional)</span></label>
+              <label>Interface <span class="muted" style="font-size:11px">(optional)</span></label>
               <input class="input" id="fw-iface" placeholder="eth0, wg0, …" autocomplete="off" />
             </div>
           </div>
           <div class="field" style="margin-top:10px;margin-bottom:0">
-            <label><span data-i18n="firewall.comment">Kommentar</span> <span class="muted" style="font-size:11px" data-i18n="firewall.optional">(optional)</span></label>
-            <input class="input" id="fw-comment" data-i18n-ph="firewall.commentPH" placeholder="z.B. SSH-Zugang" autocomplete="off" />
+            <label>Comment <span class="muted" style="font-size:11px">(optional)</span></label>
+            <input class="input" id="fw-comment" placeholder="e.g. SSH access" autocomplete="off" />
           </div>
-          <div id="fw-limit-hint" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(255,187,51,.08);border:1px solid rgba(255,187,51,.25);border-radius:var(--radius-sm);font-size:12px;color:#ffbb33" data-i18n="firewall.limitHint">
-            ⚡ Limit blockiert IPs mit mehr als 6 Verbindungen in 30 Sekunden — ideal für SSH und Admin-Ports.
+          <div id="fw-limit-hint" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(255,187,51,.08);border:1px solid rgba(255,187,51,.25);border-radius:var(--radius-sm);font-size:12px;color:#ffbb33">
+            ⚡ Limit blocks IPs that make more than 6 connections in 30 seconds — ideal for SSH, admin ports.
           </div>
         </div>
         <div class="modal-foot">
-          <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
-          <button class="btn primary" id="fw-rule-save" data-i18n="firewall.saveRule">Regel hinzufügen</button>
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="fw-rule-save" data-i18n="firewall.saveRule">Add Rule</button>
         </div>
       </div>
     </div>

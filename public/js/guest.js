@@ -53,6 +53,9 @@ async function load() {
       return;
     }
 
+    const nameEl = document.getElementById('guest-server-name');
+    if (nameEl && data.serverName) nameEl.textContent = data.serverName;
+
     grid.innerHTML = data.apps.map(appCard).join('');
 
     // Staggered fade-in
