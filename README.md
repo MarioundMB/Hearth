@@ -1,22 +1,39 @@
-# Hearth — Home Server Panel
+<div align="center">
+  <img src="docs/banner.svg" alt="Hearth — Self-hosted Docker Management Panel" width="100%"/>
+</div>
 
-A lightweight, self-hosted Docker management panel — a clean alternative to CasaOS.
+<div align="center">
 
-- **Container management** — create, start, stop, restart, delete, view logs
-- **Image management** — pull and delete images
-- **File manager** — upload, download, rename, delete — locked to a configurable directory
-- **Public guest view** — shows running services as tiles, no login required
-- **Setup wizard** on first run — no manual config needed
-- **Settings panel** — server name, language, auto-refresh, password change and more
-- **Built-in reverse proxy** (Nginx) — route domains to containers, WebSocket support
-- **Firewall management** (ufw) — normal and expert mode
-- **Monitoring sidebar** — CPU, RAM, network, storage, temperatures, system info
-- **Auto-update checker** — notifies when container images have updates available
-- **9 languages** — DE, EN, RO, FR, ES, IT, PL, NL, PT
+[![License: MIT](https://img.shields.io/badge/License-MIT-c4f042.svg?style=flat-square)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-20-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Docker](https://img.shields.io/badge/Docker-required-2496ED.svg?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+
+**Read in:** &nbsp; 🇬🇧 English &nbsp;|&nbsp; [🇩🇪 Deutsch](README.de.md)
+
+</div>
 
 ---
 
-## Installation
+Hearth is a lightweight, self-hosted Docker management panel — a clean, modern alternative to CasaOS or Portainer for home servers and small VPS setups.
+
+## ✨ Features
+
+| | |
+|---|---|
+| 🐳 **Container Management** | Start, stop, restart, delete, view logs, edit ports/volumes/env |
+| 🔀 **Reverse Proxy** | Built-in Nginx — route domains to containers, SSL/Let's Encrypt, WebSocket |
+| 🛡 **Firewall** | UFW-based — rate limiting, rule ordering, live logs, outbound rules |
+| 🔒 **VPN** | WireGuard integration — manage peers, generate QR codes |
+| 📁 **File Manager** | Upload, download, rename, delete — locked to a safe directory |
+| 🌐 **Guest View** | Public page showing your running services — no login required |
+| 📦 **App Store** | 1-click install for 20+ popular self-hosted apps |
+| 📊 **Monitoring** | Live CPU, RAM, network, storage, temperatures |
+| 🔁 **Auto-Update** | Git-based self-update with progress indicator |
+| 🌍 **9 Languages** | DE · EN · RO · FR · ES · IT · PL · NL · PT |
+
+---
+
+## 🚀 Installation
 
 ### One-Line Install (Recommended)
 
@@ -24,32 +41,20 @@ A lightweight, self-hosted Docker management panel — a clean alternative to Ca
 curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
 ```
 
-**Alternative — if curl is unavailable or gives errors:**
-```bash
-wget -O /tmp/hearth-install.sh https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh && bash /tmp/hearth-install.sh
-```
+> **Alternative — wget:**
+> ```bash
+> wget -O - https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
+> ```
 
-> **⚠ Note on Snap curl:** If you installed curl via `sudo snap install curl`,  
-> the one-liner will fail (`curl: (23) Failure writing output to destination`).  
-> Use the wget alternative above, or install the native curl:  
-> `sudo apt install curl` (then use the one-liner).
-
-The installer **automatically handles everything**:
-- Installs `curl` / `wget` if neither is present
-- Installs **Docker** (via the official `get.docker.com` script)
-- Installs **Docker Compose** (plugin or standalone binary)
-- Installs **Git**
+The installer automatically:
+- Installs **Docker**, **Docker Compose** and **Git** if needed
 - Generates a secure session secret
 - Creates data directories
 - Builds and starts Hearth
 
-After installation, open `http://<server-ip>:4500` in a browser. A **setup wizard** guides you through creating your admin account.
+After installation, open **`http://<server-ip>:4500`** — a setup wizard guides you through the initial configuration.
 
-The **same command** updates an existing installation without touching your `.env`.
-
-**Prerequisites:** A Linux system (Ubuntu, Debian, Fedora, and similar are supported). The script needs to be run as root or a user with sudo privileges to install system packages.
-
----
+> ℹ️ The same command also **updates** an existing installation without touching your `.env`.
 
 ### Manual Installation
 
@@ -57,136 +62,125 @@ The **same command** updates an existing installation without touching your `.en
 git clone https://github.com/MarioundMB/Hearth.git
 cd Hearth
 cp .env.example .env
-# Edit .env: set SESSION_SECRET (generate with: openssl rand -hex 32)
+# Edit .env and set SESSION_SECRET (generate with: openssl rand -hex 32)
 docker compose up -d --build
 ```
 
-Open `http://localhost:4500` — the setup wizard will appear on the first visit.
-
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-All settings are stored in `.env` (created automatically by the installer):
+All settings are in `.env` (created by the installer):
 
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `4500` | Admin UI port |
-| `DATA_DIR` | `/srv/hearth-data` | Host path for the file manager |
-| `SESSION_SECRET` | — | Random string for secure sessions (required) |
-| `ADMIN_USER` | — | Admin username (optional — set via setup wizard) |
-| `ADMIN_PASSWORD` | — | Admin password (optional — set via setup wizard) |
+| `GUEST_PORT` | `3000` | Public guest view port |
+| `PROXY_PORT` | `443` | Reverse proxy HTTPS port |
+| `DATA_DIR` | `/srv/hearth-data` | File manager root directory |
+| `SESSION_SECRET` | — | Required — random string for secure sessions |
 
-Additional settings (server name, language, auto-refresh interval, guest view options) are available directly in the admin panel under **⚙ Settings** and are stored in `hearth.config.json`.
+Additional settings (server name, language, auto-refresh, Cloudflare, etc.) are available in the admin panel under **⚙ Settings**.
 
 ---
 
-## Guest View
+## 🔀 Reverse Proxy
 
-The home page (`/`) shows all running containers with published ports as clickable tiles — no login required. Container appearance is controlled via Docker labels:
+Hearth includes a built-in Nginx reverse proxy with full SSL support:
+
+- Route domains to containers via the **Reverse Proxy** tab
+- **SSL certificates** — auto-generated self-signed, Let's Encrypt (HTTP-01 or Cloudflare DNS-01), or custom upload
+- **Basic Auth** and **IP allowlist/denylist** per rule
+- **Security headers**, static asset caching, custom nginx snippets
+- **Traffic logs** with status code breakdown
+- Full WebSocket support
+
+---
+
+## 🛡 Firewall
+
+Manage UFW rules from the admin panel:
+
+- **Rate limiting** — block brute-force with `ufw limit` (>6 connections/30s)
+- **Drag & drop** rule ordering — first-match-wins, fully controllable
+- **Live log stream** — see blocked/allowed connections in real time
+- Outbound rules and interface binding (e.g. `wg0` for VPN-only rules)
+
+> Requires the `hearth-firewall` helper container (included in `docker-compose.yml`).
+
+---
+
+## 🏷️ Guest View Labels
+
+Control how containers appear on the public guest page:
 
 | Label | Effect |
 |---|---|
 | `hearth.name` | Display name |
-| `hearth.icon` | Emoji (e.g. `🎬`) or image URL |
-| `hearth.description` | Short description |
-| `hearth.port` | Which internal port is the web UI (if the container exposes multiple) |
+| `hearth.icon` | Emoji or image URL |
+| `hearth.port` | Which port is the web UI |
 | `hearth.scheme` | `http` (default) or `https` |
-| `hearth.url` | Force a specific URL instead of auto-detection |
-| `hearth.hide` | `true` — hide from guest view |
-| `hearth.self` | `true` — hide from admin container list (used by Hearth itself) |
+| `hearth.url` | Override the auto-detected URL |
+| `hearth.hide=true` | Hide from guest view |
 
-**Example (Jellyfin):**
+**Example:**
 ```yaml
 labels:
   - "hearth.name=Jellyfin"
   - "hearth.icon=🎬"
-  - "hearth.description=Media Server"
   - "hearth.port=8096"
 ```
 
 ---
 
-## Reverse Proxy
-
-Hearth includes a built-in Nginx reverse proxy. Manage rules in the admin panel under the **Reverse Proxy** tab:
-- Route incoming requests by domain to any container port
-- Full WebSocket support (for Portainer, VS Code Server, etc.)
-- Rules are stored in `hearth.config.json` and applied instantly via `nginx -s reload`
-- Proxy listens on port **80**; admin UI on port **4500**
-
----
-
-## Firewall
-
-Manage UFW firewall rules from the admin panel (**Firewall** tab). Requires the `hearth-firewall` helper container included in `docker-compose.yml`.
-
-- **Normal mode** — toggle common ports (SSH 22, HTTP 80, HTTPS 443, DNS 53, and more) with a single click
-- **Expert mode** — full rule management (add/delete by port, protocol, source IP)
-
----
-
-## Security
+## 🔒 Security Notes
 
 - The **setup wizard** prevents running with default credentials
-- Docker socket access grants root-equivalent privileges on the host — only run on trusted networks
-- For external access, place a reverse proxy with HTTPS in front (Caddy, Nginx Proxy Manager, etc.)
+- Docker socket access grants root-equivalent privileges — only use on trusted networks
+- For public internet access, place Hearth behind a reverse proxy with HTTPS (or use the built-in proxy with a real domain)
 - The **file manager** is locked to `DATA_DIR` — path traversal is blocked server-side
-- Passwords are compared using `crypto.timingSafeEqual` to prevent timing attacks
 
 ---
 
-## Languages
+## 🏗️ Tech Stack
 
-Available in **9 languages**:
-🇩🇪 Deutsch · 🇬🇧 English · 🇷🇴 Română · 🇫🇷 Français · 🇪🇸 Español · 🇮🇹 Italiano · 🇵🇱 Polski · 🇳🇱 Nederlands · 🇵🇹 Português
-
-Change language in **⚙ Settings → Language** — applies immediately without a page reload.
-
----
-
-## Tech Stack
-
-- **Backend**: Node.js + Express, Dockerode (Docker Engine API), Nginx (reverse proxy)
-- **Frontend**: Static HTML / CSS / Vanilla JS — no build step, easy to customize
-- **Auth**: Session cookies (`express-session`), config persisted in `hearth.config.json`
+- **Backend:** Node.js · Express · Dockerode · Nginx
+- **Frontend:** Vanilla HTML / CSS / JS — no build step, no frameworks
+- **Auth:** Session cookies (`express-session`) · bcrypt password hashing
 
 ```
 hearth/
-├── server.js                 # Backend — all API endpoints
-├── install.sh                # One-line installer for Linux
+├── server.js              # Backend — all API routes
 ├── Dockerfile
-├── docker-compose.yml        # Production (reads from .env)
-├── docker-compose.local.yml  # Local testing on Windows/Mac
-├── nginx/nginx.conf          # Nginx base configuration
-├── .env.example              # Configuration template
+├── docker-compose.yml
+├── nginx/nginx.conf       # Nginx base config
+├── install.sh             # One-line installer
 └── public/
-    ├── index.html            # Guest view    →  /
-    ├── login.html            #               →  /login
-    ├── setup.html            # Setup wizard  →  /setup  (first boot only)
-    ├── admin.html            # Admin panel   →  /admin
-    ├── favicon.svg           # Browser tab icon
-    ├── css/style.css         # Shared stylesheet
+    ├── admin.html         # Admin panel
+    ├── index.html         # Guest view
+    ├── login.html / setup.html
+    ├── css/style.css
     └── js/
-        ├── common.js         # api() helper, toast(), formatting
-        ├── guest.js          # Guest view logic
-        ├── setup.js          # Setup wizard logic
-        ├── admin.js          # Admin panel logic
-        └── i18n.js           # Translations (9 languages)
+        ├── admin.js · guest.js · common.js
+        └── i18n.js        # 9 languages
 ```
 
 ---
 
-## Updating
-
-Run the same install command again — it detects the existing installation and updates without touching your `.env`:
+## 🔄 Update / Stop
 
 ```bash
+# Update
 curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
-```
 
-## Stopping
+# Or use the "Update" button in ⚙ Settings
 
-```bash
+# Stop
 cd ~/hearth && docker compose down
 ```
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ for home servers · <a href="https://github.com/MarioundMB/Hearth/issues">Report an issue</a></sub>
+</div>
