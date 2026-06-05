@@ -954,6 +954,13 @@ document.querySelectorAll('.modal-backdrop').forEach((m) =>
   })
 );
 
+// Reset update row whenever the settings modal closes
+new MutationObserver(() => {
+  if (!document.getElementById('modal-settings').classList.contains('open')) {
+    setUpdateRowState(null);
+  }
+}).observe(document.getElementById('modal-settings'), { attributes: true, attributeFilter: ['class'] });
+
 function portRow(host = '', container = '', proto = 'tcp') {
   const d = document.createElement('div');
   d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;margin-bottom:8px';
