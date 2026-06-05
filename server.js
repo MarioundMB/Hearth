@@ -1212,6 +1212,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
     autoUpdate:   runtimeConfig.autoUpdate ?? { enabled: true, hour: 0, minute: 0 },
     updateBranch: runtimeConfig.updateBranch || 'main',
     port:        PORT,
+    guestPort:   GUEST_PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
