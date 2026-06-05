@@ -954,6 +954,13 @@ document.querySelectorAll('.modal-backdrop').forEach((m) =>
   })
 );
 
+// Reset update row whenever the settings modal closes
+new MutationObserver(() => {
+  if (!document.getElementById('modal-settings').classList.contains('open')) {
+    setUpdateRowState(null);
+  }
+}).observe(document.getElementById('modal-settings'), { attributes: true, attributeFilter: ['class'] });
+
 function portRow(host = '', container = '', proto = 'tcp') {
   const d = document.createElement('div');
   d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;margin-bottom:8px';
@@ -1061,8 +1068,9 @@ document.getElementById('c-submit').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = t('modal.creating');
   try {
-    await api('POST', '/api/containers', payload);
+    const r = await api('POST', '/api/containers', payload);
     toast(t('toast.containerCreated'));
+    if (r?.autoAssigned?.length) toast(`Port conflict resolved: ${r.autoAssigned.map(p => `→ ${p.host}`).join(', ')}`, 'info');
     closeModal('modal-create');
     loadContainers();
   } catch (err) {
@@ -1098,6 +1106,7 @@ async function loadSettings() {
     document.getElementById('s-showoffline').checked    = !!s.showOfflineApps;
     document.getElementById('s-refresh').value          = String(s.refreshInterval ?? 15);
     document.getElementById('s-port').textContent       = s.port;
+    document.getElementById('s-guest-port').textContent = s.guestPort;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
     document.getElementById('s-filesroot').textContent  = s.filesRoot;
     document.getElementById('s-version').textContent    = `v${s.version}`;
@@ -1479,7 +1488,7 @@ document.getElementById('qi-install').addEventListener('click', async () => {
     const firstTcpPort = (_qiConfig.ports || []).find(p => (p.proto || 'tcp') === 'tcp' && p.host);
     if (firstTcpPort) hearthLabels.push({ key: 'hearth.port', value: String(firstTcpPort.container) });
 
-    await api('POST', '/api/containers', {
+    const qiResult = await api('POST', '/api/containers', {
       image, name: name || undefined,
       pull: true, restart: 'unless-stopped',
       ports:   _qiConfig.ports,
@@ -1488,6 +1497,7 @@ document.getElementById('qi-install').addEventListener('click', async () => {
       labels:  hearthLabels,
     });
     toast(t('qi.installed').replace('{name}', name || image));
+    if (qiResult?.autoAssigned?.length) toast(`Port conflict resolved: ${qiResult.autoAssigned.map(p => `→ ${p.host}`).join(', ')}`, 'info');
     closeModal('modal-qi');
     loadContainers();
   } catch (err) {
@@ -2232,13 +2242,63 @@ function showUpdateProgress() {
 }
 
 // ---------- Reverse Proxy ----------
+let _cfConfigured = false;
+
+function cfSettingsToggle() {
+  const body    = document.getElementById('cf-settings-body');
+  const chevron = document.getElementById('cf-settings-chevron');
+  const open    = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  chevron.classList.toggle('open', !open);
+}
+
+function _cfUpdateStatus() {
+  const statusEl = document.getElementById('cf-settings-status');
+  if (!statusEl) return;
+  statusEl.textContent   = _cfConfigured ? 'Configured' : 'Not configured';
+  statusEl.className     = `cf-settings-status ${_cfConfigured ? 'configured' : 'unconfigured'}`;
+}
+
+async function saveCfSettings() {
+  const cfApiToken    = document.getElementById('s-cf-token').value.trim();
+  const cfZoneId      = document.getElementById('s-cf-zone').value.trim();
+  const serverPublicIp = document.getElementById('s-cf-ip').value.trim();
+  const cfTunnelToken = document.getElementById('s-cf-tunnel').value.trim();
+  try {
+    await api('POST', '/api/settings', { cfApiToken, cfZoneId, serverPublicIp, cfTunnelToken });
+    _cfConfigured = !!(cfApiToken && cfZoneId);
+    _cfUpdateStatus();
+    toast('Cloudflare settings saved');
+    loadProxyRules();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function loadProxyRules() {
   const [status, rules] = await Promise.all([
     api('GET', '/api/proxy/status').catch(() => ({ running: false, port: 80, rules: 0 })),
     api('GET', '/api/proxy/rules').catch(() => []),
   ]);
 
-  // Status-Badge in der Toolbar
+  // Load CF settings into the panel on first load
+  api('GET', '/api/settings').then(s => {
+    const tokenEl  = document.getElementById('s-cf-token');
+    if (tokenEl && !tokenEl.value) {
+      tokenEl.value = s.cfApiToken || '';
+      document.getElementById('s-cf-zone').value   = s.cfZoneId || '';
+      document.getElementById('s-cf-ip').value     = s.serverPublicIp || '';
+      document.getElementById('s-cf-tunnel').value = s.cfTunnelToken || '';
+    }
+    _cfConfigured = !!(s.cfApiToken && s.cfZoneId);
+    _cfUpdateStatus();
+    if (_cfConfigured) {
+      const body    = document.getElementById('cf-settings-body');
+      const chevron = document.getElementById('cf-settings-chevron');
+      if (body && body.style.display === 'none') {
+        // keep collapsed but show tunnel card
+      }
+    }
+  }).catch(() => {});
+
   const badge = document.getElementById('proxy-status-badge');
   if (badge) {
     badge.innerHTML = status.running
@@ -2246,24 +2306,70 @@ async function loadProxyRules() {
       : `<span class="proxy-status-dot off"></span><span style="font-size:12px;color:var(--text-faint)">${t('proxy.stopped')}</span>`;
   }
 
+  // Load CF tunnel status if token is configured
+  if (_cfConfigured) loadCfTunnelStatus();
+
   const box = document.getElementById('proxy-rules-list');
   if (!rules.length) {
     box.innerHTML = `<div class="empty"><div class="big">⇌</div>${t('proxy.empty')}<br><span class="muted" style="font-size:13px">${t('proxy.emptyHint')}</span></div>`;
     return;
   }
-  box.innerHTML = rules.map((r) => `
+  box.innerHTML = rules.map((r) => {
+    const cfBadge = _cfConfigured
+      ? `<span class="cf-badge ${r.cfSync && r.cfDnsId ? 'synced' : 'unsynced'}" data-proxy-cf="${esc(r.id)}" title="${r.cfSync && r.cfDnsId ? 'DNS synced' : 'Click to sync DNS'}">CF</span>`
+      : '';
+    const certType = r.certType || 'self-signed';
+    const certBadgeClass = certType === 'letsencrypt' ? 'le' : certType === 'custom' ? 'custom' : 'self';
+    const certBadgeLabel = certType === 'letsencrypt' ? '🔒 LE' : certType === 'custom' ? '🔑 Custom' : '⚠ Self';
+    const certBadge = `<span class="cert-badge ${certBadgeClass}" data-proxy-cert="${esc(r.id)}" title="Manage certificate">${certBadgeLabel}</span>`;
+    return `
     <div class="proxy-row">
+      <span class="proxy-status-dot ${r.enabled ? '' : 'off'}"></span>
       <div class="proxy-main">
-        <div class="proxy-domain">${esc(r.domain)}</div>
+        <div class="proxy-domain">${esc(r.domain)} ${certBadge} ${cfBadge}</div>
         <div class="proxy-target">→ ${esc(r.target)}</div>
       </div>
-      <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
-        <input type="checkbox" ${r.enabled ? 'checked' : ''} data-proxy-toggle="${esc(r.id)}" />
-        <span class="toggle-track"></span>
-      </label>
-      <button class="btn sm ghost" data-proxy-edit="${esc(r.id)}">✎</button>
-      <button class="btn sm danger" data-proxy-del="${esc(r.id)}">🗑</button>
-    </div>`).join('');
+      <div class="proxy-actions">
+        <button class="btn sm ghost proxy-test-btn" data-proxy-test="${esc(r.id)}" title="Test connection">⚡</button>
+        <button class="btn sm ghost" data-proxy-logs="${esc(r.id)}" title="Traffic logs">📊</button>
+        <button class="btn sm ghost proxy-copy-btn" data-proxy-copy="${esc(r.domain)}" title="Copy domain">⎘</button>
+        <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+          <input type="checkbox" ${r.enabled ? 'checked' : ''} data-proxy-toggle="${esc(r.id)}" />
+          <span class="toggle-track"></span>
+        </label>
+        <button class="btn sm ghost" data-proxy-edit="${esc(r.id)}">✎</button>
+        <button class="btn sm danger" data-proxy-del="${esc(r.id)}">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadCfTunnelStatus() {
+  const card = document.getElementById('cf-tunnel-card');
+  if (!card) return;
+  card.style.display = 'flex';
+  try {
+    const s = await api('GET', '/api/cloudflare/tunnel/status');
+    const dot = document.getElementById('cf-tunnel-dot');
+    const sub = document.getElementById('cf-tunnel-sub');
+    const btn = document.getElementById('cf-tunnel-btn');
+    dot.className = `tunnel-status-dot ${s.running ? 'running' : ''}`;
+    sub.textContent = s.running ? 'Running — routing via Cloudflare' : (s.status === 'not_found' ? 'Not started' : 'Stopped');
+    btn.textContent = s.running ? 'Stop' : 'Start';
+    btn.dataset.tunnelRunning = s.running ? '1' : '0';
+  } catch(_) {}
+}
+
+async function cfTunnelToggle() {
+  const btn = document.getElementById('cf-tunnel-btn');
+  const running = btn.dataset.tunnelRunning === '1';
+  btn.disabled = true;
+  try {
+    await api('POST', `/api/cloudflare/tunnel/${running ? 'stop' : 'start'}`);
+    toast(running ? 'Tunnel stopped' : 'Tunnel starting…');
+    setTimeout(loadCfTunnelStatus, 1500);
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
 }
 
 // Proxy-Tab Events
@@ -2276,7 +2382,51 @@ document.getElementById('proxy-rules-list').addEventListener('click', async (e) 
     return;
   }
   const editBtn = e.target.closest('[data-proxy-edit]');
-  if (editBtn) openProxyModal(editBtn.dataset.proxyEdit);
+  if (editBtn) { openProxyModal(editBtn.dataset.proxyEdit); return; }
+
+  const testBtn = e.target.closest('[data-proxy-test]');
+  if (testBtn) {
+    testBtn.textContent = '…';
+    testBtn.disabled = true;
+    try {
+      const r = await api('GET', `/api/proxy/test/${testBtn.dataset.proxyTest}`);
+      testBtn.textContent = r.ok ? `${r.latency}ms` : '✗';
+      testBtn.classList.toggle('proxy-test-ok', r.ok);
+      testBtn.classList.toggle('proxy-test-err', !r.ok);
+      if (!r.ok) toast(r.error || 'Unreachable', 'error');
+    } catch(e) { testBtn.textContent = '✗'; testBtn.classList.add('proxy-test-err'); }
+    finally { testBtn.disabled = false; setTimeout(() => { testBtn.textContent = '⚡'; testBtn.classList.remove('proxy-test-ok','proxy-test-err'); }, 4000); }
+    return;
+  }
+
+  const copyBtn = e.target.closest('[data-proxy-copy]');
+  if (copyBtn) {
+    navigator.clipboard.writeText(copyBtn.dataset.proxyCopy).then(() => toast('Domain copied'));
+    return;
+  }
+
+  const cfBadge = e.target.closest('[data-proxy-cf]');
+  if (cfBadge) {
+    const id = cfBadge.dataset.proxyCf;
+    const synced = cfBadge.classList.contains('synced');
+    if (synced) {
+      if (!confirm('Remove DNS record from Cloudflare?')) return;
+      await api('DELETE', `/api/cloudflare/dns-sync/${id}`).catch(e => toast(e.message, 'error'));
+    } else {
+      try {
+        const r = await api('POST', `/api/cloudflare/dns-sync/${id}`);
+        toast(`DNS record created → ${r.ip}`);
+      } catch(e) { toast(e.message, 'error'); }
+    }
+    loadProxyRules();
+    return;
+  }
+
+  const certBadge = e.target.closest('[data-proxy-cert]');
+  if (certBadge) { openProxyModal(certBadge.dataset.proxyCert, 'cert'); return; }
+
+  const logsBtn = e.target.closest('[data-proxy-logs]');
+  if (logsBtn) { loadProxyLogs(logsBtn.dataset.proxyLogs); return; }
 });
 
 document.getElementById('proxy-rules-list').addEventListener('change', async (e) => {
@@ -2289,26 +2439,116 @@ document.getElementById('proxy-rules-list').addEventListener('change', async (e)
 
 let _editingProxyId = null;
 
-function openProxyModal(id) {
+// Tab switching in proxy modal
+document.querySelectorAll('.prl-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.prl-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.prl-tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`prl-panel-${tab.dataset.tab}`)?.classList.add('active');
+  });
+});
+
+// Basic Auth toggle
+document.getElementById('prl-ba-enabled').addEventListener('change', function() {
+  document.getElementById('prl-ba-fields').style.display = this.checked ? 'flex' : 'none';
+});
+
+async function openProxyModal(id, tab = 'general') {
   _editingProxyId = id || null;
-  const title = document.getElementById('prl-title');
-  title.textContent = id ? t('proxy.editTitle') : t('proxy.addTitle');
+  document.getElementById('prl-title').textContent = id ? t('proxy.editTitle') : t('proxy.addTitle');
+
+  // Reset tabs
+  document.querySelectorAll('.prl-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.prl-tab-panel').forEach(p => p.classList.toggle('active', p.id === `prl-panel-${tab}`));
+
+  const cfRow = document.getElementById('prl-cf-row');
+  if (cfRow) cfRow.style.display = _cfConfigured ? 'flex' : 'none';
+
+  // Reset fields
+  document.getElementById('prl-domain').value = '';
+  document.getElementById('prl-target').value = '';
+  document.getElementById('prl-enabled').checked = true;
+  document.getElementById('prl-cf-sync').checked = false;
+  document.getElementById('prl-ba-enabled').checked = false;
+  document.getElementById('prl-ba-fields').style.display = 'none';
+  document.getElementById('prl-ba-user').value = '';
+  document.getElementById('prl-ba-pass').value = '';
+  document.getElementById('prl-ip-allow').value = '';
+  document.getElementById('prl-ip-deny').value = '';
+  document.getElementById('prl-sec-headers').checked = false;
+  document.getElementById('prl-cache-static').checked = false;
+  document.getElementById('prl-max-body').value = '';
+  document.getElementById('prl-snippet').value = '';
+  document.getElementById('prl-cert-info').textContent = id ? 'Loading…' : 'Save rule first to manage certificate.';
+  document.getElementById('prl-cert-status').textContent = '';
 
   if (id) {
-    api('GET', '/api/proxy/rules').then((rules) => {
-      const r = rules.find((x) => x.id === id);
+    api('GET', '/api/proxy/rules').then(rules => {
+      const r = rules.find(x => x.id === id);
       if (!r) return;
-      document.getElementById('prl-domain').value  = r.domain;
-      document.getElementById('prl-target').value  = r.target;
+      document.getElementById('prl-domain').value    = r.domain;
+      document.getElementById('prl-target').value    = r.target;
       document.getElementById('prl-enabled').checked = r.enabled;
+      document.getElementById('prl-cf-sync').checked = !!r.cfSync;
+      document.getElementById('prl-ip-allow').value  = r.ipAllowlist || '';
+      document.getElementById('prl-ip-deny').value   = r.ipDenylist || '';
+      document.getElementById('prl-sec-headers').checked  = !!r.securityHeaders;
+      document.getElementById('prl-cache-static').checked = !!r.cacheStatic;
+      document.getElementById('prl-max-body').value   = r.maxBodySize || '';
+      document.getElementById('prl-snippet').value    = r.customSnippet || '';
+      if (r.basicAuth?.enabled) {
+        document.getElementById('prl-ba-enabled').checked = true;
+        document.getElementById('prl-ba-fields').style.display = 'flex';
+        document.getElementById('prl-ba-user').value = r.basicAuth.user || '';
+      }
     });
-  } else {
-    document.getElementById('prl-domain').value  = '';
-    document.getElementById('prl-target').value  = '';
-    document.getElementById('prl-enabled').checked = true;
+    // Load cert info
+    api('GET', `/api/proxy/rules/${id}/cert`).then(c => {
+      const el = document.getElementById('prl-cert-info');
+      if (c.expires) {
+        const d = new Date(c.expires);
+        const days = c.daysLeft;
+        const typeLabel = c.certType === 'letsencrypt' ? "Let's Encrypt" : c.certType === 'custom' ? 'Custom' : 'Self-signed';
+        el.innerHTML = `<strong>${typeLabel}</strong> — expires ${d.toLocaleDateString()} <span style="color:${days < 30 ? 'var(--danger)' : 'var(--text-faint)'}">(${days} days)</span>`;
+      } else {
+        el.textContent = 'Self-signed (no expiry info)';
+      }
+    }).catch(() => { document.getElementById('prl-cert-info').textContent = 'Could not load cert info.'; });
   }
+
+  // Load running containers for picker
+  const picker = document.getElementById('prl-picker');
+  const sel = document.getElementById('prl-container-select');
+  if (picker && sel) {
+    picker.style.display = 'none';
+    api('GET', '/api/containers').then(containers => {
+      const running = (containers || []).filter(c => c.state === 'running');
+      sel.innerHTML = `<option value="">– Pick a container –</option>`;
+      running.forEach(c => {
+        const ports = (c.ports || []).filter(p => p.PublicPort || p.PrivatePort);
+        if (!ports.length) {
+          const opt = document.createElement('option');
+          opt.value = `http://${c.name}`; opt.textContent = c.name; sel.appendChild(opt);
+        } else {
+          ports.forEach(p => {
+            const port = p.PrivatePort || p.PublicPort;
+            const opt = document.createElement('option');
+            opt.value = `http://${c.name}:${port}`; opt.textContent = `${c.name} :${port}`; sel.appendChild(opt);
+          });
+        }
+      });
+      if (running.length) picker.style.display = 'flex';
+    }).catch(() => {});
+  }
+
   openModal('modal-proxy-rule');
 }
+
+document.getElementById('prl-pick-btn').addEventListener('click', () => {
+  const val = document.getElementById('prl-container-select').value;
+  if (val) document.getElementById('prl-target').value = val;
+});
 
 document.getElementById('add-proxy-btn').addEventListener('click', () => openProxyModal(null));
 
@@ -2316,15 +2556,30 @@ document.getElementById('prl-save').addEventListener('click', async () => {
   const domain  = document.getElementById('prl-domain').value.trim();
   const target  = document.getElementById('prl-target').value.trim();
   const enabled = document.getElementById('prl-enabled').checked;
+  const cfSync  = document.getElementById('prl-cf-sync')?.checked || false;
+  const baEnabled = document.getElementById('prl-ba-enabled').checked;
+  const baUser    = document.getElementById('prl-ba-user').value.trim();
+  const baPass    = document.getElementById('prl-ba-pass').value;
   if (!domain || !target) { toast(t('proxy.requiredFields'), 'error'); return; }
+
+  const payload = {
+    domain, target, enabled, cfSync,
+    basicAuth: { enabled: baEnabled, user: baUser, ...(baPass ? { password: baPass } : {}) },
+    ipAllowlist: document.getElementById('prl-ip-allow').value.trim(),
+    ipDenylist:  document.getElementById('prl-ip-deny').value.trim(),
+    securityHeaders: document.getElementById('prl-sec-headers').checked,
+    cacheStatic:     document.getElementById('prl-cache-static').checked,
+    maxBodySize:     document.getElementById('prl-max-body').value.trim(),
+    customSnippet:   document.getElementById('prl-snippet').value,
+  };
 
   const btn = document.getElementById('prl-save');
   btn.disabled = true;
   try {
     if (_editingProxyId) {
-      await api('PUT', `/api/proxy/rules/${_editingProxyId}`, { domain, target, enabled });
+      await api('PUT', `/api/proxy/rules/${_editingProxyId}`, payload);
     } else {
-      await api('POST', '/api/proxy/rules', { domain, target, enabled });
+      await api('POST', '/api/proxy/rules', payload);
     }
     toast(t('proxy.saved'));
     closeModal('modal-proxy-rule');
@@ -2332,6 +2587,124 @@ document.getElementById('prl-save').addEventListener('click', async () => {
   } catch (err) { toast(err.message, 'error'); }
   finally { btn.disabled = false; }
 });
+
+// ---------- Cert management ----------
+let _currentCertRuleId = null;
+
+async function prlRequestLE() {
+  if (!_editingProxyId) return;
+  const btn = document.getElementById('prl-le-btn');
+  const status = document.getElementById('prl-cert-status');
+  btn.disabled = true; btn.textContent = '⟳ Requesting…';
+  status.textContent = 'Contacting Let\'s Encrypt… this may take up to 60s';
+  status.style.color = 'var(--text-faint)';
+  try {
+    const r = await api('POST', `/api/proxy/rules/${_editingProxyId}/cert/letsencrypt`);
+    status.textContent = `✓ Certificate issued! Expires ${new Date(r.expires).toLocaleDateString()} (${r.daysLeft} days)`;
+    status.style.color = 'var(--ok)';
+    document.getElementById('prl-cert-info').textContent = `Let's Encrypt — expires ${new Date(r.expires).toLocaleDateString()}`;
+    loadProxyRules();
+  } catch(e) {
+    status.textContent = `✗ ${e.message}`;
+    status.style.color = 'var(--danger)';
+  }
+  finally { btn.disabled = false; btn.textContent = '🔒 Let\'s Encrypt'; }
+}
+
+async function prlUploadCert() {
+  if (!_editingProxyId) { toast('Save rule first', 'error'); return; }
+  const certFile = document.getElementById('prl-cert-file').files[0];
+  const keyFile  = document.getElementById('prl-key-file').files[0];
+  if (!certFile || !keyFile) { toast('Select both cert and key files', 'error'); return; }
+  const fd = new FormData();
+  fd.append('cert', certFile);
+  fd.append('key', keyFile);
+  const btn = document.getElementById('prl-upload-btn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    const res = await fetch(`/api/proxy/rules/${_editingProxyId}/cert/upload`, {
+      method: 'POST', body: fd,
+    });
+    const r = await res.json();
+    if (!r.ok) throw new Error(r.error || 'Upload failed');
+    toast('Certificate uploaded ✓');
+    document.getElementById('prl-cert-status').textContent = '✓ Custom certificate applied';
+    document.getElementById('prl-cert-status').style.color = 'var(--ok)';
+    loadProxyRules();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Apply Upload'; }
+}
+
+// ---------- Traffic Logs ----------
+let _currentLogRuleId = null;
+
+async function loadProxyLogs(ruleId) {
+  _currentLogRuleId = ruleId;
+  const rules = await api('GET', '/api/proxy/rules').catch(() => []);
+  const rule = (rules || []).find(r => r.id === ruleId);
+  document.getElementById('pll-title').textContent = `Traffic Logs — ${rule?.domain || ruleId}`;
+
+  const [logs, stats] = await Promise.all([
+    api('GET', `/api/proxy/rules/${ruleId}/logs`).catch(() => ({ entries: [] })),
+    api('GET', `/api/proxy/rules/${ruleId}/stats`).catch(() => ({ total: 0, s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 })),
+  ]);
+
+  document.getElementById('pll-stats').innerHTML = `
+    <div class="log-stat-card"><div class="log-stat-num">${stats.total}</div><div class="log-stat-label">Total</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s2xx">${stats.s2xx}</div><div class="log-stat-label">2xx OK</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s3xx">${stats.s3xx}</div><div class="log-stat-label">3xx Redirect</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s4xx">${stats.s4xx}</div><div class="log-stat-label">4xx Client</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s5xx">${stats.s5xx}</div><div class="log-stat-label">5xx Error</div></div>
+  `;
+
+  const tbody = document.getElementById('pll-body');
+  if (!logs.entries.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:20px">No log entries yet</td></tr>`;
+  } else {
+    tbody.innerHTML = logs.entries.map(e => {
+      const cls = e.status >= 500 ? 's5' : e.status >= 400 ? 's4' : e.status >= 300 ? 's3' : 's2';
+      const time = e.time ? new Date(e.time).toLocaleTimeString() : '–';
+      const uri = esc((e.uri || '').slice(0, 60));
+      return `<tr>
+        <td><span class="log-status ${cls}"></span>${e.status}</td>
+        <td>${esc(e.method || '–')}</td>
+        <td title="${esc(e.uri || '')}">${uri}</td>
+        <td>${e.bytes > 1024 ? (e.bytes/1024).toFixed(1)+'k' : e.bytes+'b'}</td>
+        <td>${esc(e.ip || '–')}</td>
+        <td>${time}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  openModal('modal-proxy-logs');
+}
+
+// ---------- Cloudflare Settings helpers ----------
+async function cfVerifyCredentials(btn) {
+  if (!btn) btn = document.getElementById('s-cf-verify');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await api('POST', '/api/cloudflare/verify');
+    toast('Cloudflare API: connected ✓');
+    btn.textContent = '✓';
+  } catch(e) {
+    toast(e.message, 'error');
+    btn.textContent = 'Verify';
+  } finally { btn.disabled = false; }
+}
+
+async function cfDetectPublicIp(btn) {
+  if (!btn) btn = document.getElementById('s-cf-detect-ip');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await api('GET', '/api/system/public-ip');
+    if (r.ok) { document.getElementById('s-cf-ip').value = r.ip; toast(`Public IP: ${r.ip}`); }
+    else toast(r.error, 'error');
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Detect'; }
+}
 
 // ---------- Firewall ----------
 const FW_QUICK_PORTS = [
