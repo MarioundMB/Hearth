@@ -1109,13 +1109,6 @@ async function loadSettings() {
     document.getElementById('s-autoupdate-minute').value = String(au.minute ?? 0).padStart(2, '0');
     document.getElementById('s-autoupdate-time').style.display = au.enabled ? 'flex' : 'none';
 
-    // Cloudflare fields
-    document.getElementById('s-cf-token').value  = s.cfApiToken || '';
-    document.getElementById('s-cf-zone').value   = s.cfZoneId || '';
-    document.getElementById('s-cf-ip').value     = s.serverPublicIp || '';
-    document.getElementById('s-cf-tunnel').value = s.cfTunnelToken || '';
-    _cfConfigured = !!(s.cfApiToken && s.cfZoneId);
-
     // Branch-Selector befüllen
     const branchSel = document.getElementById('s-update-branch');
     const currentBranch = s.updateBranch || 'main';
@@ -1147,13 +1140,8 @@ document.getElementById('s-save').addEventListener('click', async () => {
   const btn = document.getElementById('s-save');
   btn.disabled = true;
   try {
-    const updateBranch  = document.getElementById('s-update-branch').value || 'main';
-    const cfApiToken    = document.getElementById('s-cf-token').value.trim();
-    const cfZoneId      = document.getElementById('s-cf-zone').value.trim();
-    const serverPublicIp = document.getElementById('s-cf-ip').value.trim();
-    const cfTunnelToken = document.getElementById('s-cf-tunnel').value.trim();
-    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch, cfApiToken, cfZoneId, serverPublicIp, cfTunnelToken });
-    _cfConfigured = !!(cfApiToken && cfZoneId);
+    const updateBranch = document.getElementById('s-update-branch').value || 'main';
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);
@@ -2247,11 +2235,60 @@ function showUpdateProgress() {
 // ---------- Reverse Proxy ----------
 let _cfConfigured = false;
 
+function cfSettingsToggle() {
+  const body    = document.getElementById('cf-settings-body');
+  const chevron = document.getElementById('cf-settings-chevron');
+  const open    = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  chevron.classList.toggle('open', !open);
+}
+
+function _cfUpdateStatus() {
+  const statusEl = document.getElementById('cf-settings-status');
+  if (!statusEl) return;
+  statusEl.textContent   = _cfConfigured ? 'Configured' : 'Not configured';
+  statusEl.className     = `cf-settings-status ${_cfConfigured ? 'configured' : 'unconfigured'}`;
+}
+
+async function saveCfSettings() {
+  const cfApiToken    = document.getElementById('s-cf-token').value.trim();
+  const cfZoneId      = document.getElementById('s-cf-zone').value.trim();
+  const serverPublicIp = document.getElementById('s-cf-ip').value.trim();
+  const cfTunnelToken = document.getElementById('s-cf-tunnel').value.trim();
+  try {
+    await api('POST', '/api/settings', { cfApiToken, cfZoneId, serverPublicIp, cfTunnelToken });
+    _cfConfigured = !!(cfApiToken && cfZoneId);
+    _cfUpdateStatus();
+    toast('Cloudflare settings saved');
+    loadProxyRules();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function loadProxyRules() {
   const [status, rules] = await Promise.all([
     api('GET', '/api/proxy/status').catch(() => ({ running: false, port: 80, rules: 0 })),
     api('GET', '/api/proxy/rules').catch(() => []),
   ]);
+
+  // Load CF settings into the panel on first load
+  api('GET', '/api/settings').then(s => {
+    const tokenEl  = document.getElementById('s-cf-token');
+    if (tokenEl && !tokenEl.value) {
+      tokenEl.value = s.cfApiToken || '';
+      document.getElementById('s-cf-zone').value   = s.cfZoneId || '';
+      document.getElementById('s-cf-ip').value     = s.serverPublicIp || '';
+      document.getElementById('s-cf-tunnel').value = s.cfTunnelToken || '';
+    }
+    _cfConfigured = !!(s.cfApiToken && s.cfZoneId);
+    _cfUpdateStatus();
+    if (_cfConfigured) {
+      const body    = document.getElementById('cf-settings-body');
+      const chevron = document.getElementById('cf-settings-chevron');
+      if (body && body.style.display === 'none') {
+        // keep collapsed but show tunnel card
+      }
+    }
+  }).catch(() => {});
 
   const badge = document.getElementById('proxy-status-badge');
   if (badge) {
@@ -2470,8 +2507,9 @@ document.getElementById('prl-save').addEventListener('click', async () => {
 });
 
 // ---------- Cloudflare Settings helpers ----------
-async function cfVerifyCredentials() {
-  const btn = document.getElementById('s-cf-verify');
+async function cfVerifyCredentials(btn) {
+  if (!btn) btn = document.getElementById('s-cf-verify');
+  if (!btn) return;
   btn.disabled = true; btn.textContent = '…';
   try {
     await api('POST', '/api/cloudflare/verify');
@@ -2483,8 +2521,9 @@ async function cfVerifyCredentials() {
   } finally { btn.disabled = false; }
 }
 
-async function cfDetectPublicIp() {
-  const btn = document.getElementById('s-cf-detect-ip');
+async function cfDetectPublicIp(btn) {
+  if (!btn) btn = document.getElementById('s-cf-detect-ip');
+  if (!btn) return;
   btn.disabled = true; btn.textContent = '…';
   try {
     const r = await api('GET', '/api/system/public-ip');
