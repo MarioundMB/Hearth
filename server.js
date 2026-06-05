@@ -74,6 +74,7 @@ let runtimeConfig = {
   showOfflineApps: false,
   refreshInterval: 15,
   proxyRules: [],
+  firewallRules: [],
   guestHidden: [],
   users: [],
   autoUpdate: { enabled: true, hour: 0, minute: 0 },
@@ -647,6 +648,37 @@ async function fwAvailable() {
     await docker.getContainer(FW_CONTAINER).inspect();
     return true;
   } catch (_) { return false; }
+}
+
+function buildUfwCmd(rule) {
+  let cmd = `ufw ${rule.action}`;
+  if (rule.direction === 'out') cmd += ' out';
+  if (rule.iface) cmd += ` on ${rule.iface}`;
+  if (rule.from && rule.from !== 'any') cmd += ` from ${rule.from}`;
+  cmd += ' to any';
+  if (rule.port) cmd += ` port ${rule.port}`;
+  if (rule.proto && rule.proto !== 'any') cmd += ` proto ${rule.proto}`;
+  cmd += ` comment "hearth-rule-${rule.id}"`;
+  return cmd;
+}
+
+async function syncFirewallRules(rules) {
+  if (!await fwAvailable()) return;
+  const numbered = await fwExec('ufw status numbered').catch(() => '');
+  const lines = numbered.split('\n').filter(l => /^\[/.test(l.trim()));
+  // Find and delete existing hearth-managed rules in reverse order
+  const managed = lines
+    .filter(l => l.includes('hearth-rule-'))
+    .map(l => parseInt((l.match(/\[\s*(\d+)\]/) || [])[1]))
+    .filter(Boolean)
+    .sort((a, b) => b - a);
+  for (const num of managed) {
+    await fwExec(`echo y | ufw delete ${num}`).catch(() => {});
+  }
+  // Re-add all rules in new order
+  for (const rule of (rules || [])) {
+    await fwExec(buildUfwCmd(rule)).catch(e => console.warn('[FW]', e.message));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,14 +1521,17 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
       fwExec('ufw status numbered'),
     ]);
     const active = verbose.includes('Status: active');
-    // Regeln parsen: "[N] port/proto ALLOW/DENY IN ..."
     const ruleLines = numbered.split('\n').filter((l) => /^\[/.test(l.trim()));
-    const rules = ruleLines.map((l) => {
-      const m = l.match(/\[\s*(\d+)\]\s+(.+?)\s+(ALLOW|DENY)\s+(IN|OUT|FWD)?\s*(.*)/i);
+    const ufwRules = ruleLines.map((l) => {
+      const m = l.match(/\[\s*(\d+)\]\s+(.+?)\s+(ALLOW|DENY|LIMIT)\s+(IN|OUT|FWD)?\s*(.*)/i);
       if (!m) return null;
-      return { num: parseInt(m[1]), to: m[2].trim(), action: m[3].toUpperCase(), dir: (m[4] || 'IN').toUpperCase(), from: (m[5] || 'Anywhere').trim() };
+      const comment = (l.match(/# (.+)$/) || [])[1] || '';
+      const hearthId = (comment.match(/hearth-rule-(\S+)/) || [])[1] || null;
+      return { num: parseInt(m[1]), to: m[2].trim(), action: m[3].toUpperCase(), dir: (m[4] || 'IN').toUpperCase(), from: (m[5] || 'Anywhere').trim().replace(/#.*$/, '').trim(), comment, hearthId };
     }).filter(Boolean);
-    res.json({ available: true, active, raw: verbose, rules });
+    // Merge stored Hearth rules (preserve order + metadata) with live UFW data
+    const stored = runtimeConfig.firewallRules || [];
+    res.json({ available: true, active, raw: verbose, rules: ufwRules, stored });
   } catch (e) {
     res.status(500).json({ available: true, error: e.message });
   }
@@ -1504,16 +1539,37 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
 
 app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
-  const { action, port, proto, from = 'any', comment = '' } = req.body || {};
+  const { action, port, proto = 'any', from = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
   if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
-  const protoStr = proto && proto !== 'any' ? ` proto ${proto}` : '';
-  const fromStr  = from && from !== 'any' ? ` from ${from}` : '';
-  const cmd = `ufw ${action}${fromStr} to any port ${port}${protoStr} && ufw status numbered`;
-  const result = await fwExec(cmd);
-  res.json({ ok: true, result });
+  const id = Date.now().toString(36);
+  const rule = { id, action, port, proto, from, direction, iface, comment };
+  const rules = [...(runtimeConfig.firewallRules || []), rule];
+  saveConfig({ firewallRules: rules });
+  await fwExec(buildUfwCmd(rule));
+  res.json({ ok: true, id, rules });
 }));
 
-app.delete('/api/firewall/rules/:num', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/firewall/rules/reorder', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+  const current = runtimeConfig.firewallRules || [];
+  const reordered = ids.map(id => current.find(r => r.id === id)).filter(Boolean);
+  saveConfig({ firewallRules: reordered });
+  await syncFirewallRules(reordered);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const rules = (runtimeConfig.firewallRules || []).filter(r => r.id !== req.params.id);
+  saveConfig({ firewallRules: rules });
+  await syncFirewallRules(rules);
+  res.json({ ok: true });
+}));
+
+// Legacy: delete by UFW rule number (expert mode + auto-rules)
+app.delete('/api/firewall/rules/num/:num', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const result = await fwExec(`echo y | ufw delete ${req.params.num}`);
   res.json({ ok: true, result });
@@ -1524,6 +1580,26 @@ app.post('/api/firewall/toggle', requireAuth, asyncHandler(async (req, res) => {
   const { enable } = req.body || {};
   const result = await fwExec(enable ? 'ufw --force enable' : 'ufw disable');
   res.json({ ok: true, result });
+}));
+
+app.get('/api/firewall/logs', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const lines = Math.min(parseInt(req.query.lines) || 100, 500);
+  const raw = await fwExec(
+    `tail -n ${lines} /var/log/ufw.log 2>/dev/null || dmesg 2>/dev/null | grep -i UFW | tail -n ${lines} || echo ""`
+  ).catch(() => '');
+  const entries = raw.split('\n').filter(l => l.includes('UFW')).map(l => {
+    const action = (l.match(/\[UFW\s+(\w+)\]/) || l.match(/UFW\s+(\w+)/) || [])[1] || 'UNKNOWN';
+    const src    = (l.match(/SRC=([\d.:a-fA-F]+)/) || [])[1] || '';
+    const dst    = (l.match(/DST=([\d.:a-fA-F]+)/) || [])[1] || '';
+    const proto  = (l.match(/PROTO=(\w+)/) || [])[1] || '';
+    const dpt    = (l.match(/DPT=(\d+)/) || [])[1] || '';
+    const spt    = (l.match(/SPT=(\d+)/) || [])[1] || '';
+    const iface  = (l.match(/IN=(\S+)/) || [])[1] || '';
+    const time   = (l.match(/^(\w+\s+\d+\s+[\d:]+)/) || [])[1] || '';
+    return { time, action, src, dst, proto, dpt, spt, iface };
+  }).filter(e => e.src);
+  res.json({ ok: true, entries: entries.reverse() });
 }));
 
 // ---------------------------------------------------------------------------

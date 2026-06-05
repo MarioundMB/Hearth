@@ -2708,51 +2708,50 @@ async function cfDetectPublicIp(btn) {
 
 // ---------- Firewall ----------
 const FW_QUICK_PORTS = [
-  { name: 'SSH',      port: 22,   proto: 'tcp' },
-  { name: 'HTTP',     port: 80,   proto: 'tcp' },
-  { name: 'HTTPS',    port: 443,  proto: 'tcp' },
-  { name: 'DNS',      port: 53,   proto: 'udp' },
-  { name: 'SMB',      port: 445,  proto: 'tcp' },
-  { name: 'Plex',     port: 32400, proto: 'tcp' },
-  { name: 'Hearth',   port: 4500, proto: 'tcp' },
+  { name: 'SSH',    port: 22,    proto: 'tcp' },
+  { name: 'HTTP',   port: 80,    proto: 'tcp' },
+  { name: 'HTTPS',  port: 443,   proto: 'tcp' },
+  { name: 'DNS',    port: 53,    proto: 'udp' },
+  { name: 'SMB',    port: 445,   proto: 'tcp' },
+  { name: 'Plex',   port: 32400, proto: 'tcp' },
+  { name: 'Hearth', port: 4500,  proto: 'tcp' },
 ];
 
 let _fwAvailable = false;
+let _fwLiveInterval = null;
+let _fwStoredRules = [];
 
 async function loadFirewall() {
   const info = await api('GET', '/api/firewall/status').catch(() => ({ available: false }));
   _fwAvailable = !!info.available;
 
-  document.getElementById('fw-unavail').style.display    = _fwAvailable ? 'none' : '';
-  document.getElementById('fw-normal-content').style.display = _fwAvailable ? '' : 'none';
+  document.getElementById('fw-unavail').style.display         = _fwAvailable ? 'none' : '';
+  document.getElementById('fw-normal-content').style.display  = _fwAvailable ? '' : 'none';
+  const logPanel = document.getElementById('fw-log-panel');
+  if (logPanel) logPanel.style.display = _fwAvailable ? '' : 'none';
 
   if (!_fwAvailable) return;
 
-  // Status-Badge
   const badge = document.getElementById('fw-status-badge');
   if (badge) {
-    badge.className = `fw-status-badge ${info.active ? 'active' : 'inactive'}`;
+    badge.className   = `fw-status-badge ${info.active ? 'active' : 'inactive'}`;
     badge.textContent = info.active ? t('firewall.active') : t('firewall.inactive');
   }
 
-  // Advanced: raw output
   const rawEl = document.getElementById('fw-raw-output');
   if (rawEl) rawEl.textContent = info.raw || '–';
 
-  // Normal: Quick-Port-Karten
-  const rules = info.rules || [];
-  const allowedPorts = new Set(rules.filter((r) => r.action === 'ALLOW').map((r) => {
-    const m = r.to.match(/^(\d+)/);
-    return m ? parseInt(m[1]) : null;
+  // Quick-Port-Karten (basierend auf UFW live rules)
+  const ufwRules = info.rules || [];
+  _fwStoredRules = info.stored || [];
+  const allowedPorts = new Set(ufwRules.filter(r => r.action === 'ALLOW').map(r => {
+    const m = r.to.match(/^(\d+)/); return m ? parseInt(m[1]) : null;
   }).filter(Boolean));
 
-  document.getElementById('fw-quick-ports').innerHTML = FW_QUICK_PORTS.map((p) => {
+  document.getElementById('fw-quick-ports').innerHTML = FW_QUICK_PORTS.map(p => {
     const allowed = allowedPorts.has(p.port);
     return `<div class="fw-port-card">
-      <div>
-        <div class="fw-port-name">${esc(p.name)}</div>
-        <div class="fw-port-num">${p.port}/${p.proto}</div>
-      </div>
+      <div><div class="fw-port-name">${esc(p.name)}</div><div class="fw-port-num">${p.port}/${p.proto}</div></div>
       <label class="toggle" title="${allowed ? t('firewall.allowed') : t('firewall.denied')}">
         <input type="checkbox" ${allowed ? 'checked' : ''} data-fw-port="${p.port}" data-fw-proto="${p.proto}" />
         <span class="toggle-track"></span>
@@ -2760,20 +2759,78 @@ async function loadFirewall() {
     </div>`;
   }).join('');
 
-  // Normal: Rule-Liste
+  // Rule-Liste — Hearth-managed rules (with drag & drop) + unmanaged UFW rules
   const box = document.getElementById('fw-rules-list');
-  if (!rules.length) {
+  const managed = _fwStoredRules;
+  const unmanaged = ufwRules.filter(r => !r.hearthId);
+
+  if (!managed.length && !unmanaged.length) {
     box.innerHTML = `<div class="empty"><div class="big" style="font-size:32px">○</div>${t('firewall.empty')}</div>`;
     return;
   }
-  box.innerHTML = rules.map((r) => `
-    <div class="fw-rule-row">
-      <span class="fw-rule-num">${r.num}</span>
-      <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action}</span>
-      <span style="flex:1">${esc(r.to)}</span>
-      <span style="color:var(--text-faint);font-size:12px">from ${esc(r.from)}</span>
-      <button class="iconbtn danger" data-fw-del="${r.num}" title="Delete rule">🗑</button>
-    </div>`).join('');
+
+  let html = '';
+  if (managed.length) {
+    html += managed.map((r, i) => {
+      const dirBadge = r.direction === 'out'
+        ? `<span class="fw-dir-badge">OUT</span>`
+        : `<span class="fw-dir-badge">IN</span>`;
+      const ifaceBadge = r.iface ? `<span class="fw-dir-badge">${esc(r.iface)}</span>` : '';
+      const fromTxt = r.from && r.from !== 'any' ? `from ${esc(r.from)}` : '';
+      return `<div class="fw-rule-row" draggable="true" data-fw-id="${esc(r.id)}" data-fw-idx="${i}">
+        <span class="fw-drag-handle" title="Drag to reorder">⠿</span>
+        <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action.toUpperCase()}</span>
+        ${dirBadge}${ifaceBadge}
+        <span style="flex:1;font-family:var(--font-mono);font-size:12px">${esc(r.port)}${r.proto && r.proto !== 'any' ? '/'+esc(r.proto) : ''}</span>
+        ${fromTxt ? `<span style="color:var(--text-faint);font-size:12px">${fromTxt}</span>` : ''}
+        ${r.comment ? `<span style="color:var(--text-faint);font-size:11px;font-style:italic">${esc(r.comment)}</span>` : ''}
+        <button class="iconbtn danger" data-fw-del="${esc(r.id)}" title="Delete rule">🗑</button>
+      </div>`;
+    }).join('');
+  }
+
+  if (unmanaged.length) {
+    if (managed.length) html += `<div style="font-size:11px;color:var(--text-faint);margin:10px 0 6px;padding-left:4px">External UFW rules (not managed by Hearth)</div>`;
+    html += unmanaged.map(r => `
+      <div class="fw-rule-row" style="opacity:.7">
+        <span class="fw-rule-num">${r.num}</span>
+        <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action}</span>
+        <span class="fw-dir-badge">${r.dir}</span>
+        <span style="flex:1;font-family:var(--font-mono);font-size:12px">${esc(r.to)}</span>
+        <span style="color:var(--text-faint);font-size:12px">from ${esc(r.from)}</span>
+        <button class="iconbtn danger" data-fw-del-num="${r.num}" title="Delete rule">🗑</button>
+      </div>`).join('');
+  }
+
+  box.innerHTML = html;
+  fwInitDragDrop();
+}
+
+// ---------- Drag & Drop ----------
+let _fwDragId = null;
+
+function fwInitDragDrop() {
+  const rows = document.querySelectorAll('#fw-rules-list [data-fw-id]');
+  rows.forEach(row => {
+    row.addEventListener('dragstart', () => { _fwDragId = row.dataset.fwId; row.classList.add('dragging'); });
+    row.addEventListener('dragend',   () => { row.classList.remove('dragging'); document.querySelectorAll('.fw-rule-row').forEach(r => r.classList.remove('drag-over')); });
+    row.addEventListener('dragover',  e => { e.preventDefault(); row.classList.add('drag-over'); });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if (!_fwDragId || _fwDragId === row.dataset.fwId) return;
+      // Reorder in DOM order
+      const allRows = [...document.querySelectorAll('#fw-rules-list [data-fw-id]')];
+      const ids = allRows.map(r => r.dataset.fwId);
+      const fromIdx = ids.indexOf(_fwDragId);
+      const toIdx   = ids.indexOf(row.dataset.fwId);
+      ids.splice(fromIdx, 1);
+      ids.splice(toIdx, 0, _fwDragId);
+      await api('PUT', '/api/firewall/rules/reorder', { ids }).catch(e => toast(e.message, 'error'));
+      loadFirewall();
+    });
+  });
 }
 
 // Quick-Port-Toggles
@@ -2781,26 +2838,42 @@ document.getElementById('fw-quick-ports').addEventListener('change', async (e) =
   const inp = e.target.closest('[data-fw-port]');
   if (!inp) return;
   const action = inp.checked ? 'allow' : 'deny';
-  await api('POST', '/api/firewall/rules', { action, port: inp.dataset.fwPort, proto: inp.dataset.fwProto })
+  await api('POST', '/api/firewall/rules', { action, port: inp.dataset.fwPort, proto: inp.dataset.fwProto, direction: 'in' })
     .catch((err) => { toast(err.message, 'error'); inp.checked = !inp.checked; });
   setTimeout(loadFirewall, 800);
 });
 
-// Rule löschen
+// Rule löschen (Hearth-managed: by id, external: by UFW num)
 document.getElementById('fw-rules-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-fw-del]');
-  if (!btn) return;
-  if (!confirm(t('firewall.deleteConfirm').replace('#{n}', btn.dataset.fwDel))) return;
-  await api('DELETE', `/api/firewall/rules/${btn.dataset.fwDel}`).catch((err) => toast(err.message, 'error'));
-  loadFirewall();
+  if (btn) {
+    if (!confirm(t('firewall.deleteConfirm').replace('#{n}', ''))) return;
+    await api('DELETE', `/api/firewall/rules/${btn.dataset.fwDel}`).catch(err => toast(err.message, 'error'));
+    loadFirewall(); return;
+  }
+  const btnNum = e.target.closest('[data-fw-del-num]');
+  if (btnNum) {
+    if (!confirm(t('firewall.deleteConfirm').replace('#{n}', btnNum.dataset.fwDelNum))) return;
+    await api('DELETE', `/api/firewall/rules/num/${btnNum.dataset.fwDelNum}`).catch(err => toast(err.message, 'error'));
+    loadFirewall();
+  }
+});
+
+// Limit hint
+document.getElementById('fw-action').addEventListener('change', function() {
+  document.getElementById('fw-limit-hint').style.display = this.value === 'limit' ? '' : 'none';
 });
 
 // Firewall-Regel hinzufügen
 document.getElementById('fw-add-rule-btn').addEventListener('click', () => {
-  document.getElementById('fw-port').value  = '';
-  document.getElementById('fw-from').value  = '';
-  document.getElementById('fw-action').value = 'allow';
-  document.getElementById('fw-proto').value  = 'tcp';
+  document.getElementById('fw-port').value      = '';
+  document.getElementById('fw-from').value      = '';
+  document.getElementById('fw-iface').value     = '';
+  document.getElementById('fw-comment').value   = '';
+  document.getElementById('fw-action').value    = 'allow';
+  document.getElementById('fw-proto').value     = 'tcp';
+  document.getElementById('fw-direction').value = 'in';
+  document.getElementById('fw-limit-hint').style.display = 'none';
   openModal('modal-fw-rule');
 });
 
@@ -2809,10 +2882,13 @@ document.getElementById('fw-rule-save').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     await api('POST', '/api/firewall/rules', {
-      action: document.getElementById('fw-action').value,
-      port:   document.getElementById('fw-port').value.trim(),
-      proto:  document.getElementById('fw-proto').value || undefined,
-      from:   document.getElementById('fw-from').value.trim() || undefined,
+      action:    document.getElementById('fw-action').value,
+      port:      document.getElementById('fw-port').value.trim(),
+      proto:     document.getElementById('fw-proto').value,
+      from:      document.getElementById('fw-from').value.trim() || 'any',
+      direction: document.getElementById('fw-direction').value,
+      iface:     document.getElementById('fw-iface').value.trim(),
+      comment:   document.getElementById('fw-comment').value.trim(),
     });
     toast(t('firewall.ruleAdded'));
     closeModal('modal-fw-rule');
@@ -2835,6 +2911,47 @@ document.getElementById('fw-mode-advanced').addEventListener('click', () => {
   document.getElementById('fw-mode-normal').classList.remove('active');
   loadFirewall();
 });
+
+// ---------- Live Firewall Logs ----------
+function fwToggleLiveLog() {
+  const btn = document.getElementById('fw-log-toggle-btn');
+  const dot = document.getElementById('fw-log-dot');
+  if (_fwLiveInterval) {
+    clearInterval(_fwLiveInterval);
+    _fwLiveInterval = null;
+    btn.textContent = 'Start';
+    dot.classList.remove('live');
+  } else {
+    btn.textContent = 'Stop';
+    dot.classList.add('live');
+    fwFetchLogs();
+    _fwLiveInterval = setInterval(fwFetchLogs, 3000);
+  }
+}
+
+let _fwLastLogCount = 0;
+
+async function fwFetchLogs() {
+  const data = await api('GET', '/api/firewall/logs?lines=80').catch(() => null);
+  if (!data) return;
+  const body = document.getElementById('fw-log-body');
+  const entries = data.entries || [];
+  if (!entries.length) {
+    body.innerHTML = `<div style="padding:12px 14px;color:var(--text-faint);font-size:12px">No firewall events yet — blocked/allowed traffic will appear here.</div>`;
+    return;
+  }
+  if (entries.length === _fwLastLogCount) return;
+  _fwLastLogCount = entries.length;
+  body.innerHTML = entries.slice(0, 60).map(e => {
+    const actionClass = e.action === 'BLOCK' ? 'BLOCK' : 'ALLOW';
+    return `<div class="fw-log-entry">
+      <span class="fw-log-action ${actionClass}">${e.action}</span>
+      <span style="color:var(--text)">${esc(e.src)}${e.spt ? ':'+e.spt : ''}</span>
+      <span class="fw-log-entry-meta">→ :${esc(e.dpt)} ${esc(e.proto)}</span>
+      <span class="fw-log-entry-meta" style="margin-left:auto">${esc(e.iface)} ${esc(e.time)}</span>
+    </div>`;
+  }).join('');
+}
 
 // ---------- VPN ----------
 async function loadVpn() {

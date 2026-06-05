@@ -595,6 +595,7 @@
       .fw-rule-action { font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
       .fw-rule-action.allow { background: rgba(88,214,141,0.15); color: var(--ok); }
       .fw-rule-action.deny  { background: rgba(255,107,94,0.15);  color: var(--danger); }
+      .fw-rule-action.limit { background: rgba(255,187,51,0.15);  color: #ffbb33; }
       .fw-status-badge { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 20px; }
       .fw-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
       .fw-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
@@ -603,6 +604,26 @@
       .fw-mode-btn:hover { border-color: var(--accent-dim); color: var(--text); }
       .fw-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #0c0e0d; font-weight: 700; }
       .fw-mode-btn.active:hover { box-shadow: 0 0 16px var(--accent-glow); }
+      /* Drag & Drop */
+      .fw-rule-row { cursor: grab; }
+      .fw-rule-row.dragging { opacity: .4; cursor: grabbing; }
+      .fw-rule-row.drag-over { border-color: var(--accent); background: var(--panel-2); }
+      .fw-drag-handle { color: var(--text-faint); font-size: 14px; cursor: grab; padding: 0 4px; flex-shrink: 0; user-select: none; }
+      /* Live Logs */
+      .fw-log-panel { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+      .fw-log-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+      .fw-log-title { font-size: 13px; font-weight: 700; flex: 1; }
+      .fw-log-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
+      .fw-log-dot.live { background: var(--ok); box-shadow: 0 0 5px var(--ok); animation: pulse 1.5s infinite; }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+      .fw-log-body { max-height: 280px; overflow-y: auto; font-family: var(--font-mono); font-size: 11.5px; }
+      .fw-log-entry { display: flex; gap: 8px; padding: 5px 14px; border-bottom: 1px solid var(--border); }
+      .fw-log-entry:last-child { border-bottom: none; }
+      .fw-log-action { font-weight: 700; width: 46px; flex-shrink: 0; }
+      .fw-log-action.BLOCK { color: var(--danger); }
+      .fw-log-action.ALLOW { color: var(--ok); }
+      .fw-log-entry-meta { color: var(--text-faint); font-size: 11px; }
+      .fw-dir-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--panel-2); color: var(--text-faint); flex-shrink: 0; }
 
       /* ===== Container-Detail-Modal ===== */
       .row-clickable { cursor: pointer; }
@@ -1484,6 +1505,18 @@
                   <button class="btn primary sm" id="fw-add-rule-btn" data-i18n="firewall.addRule">+ Add Rule</button>
                 </div>
                 <div class="list" id="fw-rules-list"></div>
+
+                <!-- Live Firewall Logs -->
+                <div class="fw-log-panel" id="fw-log-panel" style="display:none">
+                  <div class="fw-log-header">
+                    <span class="fw-log-dot" id="fw-log-dot"></span>
+                    <span class="fw-log-title">Live Firewall Log</span>
+                    <button class="btn sm ghost" id="fw-log-toggle-btn" onclick="fwToggleLiveLog()">Start</button>
+                  </div>
+                  <div class="fw-log-body" id="fw-log-body">
+                    <div style="padding:16px;color:var(--text-faint);font-size:12px">Press "Start" to begin monitoring firewall events.</div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2338,32 +2371,59 @@
 
     <!-- Firewall-Regel Modal -->
     <div class="modal-backdrop" id="modal-fw-rule">
-      <div class="modal" style="max-width:460px">
+      <div class="modal" style="max-width:480px">
         <div class="modal-head">
           <h3 data-i18n="firewall.addTitle">Add Firewall Rule</h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body">
-          <div class="field">
-            <label data-i18n="firewall.action">Action</label>
-            <select class="input" id="fw-action">
-              <option value="allow">Allow</option>
-              <option value="deny">Deny</option>
-            </select>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.action">Action</label>
+              <select class="input" id="fw-action">
+                <option value="allow">Allow</option>
+                <option value="deny">Deny</option>
+                <option value="limit">Limit (Anti-Brute)</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Direction</label>
+              <select class="input" id="fw-direction">
+                <option value="in">Inbound (in)</option>
+                <option value="out">Outbound (out)</option>
+              </select>
+            </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 100px;gap:10px">
-            <div class="field" style="margin:0"><label data-i18n="firewall.port">Port</label><input class="input" id="fw-port" placeholder="8096" /></div>
-            <div class="field" style="margin:0"><label data-i18n="firewall.protocol">Protocol</label>
+          <div style="display:grid;grid-template-columns:1fr 90px;gap:10px;margin-top:10px">
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.port">Port / Range</label>
+              <input class="input" id="fw-port" placeholder="22 or 8000:9000" />
+            </div>
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.protocol">Protocol</label>
               <select class="input" id="fw-proto">
-                <option value="" data-i18n="firewall.protoAny">any</option>
+                <option value="any">any</option>
                 <option value="tcp">tcp</option>
                 <option value="udp">udp</option>
               </select>
             </div>
           </div>
-          <div class="field" style="margin-top:12px;margin-bottom:0">
-            <label><span data-i18n="firewall.fromIP">From IP</span> <span class="muted" style="font-size:11px" data-i18n="firewall.fromIPHint">(leave empty for any)</span></label>
-            <input class="input" id="fw-from" placeholder="any / 192.168.1.0/24" />
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div class="field" style="margin:0">
+              <label>From IP / Subnet</label>
+              <input class="input" id="fw-from" placeholder="any / 192.168.1.0/24" />
+            </div>
+            <div class="field" style="margin:0">
+              <label>Interface <span class="muted" style="font-size:11px">(optional)</span></label>
+              <input class="input" id="fw-iface" placeholder="eth0, wg0, …" autocomplete="off" />
+            </div>
+          </div>
+          <div class="field" style="margin-top:10px;margin-bottom:0">
+            <label>Comment <span class="muted" style="font-size:11px">(optional)</span></label>
+            <input class="input" id="fw-comment" placeholder="e.g. SSH access" autocomplete="off" />
+          </div>
+          <div id="fw-limit-hint" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(255,187,51,.08);border:1px solid rgba(255,187,51,.25);border-radius:var(--radius-sm);font-size:12px;color:#ffbb33">
+            ⚡ Limit blocks IPs that make more than 6 connections in 30 seconds — ideal for SSH, admin ports.
           </div>
         </div>
         <div class="modal-foot">
