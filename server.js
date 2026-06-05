@@ -1769,11 +1769,11 @@ async function runHearthSelfUpdate() {
       const p = _spawn('docker', [
         'run', '--rm',
         '-v', `${tmpHostPath}:/dst`,
-        selfImage,
-        'sh', '-c',
-        `rm -rf /dst && git clone --depth=1 --branch ${branch} https://github.com/MarioundMB/Hearth.git /dst`,
+        'alpine/git',
+        'clone', '--depth=1', '--branch', branch,
+        'https://github.com/MarioundMB/Hearth.git', '/dst',
       ], { stdio: 'ignore' });
-      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen')));
+      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen — stell sicher dass Docker Internetzugang hat')));
     });
     repoHostPath = tmpHostPath;
   } else {
