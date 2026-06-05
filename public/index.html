@@ -188,7 +188,7 @@
       <div class="wrap topbar-inner">
         <div class="brand">
           <img src="/favicon.svg" alt="Hearth" class="flame" width="28" height="28">
-          <span>Hearth <small>Home Server</small></span>
+          <span>Hearth <small id="guest-server-name">Home Server</small></span>
         </div>
         <div class="spacer"></div>
         <select class="lang-select" id="lang-select" title="Language">
@@ -221,6 +221,11 @@
       <section class="grid" id="grid">
         <div class="empty"><div class="big">⟳</div><span data-i18n="guest.loading">Lade Dienste…</span></div>
       </section>
+
+      <footer style="padding:32px 0 48px;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--text-faint);font-size:12px;border-top:1px solid var(--border);margin-top:16px">
+        <img src="/favicon.svg" alt="" width="14" height="14" style="opacity:.4">
+        <span>Powered by <a href="https://github.com/MarioundMB/Hearth" target="_blank" rel="noopener" style="color:var(--text-faint);text-decoration:none;border-bottom:1px dotted var(--border-bright)">Hearth</a></span>
+      </footer>
     </div>
 
     <div id="toast"></div>

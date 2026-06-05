@@ -74,6 +74,7 @@ let runtimeConfig = {
   showOfflineApps: false,
   refreshInterval: 15,
   proxyRules: [],
+  firewallRules: [],
   guestHidden: [],
   users: [],
   autoUpdate: { enabled: true, hour: 0, minute: 0 },
@@ -424,6 +425,11 @@ async function requestLECert(domain) {
   const env = { ...process.env, HOME: '/root' };
   if (usesCf) { env.CF_Token = cfToken; env.CF_Zone_ID = cfZoneId; }
 
+  // Create webroot directory if using webroot mode
+  if (!usesCf) {
+    try { fs.mkdirSync('/var/www/acme', { recursive: true }); } catch (_) {}
+  }
+
   await new Promise((resolve, reject) => {
     const args = usesCf
       ? [ACME_SH, '--issue', '--dns', 'dns_cf', '-d', domain, '--server', 'letsencrypt']
@@ -505,13 +511,15 @@ function nginxConfForRule(rule) {
 
   // IP access control
   const ipLines = [];
-  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
-    ipLines.push(`    allow ${ip};`);
-  });
-  if (ipLines.length) ipLines.push('    deny all;');
   (rule.ipDenylist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
     ipLines.push(`    deny ${ip};`);
   });
+  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
+    ipLines.push(`    allow ${ip};`);
+  });
+  if ((rule.ipAllowlist || '').trim().length > 0) {
+    ipLines.push('    deny all;');
+  }
 
   // Security headers
   const secHeaders = rule.securityHeaders ? `
@@ -647,6 +655,45 @@ async function fwAvailable() {
     await docker.getContainer(FW_CONTAINER).inspect();
     return true;
   } catch (_) { return false; }
+}
+
+function buildUfwCmd(rule) {
+  const action = String(rule.action).replace(/[^a-z]/gi, '');
+  const direction = String(rule.direction) === 'out' ? 'out' : 'in';
+  const iface = rule.iface ? String(rule.iface).replace(/[^a-z0-9]/gi, '') : '';
+  const from = rule.from && rule.from !== 'any' ? String(rule.from).replace(/[^a-f0-9\.:/]/gi, '') : '';
+  const port = rule.port ? String(rule.port).replace(/[^0-9:]/g, '') : '';
+  const proto = rule.proto && rule.proto !== 'any' ? String(rule.proto).replace(/[^a-z]/gi, '') : '';
+  const id = String(rule.id).replace(/[^a-z0-9]/gi, '');
+
+  let cmd = `ufw ${action}`;
+  if (direction === 'out') cmd += ' out';
+  if (iface) cmd += ` on ${iface}`;
+  if (from) cmd += ` from ${from}`;
+  cmd += ' to any';
+  if (port) cmd += ` port ${port}`;
+  if (proto) cmd += ` proto ${proto}`;
+  cmd += ` comment "hearth-rule-${id}"`;
+  return cmd;
+}
+
+async function syncFirewallRules(rules) {
+  if (!await fwAvailable()) return;
+  const numbered = await fwExec('ufw status numbered').catch(() => '');
+  const lines = numbered.split('\n').filter(l => /^\[/.test(l.trim()));
+  // Find and delete existing hearth-managed rules in reverse order
+  const managed = lines
+    .filter(l => l.includes('hearth-rule-'))
+    .map(l => parseInt((l.match(/\[\s*(\d+)\]/) || [])[1]))
+    .filter(Boolean)
+    .sort((a, b) => b - a);
+  for (const num of managed) {
+    await fwExec(`echo y | ufw delete ${num}`).catch(() => {});
+  }
+  // Re-add all rules in new order
+  for (const rule of (rules || [])) {
+    await fwExec(buildUfwCmd(rule)).catch(e => console.warn('[FW]', e.message));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,14 +1536,17 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
       fwExec('ufw status numbered'),
     ]);
     const active = verbose.includes('Status: active');
-    // Regeln parsen: "[N] port/proto ALLOW/DENY IN ..."
     const ruleLines = numbered.split('\n').filter((l) => /^\[/.test(l.trim()));
-    const rules = ruleLines.map((l) => {
-      const m = l.match(/\[\s*(\d+)\]\s+(.+?)\s+(ALLOW|DENY)\s+(IN|OUT|FWD)?\s*(.*)/i);
+    const ufwRules = ruleLines.map((l) => {
+      const m = l.match(/\[\s*(\d+)\]\s+(.+?)\s+(ALLOW|DENY|LIMIT)\s+(IN|OUT|FWD)?\s*(.*)/i);
       if (!m) return null;
-      return { num: parseInt(m[1]), to: m[2].trim(), action: m[3].toUpperCase(), dir: (m[4] || 'IN').toUpperCase(), from: (m[5] || 'Anywhere').trim() };
+      const comment = (l.match(/# (.+)$/) || [])[1] || '';
+      const hearthId = (comment.match(/hearth-rule-(\S+)/) || [])[1] || null;
+      return { num: parseInt(m[1]), to: m[2].trim(), action: m[3].toUpperCase(), dir: (m[4] || 'IN').toUpperCase(), from: (m[5] || 'Anywhere').trim().replace(/#.*$/, '').trim(), comment, hearthId };
     }).filter(Boolean);
-    res.json({ available: true, active, raw: verbose, rules });
+    // Merge stored Hearth rules (preserve order + metadata) with live UFW data
+    const stored = runtimeConfig.firewallRules || [];
+    res.json({ available: true, active, raw: verbose, rules: ufwRules, stored });
   } catch (e) {
     res.status(500).json({ available: true, error: e.message });
   }
@@ -1504,16 +1554,37 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
 
 app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
-  const { action, port, proto, from = 'any', comment = '' } = req.body || {};
+  const { action, port, proto = 'any', from = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
   if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
-  const protoStr = proto && proto !== 'any' ? ` proto ${proto}` : '';
-  const fromStr  = from && from !== 'any' ? ` from ${from}` : '';
-  const cmd = `ufw ${action}${fromStr} to any port ${port}${protoStr} && ufw status numbered`;
-  const result = await fwExec(cmd);
-  res.json({ ok: true, result });
+  const id = Date.now().toString(36);
+  const rule = { id, action, port, proto, from, direction, iface, comment };
+  const rules = [...(runtimeConfig.firewallRules || []), rule];
+  saveConfig({ firewallRules: rules });
+  await fwExec(buildUfwCmd(rule));
+  res.json({ ok: true, id, rules });
 }));
 
-app.delete('/api/firewall/rules/:num', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/firewall/rules/reorder', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+  const current = runtimeConfig.firewallRules || [];
+  const reordered = ids.map(id => current.find(r => r.id === id)).filter(Boolean);
+  saveConfig({ firewallRules: reordered });
+  await syncFirewallRules(reordered);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const rules = (runtimeConfig.firewallRules || []).filter(r => r.id !== req.params.id);
+  saveConfig({ firewallRules: rules });
+  await syncFirewallRules(rules);
+  res.json({ ok: true });
+}));
+
+// Legacy: delete by UFW rule number (expert mode + auto-rules)
+app.delete('/api/firewall/rules/num/:num', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const result = await fwExec(`echo y | ufw delete ${req.params.num}`);
   res.json({ ok: true, result });
@@ -1524,6 +1595,26 @@ app.post('/api/firewall/toggle', requireAuth, asyncHandler(async (req, res) => {
   const { enable } = req.body || {};
   const result = await fwExec(enable ? 'ufw --force enable' : 'ufw disable');
   res.json({ ok: true, result });
+}));
+
+app.get('/api/firewall/logs', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const lines = Math.min(parseInt(req.query.lines) || 100, 500);
+  const raw = await fwExec(
+    `tail -n ${lines} /var/log/ufw.log 2>/dev/null || dmesg 2>/dev/null | grep -i UFW | tail -n ${lines} || echo ""`
+  ).catch(() => '');
+  const entries = raw.split('\n').filter(l => l.includes('UFW')).map(l => {
+    const action = (l.match(/\[UFW\s+(\w+)\]/) || l.match(/UFW\s+(\w+)/) || [])[1] || 'UNKNOWN';
+    const src    = (l.match(/SRC=([\d.:a-fA-F]+)/) || [])[1] || '';
+    const dst    = (l.match(/DST=([\d.:a-fA-F]+)/) || [])[1] || '';
+    const proto  = (l.match(/PROTO=(\w+)/) || [])[1] || '';
+    const dpt    = (l.match(/DPT=(\d+)/) || [])[1] || '';
+    const spt    = (l.match(/SPT=(\d+)/) || [])[1] || '';
+    const iface  = (l.match(/IN=(\S+)/) || [])[1] || '';
+    const time   = (l.match(/^(\w+\s+\d+\s+[\d:]+)/) || [])[1] || '';
+    return { time, action, src, dst, proto, dpt, spt, iface };
+  }).filter(e => e.src);
+  res.json({ ok: true, entries: entries.reverse() });
 }));
 
 // ---------------------------------------------------------------------------
@@ -1781,7 +1872,7 @@ app.get(
       .map((c) => buildAppTile(c, reqHost))
       .filter(Boolean);
 
-    res.json({ apps: tiles, host: reqHost });
+    res.json({ apps: tiles, host: reqHost, serverName: runtimeConfig.serverName || 'Hearth' });
   })
 );
 
@@ -2078,77 +2169,108 @@ function _exec(cmd, args) {
 }
 
 async function runHearthSelfUpdate() {
-  const branch = (runtimeConfig.updateBranch || 'main').trim();
+  const branch      = (runtimeConfig.updateBranch || 'main').trim();
+  const GITHUB_REPO = 'https://github.com/MarioundMB/Hearth.git';
+  const UPDATE_VOL  = 'hearth-update-src';
 
+  // Find self container
   const allC = await docker.listContainers({ all: true }).catch(() => []);
-  const self  = allC.find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater')));
-  const selfImage = self?.Image || 'hearth-hearth';
+  const self  = allC.find(c =>
+    c.Labels?.['hearth.self'] === 'true' &&
+    (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater'))
+  );
+  const selfImage   = self?.Image || 'hearth-hearth';
+  const projectName = self?.Labels?.['com.docker.compose.project'] || 'hearth';
 
-  // Resolve the HOST-side repo path via bind-mount inspection.
+  // Check if /app/repo is bind-mounted from HOST
   let repoHostPath = null;
   try {
     if (self) {
-      const info = await docker.getContainer(self.Id).inspect();
-      const mount = (info.Mounts || []).find(m => m.Destination === '/app/repo');
+      const info  = await docker.getContainer(self.Id).inspect();
+      const mount = (info.Mounts || []).find(m => m.Destination === '/app/repo' && m.Type === 'bind');
       if (mount?.Source) repoHostPath = mount.Source;
     }
   } catch (_) {}
 
-  // ── Fallback: volume not mounted → clone repo on the HOST via docker run ──
-  if (!repoHostPath || !fs.existsSync(path.join(_REPO, '.git'))) {
-    const tmpHostPath = '/tmp/hearth-src';
-    console.log('[UPDATE] /app/repo not mounted — cloning from GitHub to HOST ' + tmpHostPath);
-    await new Promise((resolve, reject) => {
-      const p = _spawn('docker', [
-        'run', '--rm',
-        '-v', `${tmpHostPath}:/dst`,
-        'alpine/git',
-        'clone', '--depth=1', '--branch', branch,
-        'https://github.com/MarioundMB/Hearth.git', '/dst',
-      ], { stdio: 'ignore' });
-      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen — stell sicher dass Docker Internetzugang hat')));
-    });
-    repoHostPath = tmpHostPath;
-  } else {
-    // Volume is mounted — fetch + reset inside the container as usual
+  const hasVolume = !!repoHostPath && fs.existsSync(path.join(_REPO, '.git'));
+
+  // ── Helper: spawn the updater container ──────────────────────────────────
+  function spawnUpdater(repoMount) {
+    // Kill any leftover updater first
+    _spawn('docker', ['rm', '-f', 'hearth-updater'], { stdio: 'ignore' });
+    _spawn('docker', [
+      'run', '--rm', '--name', 'hearth-updater',
+      '--label', 'hearth.self=true',
+      '--label', 'hearth.hide=true',
+      '-v', '/var/run/docker.sock:/var/run/docker.sock',
+      '-v', `${repoMount}:/app/repo`,
+      selfImage,
+      'sh', '-c',
+      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1`,
+    ], { detached: true, stdio: 'ignore' }).unref();
+  }
+
+  // ── PATH A: bind-mount present — update in-place ──────────────────────────
+  if (hasVolume) {
+    console.log('[UPDATE] Volume mounted — updating in-place');
     await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
     await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
-    const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
-    const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
-    if (sourceSha !== remoteSha) {
+    const remote = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
+    const local  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+    if (local !== remote) {
       await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
       await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
     }
+    const pkg = JSON.parse(fs.readFileSync(path.join(_REPO, 'package.json'), 'utf8'));
+    if (pkg.version === VERSION) return { upToDate: true, version: VERSION };
+    _updateCache = { ts: 0, data: null };
+    spawnUpdater(repoHostPath);
+    return { upToDate: false, version: pkg.version };
   }
 
-  // Version aus dem (ggf. frisch geklonten) Repo lesen
-  const newPkgPath = fs.existsSync(path.join(_REPO, 'package.json'))
-    ? path.join(_REPO, 'package.json')
-    : path.join('/tmp/hearth-src', 'package.json');
-  const newVersion = fs.existsSync(newPkgPath)
-    ? JSON.parse(fs.readFileSync(newPkgPath, 'utf8')).version
-    : null;
+  // ── PATH B: no bind-mount — clone via named volume + selfImage ────────────
+  // Uses the already-local selfImage (has git). No external image pull needed.
+  console.log('[UPDATE] No bind-mount — using named-volume fallback');
+
+  // Ensure named volume exists
+  await new Promise((resolve, reject) => {
+    const p = _spawn('docker', ['volume', 'create', UPDATE_VOL], { stdio: 'ignore' });
+    p.on('close', code => code === 0 ? resolve() : reject(new Error(`docker volume create fehlgeschlagen (code ${code})`)));
+  });
+
+  // Clone into named volume using selfImage (already local, has git)
+  const cloneLog = await new Promise((resolve, reject) => {
+    let out = '';
+    const p = _spawn('docker', [
+      'run', '--rm', '--name', 'hearth-git-clone',
+      '-v', `${UPDATE_VOL}:/dst`,
+      selfImage,
+      'sh', '-c',
+      `git config --global --add safe.directory /dst 2>/dev/null; rm -rf /dst/* /dst/.[^.]* 2>/dev/null; git clone --depth=1 --branch ${branch} ${GITHUB_REPO} /dst 2>&1`,
+    ], { stdio: 'pipe' });
+    p.stdout?.on('data', d => { out += d; });
+    p.stderr?.on('data', d => { out += d; });
+    p.on('close', code => code === 0
+      ? resolve(out)
+      : reject(new Error(`git clone fehlgeschlagen (code ${code}): ${out.slice(-400)}`))
+    );
+  });
+  console.log('[UPDATE] Clone:', cloneLog.slice(-120));
+
+  // Read version from cloned repo (use selfImage — already local)
+  const pkgJson = await new Promise(resolve => {
+    let out = '';
+    const p = _spawn('docker', ['run', '--rm', '-v', `${UPDATE_VOL}:/src`, selfImage, 'cat', '/src/package.json'], { stdio: 'pipe' });
+    p.stdout?.on('data', d => { out += d; });
+    p.on('close', () => resolve(out));
+  }).catch(() => '{}');
+
+  let newVersion = null;
+  try { newVersion = JSON.parse(pkgJson).version; } catch (_) {}
   if (newVersion && newVersion === VERSION) return { upToDate: true, version: newVersion };
   _updateCache = { ts: 0, data: null };
 
-  const newSha = await _exec('git', ['-C', repoHostPath === '/tmp/hearth-src' ? _REPO : repoHostPath,
-    'rev-parse', '--short', 'HEAD']).catch(() => 'unknown');
-
-  const projectName = self?.Labels?.['com.docker.compose.project']
-    || path.basename(repoHostPath)
-    || 'hearth';
-
-  _spawn('docker', [
-    'run', '--rm', '--name', 'hearth-updater',
-    '--label', 'hearth.self=true',
-    '--label', 'hearth.hide=true',
-    '-v', '/var/run/docker.sock:/var/run/docker.sock',
-    '-v', `${repoHostPath}:/app/repo`,
-    selfImage,
-    'sh', '-c',
-    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo 2>/dev/null; docker compose -p ${projectName} up -d --build hearth`,
-  ], { detached: true, stdio: 'ignore' }).unref();
-
+  spawnUpdater(UPDATE_VOL);
   return { upToDate: false, version: newVersion };
 }
 
@@ -2395,8 +2517,12 @@ app.post(
     if (await fwAvailable()) {
       const publicPorts = (b.ports || []).filter(p => p.host && p.container);
       for (const p of publicPorts) {
-        const proto = (p.proto || 'tcp').toLowerCase();
-        await fwExec(`ufw allow ${p.host}/${proto} comment "hearth: ${b.name || b.image}"`).catch(() => {});
+        const proto = String(p.proto || 'tcp').toLowerCase().replace(/[^a-z]/g, '');
+        const hostPort = String(p.host).replace(/[^0-9:]/g, '');
+        const safeName = String(b.name || b.image).replace(/[^a-zA-Z0-9_.-]/g, '');
+        if (hostPort) {
+          await fwExec(`ufw allow ${hostPort}/${proto} comment "hearth: ${safeName}"`).catch(() => {});
+        }
       }
     }
 
