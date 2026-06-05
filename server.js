@@ -15,6 +15,7 @@ const session = require('express-session');
 const multer = require('multer');
 const Docker = require('dockerode');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -40,12 +41,17 @@ const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 const PORT        = parseInt(process.env.PORT        || '4500', 10);
 // Separate public-facing port for the guest view only (no admin routes)
 const GUEST_PORT  = parseInt(process.env.GUEST_PORT  || '3000', 10);
-const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '80',   10);
+const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
+const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
 const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
 const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
+const CERTS_DIR       = '/etc/nginx/hearth-certs';
+const AUTH_DIR        = '/etc/nginx/hearth-auth';
+const NGINX_LOG_DIR   = '/var/log/nginx';
+const ACME_SH         = '/root/.acme.sh/acme.sh';
 const VPN_CONTAINER   = process.env.VPN_CONTAINER || 'hearth-vpn';
 
 // FILES_ROOT anlegen, falls nicht vorhanden
@@ -72,6 +78,10 @@ let runtimeConfig = {
   users: [],
   autoUpdate: { enabled: true, hour: 0, minute: 0 },
   updateBranch: 'main',
+  cfApiToken: '',
+  cfZoneId: '',
+  cfTunnelToken: '',
+  serverPublicIp: '',
 };
 
 // In-memory URL cache: populated while containers are running so we can
@@ -135,6 +145,7 @@ if (!runtimeConfig.setupDone) {
 
 // Nginx starten (läuft parallel zum Express-Server)
 startNginx();
+renewCertsIfNeeded().catch(() => {});
 
 const docker = new Docker({ socketPath: DOCKER_SOCKET });
 const app = express();
@@ -358,12 +369,193 @@ function validateProxyInputs(domain, target) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SSL-Zertifikat-Verwaltung
+// ---------------------------------------------------------------------------
+
+function certPaths(domain) {
+  const dir = path.join(CERTS_DIR, domain);
+  return { dir, cert: path.join(dir, 'cert.pem'), key: path.join(dir, 'key.pem') };
+}
+
+function certExists(domain) {
+  const { cert, key } = certPaths(domain);
+  return fs.existsSync(cert) && fs.existsSync(key);
+}
+
+function getCertInfo(domain) {
+  const { cert } = certPaths(domain);
+  if (!fs.existsSync(cert)) return null;
+  try {
+    const out = require('child_process').execSync(
+      `openssl x509 -in "${cert}" -noout -enddate -issuer 2>/dev/null`
+    ).toString();
+    const expLine = (out.match(/notAfter=(.+)/) || [])[1] || '';
+    const issuerLine = (out.match(/issuer=(.+)/) || [])[1] || '';
+    const expires = expLine ? new Date(expLine) : null;
+    const isLE = issuerLine.includes("Let's Encrypt") || issuerLine.includes('R3') || issuerLine.includes('E1');
+    const daysLeft = expires ? Math.ceil((expires - Date.now()) / 86400000) : null;
+    return { expires: expires?.toISOString(), daysLeft, isLE, domain };
+  } catch (_) { return { domain }; }
+}
+
+function generateSelfSignedCert(domain) {
+  return new Promise((resolve, reject) => {
+    const { dir, cert, key } = certPaths(domain);
+    if (certExists(domain)) { resolve(); return; }
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    const p = spawn('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048',
+      '-keyout', key, '-out', cert,
+      '-days', '3650', '-nodes',
+      '-subj', `/CN=${domain}`,
+    ], { stdio: 'ignore' });
+    p.on('close', code => code === 0 ? resolve() : reject(new Error(`openssl fehlgeschlagen für ${domain}`)));
+  });
+}
+
+async function requestLECert(domain) {
+  if (!fs.existsSync(ACME_SH)) throw new Error('acme.sh nicht gefunden');
+  const { dir, cert, key } = certPaths(domain);
+  fs.mkdirSync(dir, { recursive: true });
+  const cfToken  = runtimeConfig.cfApiToken;
+  const cfZoneId = runtimeConfig.cfZoneId;
+  const usesCf   = !!(cfToken && cfZoneId);
+  const env = { ...process.env, HOME: '/root' };
+  if (usesCf) { env.CF_Token = cfToken; env.CF_Zone_ID = cfZoneId; }
+
+  await new Promise((resolve, reject) => {
+    const args = usesCf
+      ? [ACME_SH, '--issue', '--dns', 'dns_cf', '-d', domain, '--server', 'letsencrypt']
+      : [ACME_SH, '--issue', '--webroot', '/var/www/acme', '-d', domain, '--server', 'letsencrypt'];
+    const p = spawn('sh', args, { env, stdio: 'pipe' });
+    let out = '';
+    p.stdout.on('data', d => out += d);
+    p.stderr.on('data', d => out += d);
+    p.on('close', code => {
+      if (code === 0 || code === 2) resolve(out);  // code 2 = already issued
+      else reject(new Error(out.slice(-500) || 'acme.sh fehlgeschlagen'));
+    });
+  });
+
+  // Copy certs to hearth-certs dir
+  await new Promise((resolve, reject) => {
+    const args = [ACME_SH, '--install-cert', '-d', domain,
+      '--cert-file', cert, '--key-file', key,
+      '--reloadcmd', 'nginx -s reload 2>/dev/null || true'];
+    const p = spawn('sh', args, { env, stdio: 'ignore' });
+    p.on('close', code => code === 0 ? resolve() : reject(new Error('acme.sh install-cert fehlgeschlagen')));
+  });
+}
+
+async function renewCertsIfNeeded() {
+  if (!fs.existsSync(ACME_SH)) return;
+  const rules = runtimeConfig.proxyRules || [];
+  for (const r of rules.filter(r => r.certType === 'letsencrypt')) {
+    const info = getCertInfo(r.domain);
+    if (info?.daysLeft != null && info.daysLeft < 30) {
+      console.log(`[CERT] Renewing LE cert for ${r.domain} (${info.daysLeft} days left)`);
+      await requestLECert(r.domain).catch(e => console.warn('[CERT] Renewal failed:', e.message));
+    }
+  }
+}
+
+async function ensureDefaultCert() {
+  if (!certExists('_default')) {
+    await generateSelfSignedCert('_default').catch(e => console.warn('[CERT]', e.message));
+  }
+}
+
+async function ensureCertsForRules(rules) {
+  for (const r of (rules || []).filter(r => r.enabled)) {
+    if (!certExists(r.domain)) {
+      await generateSelfSignedCert(r.domain).catch(e => console.warn('[CERT]', e.message));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Basic-Auth Verwaltung
+// ---------------------------------------------------------------------------
+
+function htpasswdPath(ruleId) {
+  return path.join(AUTH_DIR, `${ruleId}.htpasswd`);
+}
+
+async function writeHtpasswd(ruleId, user, password) {
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  const hash = await new Promise((resolve, reject) => {
+    const p = spawn('openssl', ['passwd', '-apr1', password], { stdio: 'pipe' });
+    let out = '';
+    p.stdout.on('data', d => out += d);
+    p.on('close', code => code === 0 ? resolve(out.trim()) : reject(new Error('htpasswd generation failed')));
+  });
+  fs.writeFileSync(htpasswdPath(ruleId), `${user}:${hash}\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Nginx-Konfiguration
+// ---------------------------------------------------------------------------
+
 function nginxConfForRule(rule) {
+  const { cert, key } = certPaths(rule.domain);
+  const logFile = path.join(NGINX_LOG_DIR, `hearth-${rule.id}.log`);
+  const ba = rule.basicAuth;
+  const maxBody = rule.maxBodySize ? rule.maxBodySize.replace(/[^0-9kmgKMG]/g, '') : '';
+
+  // IP access control
+  const ipLines = [];
+  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
+    ipLines.push(`    allow ${ip};`);
+  });
+  if (ipLines.length) ipLines.push('    deny all;');
+  (rule.ipDenylist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
+    ipLines.push(`    deny ${ip};`);
+  });
+
+  // Security headers
+  const secHeaders = rule.securityHeaders ? `
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;` : '';
+
+  // Static cache location
+  const staticCache = rule.cacheStatic ? `
+    location ~* \\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|webp)$ {
+        proxy_pass ${rule.target};
+        proxy_set_header Host $host;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800";
+    }` : '';
+
+  // Custom snippet (strip dangerous directives)
+  const snippet = (rule.customSnippet || '')
+    .split('\n').filter(l => !/^\s*(root|alias|include|load_module)\s/i.test(l)).join('\n');
+
   return `# Hearth Proxy: ${rule.id} (${rule.domain})
 server {
-    listen ${PROXY_PORT};
+    listen ${HTTP_PORT};
     server_name ${rule.domain};
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+    }
     location / {
+        return 301 https://$host$request_uri;
+    }
+}
+server {
+    listen ${PROXY_PORT} ssl;
+    server_name ${rule.domain};
+    ssl_certificate     ${cert};
+    ssl_certificate_key ${key};
+    access_log ${logFile} hearth_combined;
+    ${maxBody ? `client_max_body_size ${maxBody};` : ''}
+    ${secHeaders}
+    ${ipLines.join('\n    ')}
+    ${staticCache}
+    location / {
+        ${ba?.enabled && ba?.user ? `auth_basic "Restricted";\n        auth_basic_user_file ${htpasswdPath(rule.id)};` : ''}
         proxy_pass ${rule.target};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -374,17 +566,20 @@ server {
         proxy_read_timeout 300;
         proxy_connect_timeout 300;
         proxy_send_timeout 300;
+        ${snippet}
     }
 }
 `;
 }
 
-function writeProxyConfigs(rules) {
+async function writeProxyConfigs(rules) {
   try {
     fs.mkdirSync(NGINX_PROXY_DIR, { recursive: true });
     for (const f of fs.readdirSync(NGINX_PROXY_DIR)) {
       fs.unlinkSync(path.join(NGINX_PROXY_DIR, f));
     }
+    await ensureDefaultCert();
+    await ensureCertsForRules(rules);
     for (const r of (rules || []).filter((r) => r.enabled)) {
       fs.writeFileSync(path.join(NGINX_PROXY_DIR, `${r.id}.conf`), nginxConfForRule(r));
     }
@@ -399,13 +594,13 @@ function reloadNginx() {
   });
 }
 
-function startNginx() {
+async function startNginx() {
   const nginxBin = ['/usr/sbin/nginx', '/usr/bin/nginx', '/sbin/nginx'].find(fs.existsSync);
   if (!nginxBin) {
     console.log('[PROXY] Nginx nicht gefunden – Reverse Proxy deaktiviert');
     return;
   }
-  writeProxyConfigs(runtimeConfig.proxyRules);
+  await writeProxyConfigs(runtimeConfig.proxyRules);
   _nginxProc = spawn(nginxBin, ['-g', 'daemon off;'], { stdio: ['ignore', 'pipe', 'pipe'] });
   _nginxProc.stderr.on('data', (d) => {
     const msg = d.toString().trim();
@@ -417,7 +612,7 @@ function startNginx() {
       setTimeout(startNginx, 3000);
     }
   });
-  console.log(`\x1b[32m✓ Reverse Proxy (Nginx) auf Port ${PROXY_PORT}\x1b[0m`);
+  console.log(`\x1b[32m✓ Reverse Proxy (Nginx) HTTPS:${PROXY_PORT} HTTP:${HTTP_PORT}\x1b[0m`);
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +777,31 @@ function getTemperatures() {
     } catch (_) {}
   }
   return temps;
+}
+
+// ---------------------------------------------------------------------------
+// Port-Konflikt Auflösung
+// ---------------------------------------------------------------------------
+async function findFreeHostPort(desired) {
+  let port = Math.max(1, parseInt(desired) || 8080);
+  if (!port || port > 65535) return port;
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const used = new Set([PORT, PROXY_PORT, HTTP_PORT, GUEST_PORT]);
+    containers.forEach(c => (c.Ports || []).forEach(p => { if (p.PublicPort) used.add(p.PublicPort); }));
+    while (used.has(port)) port++;
+  } catch (_) {}
+  return port;
+}
+
+async function resolvePortConflicts(ports) {
+  const resolved = [];
+  for (const p of (ports || [])) {
+    if (!p.host || !p.container) { resolved.push(p); continue; }
+    const free = await findFreeHostPort(p.host);
+    resolved.push({ ...p, host: String(free), _autoAssigned: free !== Number(p.host) });
+  }
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -875,57 +1095,383 @@ app.get('/api/proxy/status', requireAuth, (req, res) => {
 });
 
 app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
-  const { domain, target, enabled = true, strip = '' } = req.body || {};
+  const {
+    domain, target, enabled = true, strip = '', cfSync = false,
+    basicAuth, ipAllowlist = '', ipDenylist = '',
+    securityHeaders = false, cacheStatic = false, maxBodySize = '', customSnippet = '',
+  } = req.body || {};
   if (!domain || !target) return res.status(400).json({ error: 'domain and target are required' });
   validateProxyInputs(domain.trim(), target.trim());
 
   const rules = [...(runtimeConfig.proxyRules || [])];
   const id = Date.now().toString(36);
-  rules.push({ id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''), enabled: !!enabled, strip: strip.trim() });
+  const rule = {
+    id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''),
+    enabled: !!enabled, strip: strip.trim(), cfSync: !!cfSync, cfDnsId: null,
+    basicAuth: basicAuth || null, ipAllowlist, ipDenylist,
+    securityHeaders: !!securityHeaders, cacheStatic: !!cacheStatic,
+    maxBodySize, customSnippet, certType: 'self-signed',
+  };
+  if (basicAuth?.enabled && basicAuth?.user && basicAuth?.password) {
+    await writeHtpasswd(id, basicAuth.user, basicAuth.password).catch(e => console.warn('[AUTH]', e.message));
+  }
+  rules.push(rule);
   saveConfig({ proxyRules: rules });
-  writeProxyConfigs(rules);
+  await writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
   }
+  if (cfSync) cfSyncRule(rule).catch(e => console.warn('[CF]', e.message));
   res.json({ ok: true, id });
 }));
 
 app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
-  const { domain, target, enabled, strip } = req.body || {};
+  const {
+    domain, target, enabled, strip, cfSync,
+    basicAuth, ipAllowlist, ipDenylist,
+    securityHeaders, cacheStatic, maxBodySize, customSnippet,
+  } = req.body || {};
   const existing = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   const newDomain = domain !== undefined ? domain.trim() : existing?.domain;
   const newTarget = target !== undefined ? target.trim() : existing?.target;
   if (newDomain && newTarget) validateProxyInputs(newDomain, newTarget);
 
+  let updatedRule;
   const rules = (runtimeConfig.proxyRules || []).map((r) => {
     if (r.id !== req.params.id) return r;
-    return {
+    updatedRule = {
       ...r,
       domain:  domain  !== undefined ? domain.trim()  : r.domain,
       target:  target  !== undefined ? target.trim().replace(/\/$/, '') : r.target,
-      enabled: enabled !== undefined ? !!enabled        : r.enabled,
-      strip:   strip   !== undefined ? strip.trim()    : (r.strip || ''),
+      enabled: enabled !== undefined ? !!enabled : r.enabled,
+      strip:   strip   !== undefined ? strip.trim() : (r.strip || ''),
+      cfSync:  cfSync  !== undefined ? !!cfSync : r.cfSync,
+      basicAuth:      basicAuth      !== undefined ? basicAuth      : r.basicAuth,
+      ipAllowlist:    ipAllowlist    !== undefined ? ipAllowlist    : (r.ipAllowlist || ''),
+      ipDenylist:     ipDenylist     !== undefined ? ipDenylist     : (r.ipDenylist || ''),
+      securityHeaders: securityHeaders !== undefined ? !!securityHeaders : r.securityHeaders,
+      cacheStatic:    cacheStatic    !== undefined ? !!cacheStatic  : r.cacheStatic,
+      maxBodySize:    maxBodySize    !== undefined ? maxBodySize    : (r.maxBodySize || ''),
+      customSnippet:  customSnippet  !== undefined ? customSnippet  : (r.customSnippet || ''),
     };
+    return updatedRule;
   });
+  if (updatedRule?.basicAuth?.enabled && updatedRule.basicAuth?.user && updatedRule.basicAuth?.password) {
+    await writeHtpasswd(req.params.id, updatedRule.basicAuth.user, updatedRule.basicAuth.password)
+      .catch(e => console.warn('[AUTH]', e.message));
+    delete updatedRule.basicAuth.password;
+  }
   saveConfig({ proxyRules: rules });
-  writeProxyConfigs(rules);
+  await writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
   }
+  if (updatedRule?.cfSync) cfSyncRule(updatedRule).catch(e => console.warn('[CF]', e.message));
   res.json({ ok: true });
 }));
 
 app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  const toDelete = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   const rules = (runtimeConfig.proxyRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ proxyRules: rules });
-  writeProxyConfigs(rules);
+  await writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
   }
+  if (toDelete?.cfSync) cfDeleteDnsRecord(toDelete).catch(e => console.warn('[CF]', e.message));
+  // Clean up htpasswd file
+  try { fs.unlinkSync(htpasswdPath(req.params.id)); } catch (_) {}
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Proxy – Cert management
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/rules/:id/cert', requireAuth, (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const info = getCertInfo(rule.domain) || {};
+  res.json({ ok: true, ...info, certType: rule.certType || 'self-signed' });
+});
+
+const certUpload = multer({ dest: os.tmpdir(), limits: { fileSize: 1024 * 1024 } });
+app.post('/api/proxy/rules/:id/cert/upload', requireAuth, certUpload.fields([
+  { name: 'cert', maxCount: 1 },
+  { name: 'key',  maxCount: 1 },
+]), asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const certFile = req.files?.cert?.[0];
+  const keyFile  = req.files?.key?.[0];
+  if (!certFile || !keyFile) return res.status(400).json({ ok: false, error: 'cert and key files required' });
+  const { dir, cert, key } = certPaths(rule.domain);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(certFile.path, cert);
+  fs.copyFileSync(keyFile.path, key);
+  fs.unlinkSync(certFile.path);
+  fs.unlinkSync(keyFile.path);
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'custom' } : r
+  );
+  saveConfig({ proxyRules: rules });
+  await writeProxyConfigs(rules);
+  await reloadNginx();
+  res.json({ ok: true });
+}));
+
+app.post('/api/proxy/rules/:id/cert/letsencrypt', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  // Remove existing cert so it can be replaced
+  const { cert, key } = certPaths(rule.domain);
+  try { fs.unlinkSync(cert); fs.unlinkSync(key); } catch (_) {}
+  await requestLECert(rule.domain);
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'letsencrypt' } : r
+  );
+  saveConfig({ proxyRules: rules });
+  await writeProxyConfigs(rules);
+  await reloadNginx();
+  const info = getCertInfo(rule.domain);
+  res.json({ ok: true, ...info });
+}));
+
+// ---------------------------------------------------------------------------
+// Proxy – Traffic Logs
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/rules/:id/logs', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const logFile = path.join(NGINX_LOG_DIR, `hearth-${rule.id}.log`);
+  if (!fs.existsSync(logFile)) return res.json({ ok: true, entries: [] });
+  const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean).slice(-200).reverse();
+  const entries = lines.map(l => {
+    const [time, status, method, uri, bytes, ip, ua] = l.split('|');
+    return { time, status: parseInt(status) || 0, method, uri, bytes: parseInt(bytes) || 0, ip, ua };
+  });
+  res.json({ ok: true, entries });
+}));
+
+app.get('/api/proxy/rules/:id/stats', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const logFile = path.join(NGINX_LOG_DIR, `hearth-${rule.id}.log`);
+  if (!fs.existsSync(logFile)) return res.json({ ok: true, total: 0, s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 });
+  const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean);
+  let s2xx = 0, s3xx = 0, s4xx = 0, s5xx = 0;
+  lines.forEach(l => {
+    const status = parseInt(l.split('|')[1]) || 0;
+    if (status >= 200 && status < 300) s2xx++;
+    else if (status >= 300 && status < 400) s3xx++;
+    else if (status >= 400 && status < 500) s4xx++;
+    else if (status >= 500) s5xx++;
+  });
+  res.json({ ok: true, total: lines.length, s2xx, s3xx, s4xx, s5xx });
+}));
+
+// ---------------------------------------------------------------------------
+// Proxy – Test endpoint
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/test/:id', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false, error: 'Rule not found' });
+  const t0 = Date.now();
+  try {
+    const url = new URL(rule.target);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    await new Promise((resolve, reject) => {
+      const req2 = mod.request(
+        { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: '/', method: 'HEAD', timeout: 5000 },
+        (r) => { r.resume(); resolve(r.statusCode); }
+      );
+      req2.on('timeout', () => { req2.destroy(); reject(new Error('timeout')); });
+      req2.on('error', reject);
+      req2.end();
+    });
+    res.json({ ok: true, latency: Date.now() - t0 });
+  } catch (e) {
+    res.json({ ok: false, error: e.message, latency: Date.now() - t0 });
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// System – Public IP
+// ---------------------------------------------------------------------------
+app.get('/api/system/public-ip', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const ip = await new Promise((resolve, reject) => {
+      https.get('https://api.ipify.org?format=json', (r) => {
+        let d = '';
+        r.on('data', c => d += c);
+        r.on('end', () => { try { resolve(JSON.parse(d).ip); } catch(e) { reject(e); } });
+      }).on('error', reject).setTimeout(5000, function() { this.destroy(); reject(new Error('timeout')); });
+    });
+    res.json({ ok: true, ip });
+  } catch(e) {
+    res.json({ ok: false, error: e.message });
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// Cloudflare – helpers
+// ---------------------------------------------------------------------------
+async function cfFetch(path, method = 'GET', body = null) {
+  const token = runtimeConfig.cfApiToken;
+  if (!token) throw Object.assign(new Error('Kein Cloudflare API-Token konfiguriert'), { statusCode: 400 });
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const options = {
+      hostname: 'api.cloudflare.com',
+      path: `/client/v4${path}`,
+      method,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      },
+      timeout: 10000,
+    };
+    const req = https.request(options, (r) => {
+      let d = '';
+      r.on('data', c => d += c);
+      r.on('end', () => {
+        try { resolve(JSON.parse(d)); }
+        catch(e) { reject(new Error('CF API: ungültige Antwort')); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('CF API: timeout')); });
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+async function cfGetPublicIp() {
+  if (runtimeConfig.serverPublicIp) return runtimeConfig.serverPublicIp;
+  return new Promise((resolve, reject) => {
+    https.get('https://api.ipify.org?format=json', (r) => {
+      let d = '';
+      r.on('data', c => d += c);
+      r.on('end', () => { try { resolve(JSON.parse(d).ip); } catch(e) { reject(e); } });
+    }).on('error', reject).setTimeout(5000, function() { this.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+async function cfSyncRule(rule) {
+  if (!rule.cfSync || !runtimeConfig.cfApiToken || !runtimeConfig.cfZoneId) return;
+  const ip = await cfGetPublicIp();
+  const zoneId = runtimeConfig.cfZoneId;
+  const record = { type: 'A', name: rule.domain, content: ip, ttl: 1, proxied: true };
+  if (rule.cfDnsId) {
+    await cfFetch(`/zones/${zoneId}/dns_records/${rule.cfDnsId}`, 'PUT', record);
+  } else {
+    const result = await cfFetch(`/zones/${zoneId}/dns_records`, 'POST', record);
+    if (result.success && result.result?.id) {
+      const rules = (runtimeConfig.proxyRules || []).map(r =>
+        r.id === rule.id ? { ...r, cfDnsId: result.result.id } : r
+      );
+      saveConfig({ proxyRules: rules });
+    }
+  }
+}
+
+async function cfDeleteDnsRecord(rule) {
+  if (!rule.cfDnsId || !runtimeConfig.cfApiToken || !runtimeConfig.cfZoneId) return;
+  await cfFetch(`/zones/${runtimeConfig.cfZoneId}/dns_records/${rule.cfDnsId}`, 'DELETE').catch(() => {});
+}
+
+// Cloudflare – verify credentials
+app.post('/api/cloudflare/verify', requireAuth, asyncHandler(async (req, res) => {
+  const result = await cfFetch('/user/tokens/verify');
+  if (result.success) {
+    res.json({ ok: true, message: result.result?.status || 'active' });
+  } else {
+    res.status(400).json({ ok: false, error: result.errors?.[0]?.message || 'Ungültige Credentials' });
+  }
+}));
+
+// Cloudflare – manual DNS sync for one rule
+app.post('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.ruleId);
+  if (!rule) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+  const ip = await cfGetPublicIp();
+  const zoneId = runtimeConfig.cfZoneId;
+  if (!zoneId) return res.status(400).json({ ok: false, error: 'Keine Zone-ID konfiguriert' });
+  const record = { type: 'A', name: rule.domain, content: ip, ttl: 1, proxied: true };
+  let cfDnsId = rule.cfDnsId;
+  if (cfDnsId) {
+    const r = await cfFetch(`/zones/${zoneId}/dns_records/${cfDnsId}`, 'PUT', record);
+    if (!r.success) throw Object.assign(new Error(r.errors?.[0]?.message || 'CF-Fehler'), { statusCode: 400 });
+  } else {
+    const r = await cfFetch(`/zones/${zoneId}/dns_records`, 'POST', record);
+    if (!r.success) throw Object.assign(new Error(r.errors?.[0]?.message || 'CF-Fehler'), { statusCode: 400 });
+    cfDnsId = r.result?.id;
+  }
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.ruleId ? { ...r, cfSync: true, cfDnsId } : r
+  );
+  saveConfig({ proxyRules: rules });
+  res.json({ ok: true, cfDnsId, ip });
+}));
+
+// Cloudflare – delete DNS record for one rule
+app.delete('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.ruleId);
+  if (!rule) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+  await cfDeleteDnsRecord(rule);
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.ruleId ? { ...r, cfSync: false, cfDnsId: null } : r
+  );
+  saveConfig({ proxyRules: rules });
+  res.json({ ok: true });
+}));
+
+// Cloudflare – Tunnel status
+const CF_TUNNEL_CONTAINER = 'hearth-cloudflared';
+
+app.get('/api/cloudflare/tunnel/status', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const c = docker.getContainer(CF_TUNNEL_CONTAINER);
+    const info = await c.inspect();
+    res.json({ ok: true, running: info.State.Running, status: info.State.Status });
+  } catch (e) {
+    res.json({ ok: true, running: false, status: 'not_found' });
+  }
+}));
+
+app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, res) => {
+  const token = runtimeConfig.cfTunnelToken;
+  if (!token) return res.status(400).json({ ok: false, error: 'Kein Tunnel-Token konfiguriert' });
+  try {
+    const existing = docker.getContainer(CF_TUNNEL_CONTAINER);
+    const info = await existing.inspect().catch(() => null);
+    if (info) {
+      if (info.State.Running) return res.json({ ok: true, already: true });
+      await existing.start();
+      return res.json({ ok: true });
+    }
+  } catch(_) {}
+  const container = await docker.createContainer({
+    name: CF_TUNNEL_CONTAINER,
+    Image: 'cloudflare/cloudflared:latest',
+    Cmd: ['tunnel', '--no-autoupdate', 'run', '--token', token],
+    HostConfig: { RestartPolicy: { Name: 'unless-stopped' }, NetworkMode: 'host' },
+  });
+  await container.start();
+  res.json({ ok: true });
+}));
+
+app.post('/api/cloudflare/tunnel/stop', requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const c = docker.getContainer(CF_TUNNEL_CONTAINER);
+    await c.stop();
+    res.json({ ok: true });
+  } catch(e) {
+    res.json({ ok: false, error: e.message });
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -997,10 +1543,17 @@ app.get('/api/settings', requireAuth, (req, res) => {
     autoUpdate:   runtimeConfig.autoUpdate ?? { enabled: true, hour: 0, minute: 0 },
     updateBranch: runtimeConfig.updateBranch || 'main',
     port:        PORT,
+    guestPort:   GUEST_PORT,
+    proxyPort:   PROXY_PORT,
+    httpPort:    HTTP_PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
     version:     VERSION,
+    cfApiToken:     runtimeConfig.cfApiToken || '',
+    cfZoneId:       runtimeConfig.cfZoneId || '',
+    cfTunnelToken:  runtimeConfig.cfTunnelToken || '',
+    serverPublicIp: runtimeConfig.serverPublicIp || '',
   });
 });
 
@@ -1010,6 +1563,7 @@ app.post(
   asyncHandler(async (req, res) => {
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
+      cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp,
     } = req.body || {};
     const updates = {};
 
@@ -1028,6 +1582,10 @@ app.post(
     if (updateBranch && typeof updateBranch === 'string') {
       updates.updateBranch = updateBranch.trim().replace(/[^a-zA-Z0-9/_.-]/g, '') || 'main';
     }
+    if (cfApiToken !== undefined) updates.cfApiToken = (cfApiToken || '').trim();
+    if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();
+    if (cfTunnelToken !== undefined) updates.cfTunnelToken = (cfTunnelToken || '').trim();
+    if (serverPublicIp !== undefined) updates.serverPublicIp = (serverPublicIp || '').trim();
 
     saveConfig(updates);
     if (updates.autoUpdate) scheduleNightlyUpdate();
@@ -1382,33 +1940,35 @@ app.get(
       })
     );
 
-    // Hearth-Version gegen GitHub prüfen (package.json auf dem Branch vergleichen)
+    // Hearth-Version gegen GitHub prüfen
+    // raw.githubusercontent.com für package.json (kein Rate-Limit-Problem),
+    // GitHub Commits API nur für Commit-Message (optional, kein Fehler wenn nicht erreichbar)
     let hearthUpdate = null;
     try {
       const _branch = (runtimeConfig.updateBranch || 'main').trim();
-      const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
-      const [pkgRes, commitRes] = await Promise.all([
-        fetch(
-          `https://api.github.com/repos/MarioundMB/Hearth/contents/package.json?ref=${encodeURIComponent(_branch)}`,
-          { headers: ghHeaders, signal: AbortSignal.timeout(6000) }
-        ),
-        fetch(
-          `https://api.github.com/repos/MarioundMB/Hearth/commits/${encodeURIComponent(_branch)}`,
-          { headers: ghHeaders, signal: AbortSignal.timeout(6000) }
-        ),
-      ]);
-      if (pkgRes.ok && commitRes.ok) {
-        const pkgData = await pkgRes.json();
-        const pkg = JSON.parse(Buffer.from(pkgData.content, 'base64').toString('utf8'));
-        const commit = await commitRes.json();
+      const rawUrl = `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json?_=${Date.now()}`;
+      const pkgRes = await fetch(rawUrl, { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) });
+      if (pkgRes.ok) {
+        const pkg = await pkgRes.json();
         const remoteVersion = pkg.version || '0.0.0';
+        // Commit-Message optional via GitHub API (ignorieren wenn Rate-Limit)
+        let message = '';
+        try {
+          const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
+          const commitRes = await fetch(
+            `https://api.github.com/repos/MarioundMB/Hearth/commits/${_branch}`,
+            { headers: ghHeaders, signal: AbortSignal.timeout(4000) }
+          );
+          if (commitRes.ok) {
+            const c = await commitRes.json();
+            message = c.commit?.message?.split('\n')[0] || '';
+          }
+        } catch (_) {}
         hearthUpdate = {
           remoteVersion,
           localVersion: VERSION,
           hasUpdate: remoteVersion !== VERSION,
-          message: commit.commit?.message?.split('\n')[0] || '',
-          date:    commit.commit?.committer?.date,
-          remoteTs: new Date(commit.commit?.committer?.date || 0).getTime(),
+          message,
         };
       }
     } catch (_) {}
@@ -1542,11 +2102,11 @@ async function runHearthSelfUpdate() {
       const p = _spawn('docker', [
         'run', '--rm',
         '-v', `${tmpHostPath}:/dst`,
-        selfImage,
-        'sh', '-c',
-        `rm -rf /dst && git clone --depth=1 --branch ${branch} https://github.com/MarioundMB/Hearth.git /dst`,
+        'alpine/git',
+        'clone', '--depth=1', '--branch', branch,
+        'https://github.com/MarioundMB/Hearth.git', '/dst',
       ], { stdio: 'ignore' });
-      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen')));
+      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen — stell sicher dass Docker Internetzugang hat')));
     });
     repoHostPath = tmpHostPath;
   } else {
@@ -1702,9 +2262,10 @@ app.put(
     if (wasRunning) await oldC.stop().catch(() => {});
     await oldC.remove({ force: true });
 
-    // Port-Bindings aufbauen
+    // Port-Bindings aufbauen (mit automatischer Konflikt-Auflösung)
+    const resolvedPorts = await resolvePortConflicts(b.ports);
     const portBindings = {}, exposedPorts = {};
-    (b.ports || []).forEach((p) => {
+    resolvedPorts.forEach((p) => {
       if (!p.container) return;
       const proto = (p.proto || 'tcp').toLowerCase();
       const key = `${p.container}/${proto}`;
@@ -1739,7 +2300,8 @@ app.put(
 
     const newC = await docker.createContainer(createOpts);
     if (wasRunning) await newC.start();
-    res.json({ ok: true, id: newC.id });
+    const autoAssigned = resolvedPorts.filter(p => p._autoAssigned).map(p => ({ container: p.container, host: p.host }));
+    res.json({ ok: true, id: newC.id, ...(autoAssigned.length ? { autoAssigned } : {}) });
   })
 );
 
@@ -1788,9 +2350,11 @@ app.post(
       await pullImage(b.image);
     }
 
+    // Port-Bindings aufbauen (mit automatischer Konflikt-Auflösung)
+    const resolvedPorts = await resolvePortConflicts(b.ports);
     const portBindings = {};
     const exposedPorts = {};
-    (b.ports || []).forEach((p) => {
+    resolvedPorts.forEach((p) => {
       if (!p.container) return;
       const proto = (p.proto || 'tcp').toLowerCase();
       const key = `${p.container}/${proto}`;
@@ -1836,7 +2400,8 @@ app.post(
       }
     }
 
-    res.json({ ok: true, id: container.id });
+    const autoAssigned = resolvedPorts.filter(p => p._autoAssigned).map(p => ({ container: p.container, host: p.host }));
+    res.json({ ok: true, id: container.id, ...(autoAssigned.length ? { autoAssigned } : {}) });
   })
 );
 
