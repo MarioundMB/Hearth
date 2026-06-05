@@ -425,6 +425,11 @@ async function requestLECert(domain) {
   const env = { ...process.env, HOME: '/root' };
   if (usesCf) { env.CF_Token = cfToken; env.CF_Zone_ID = cfZoneId; }
 
+  // Create webroot directory if using webroot mode
+  if (!usesCf) {
+    try { fs.mkdirSync('/var/www/acme', { recursive: true }); } catch (_) {}
+  }
+
   await new Promise((resolve, reject) => {
     const args = usesCf
       ? [ACME_SH, '--issue', '--dns', 'dns_cf', '-d', domain, '--server', 'letsencrypt']
@@ -506,13 +511,15 @@ function nginxConfForRule(rule) {
 
   // IP access control
   const ipLines = [];
-  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
-    ipLines.push(`    allow ${ip};`);
-  });
-  if (ipLines.length) ipLines.push('    deny all;');
   (rule.ipDenylist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
     ipLines.push(`    deny ${ip};`);
   });
+  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
+    ipLines.push(`    allow ${ip};`);
+  });
+  if ((rule.ipAllowlist || '').trim().length > 0) {
+    ipLines.push('    deny all;');
+  }
 
   // Security headers
   const secHeaders = rule.securityHeaders ? `
@@ -651,14 +658,22 @@ async function fwAvailable() {
 }
 
 function buildUfwCmd(rule) {
-  let cmd = `ufw ${rule.action}`;
-  if (rule.direction === 'out') cmd += ' out';
-  if (rule.iface) cmd += ` on ${rule.iface}`;
-  if (rule.from && rule.from !== 'any') cmd += ` from ${rule.from}`;
+  const action = String(rule.action).replace(/[^a-z]/gi, '');
+  const direction = String(rule.direction) === 'out' ? 'out' : 'in';
+  const iface = rule.iface ? String(rule.iface).replace(/[^a-z0-9]/gi, '') : '';
+  const from = rule.from && rule.from !== 'any' ? String(rule.from).replace(/[^a-f0-9\.:/]/gi, '') : '';
+  const port = rule.port ? String(rule.port).replace(/[^0-9:]/g, '') : '';
+  const proto = rule.proto && rule.proto !== 'any' ? String(rule.proto).replace(/[^a-z]/gi, '') : '';
+  const id = String(rule.id).replace(/[^a-z0-9]/gi, '');
+
+  let cmd = `ufw ${action}`;
+  if (direction === 'out') cmd += ' out';
+  if (iface) cmd += ` on ${iface}`;
+  if (from) cmd += ` from ${from}`;
   cmd += ' to any';
-  if (rule.port) cmd += ` port ${rule.port}`;
-  if (rule.proto && rule.proto !== 'any') cmd += ` proto ${rule.proto}`;
-  cmd += ` comment "hearth-rule-${rule.id}"`;
+  if (port) cmd += ` port ${port}`;
+  if (proto) cmd += ` proto ${proto}`;
+  cmd += ` comment "hearth-rule-${id}"`;
   return cmd;
 }
 
@@ -2502,8 +2517,12 @@ app.post(
     if (await fwAvailable()) {
       const publicPorts = (b.ports || []).filter(p => p.host && p.container);
       for (const p of publicPorts) {
-        const proto = (p.proto || 'tcp').toLowerCase();
-        await fwExec(`ufw allow ${p.host}/${proto} comment "hearth: ${b.name || b.image}"`).catch(() => {});
+        const proto = String(p.proto || 'tcp').toLowerCase().replace(/[^a-z]/g, '');
+        const hostPort = String(p.host).replace(/[^0-9:]/g, '');
+        const safeName = String(b.name || b.image).replace(/[^a-zA-Z0-9_.-]/g, '');
+        if (hostPort) {
+          await fwExec(`ufw allow ${hostPort}/${proto} comment "hearth: ${safeName}"`).catch(() => {});
+        }
       }
     }
 
