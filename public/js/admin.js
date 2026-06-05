@@ -1068,8 +1068,9 @@ document.getElementById('c-submit').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = t('modal.creating');
   try {
-    await api('POST', '/api/containers', payload);
+    const r = await api('POST', '/api/containers', payload);
     toast(t('toast.containerCreated'));
+    if (r?.autoAssigned?.length) toast(`Port conflict resolved: ${r.autoAssigned.map(p => `→ ${p.host}`).join(', ')}`, 'info');
     closeModal('modal-create');
     loadContainers();
   } catch (err) {
@@ -1487,7 +1488,7 @@ document.getElementById('qi-install').addEventListener('click', async () => {
     const firstTcpPort = (_qiConfig.ports || []).find(p => (p.proto || 'tcp') === 'tcp' && p.host);
     if (firstTcpPort) hearthLabels.push({ key: 'hearth.port', value: String(firstTcpPort.container) });
 
-    await api('POST', '/api/containers', {
+    const qiResult = await api('POST', '/api/containers', {
       image, name: name || undefined,
       pull: true, restart: 'unless-stopped',
       ports:   _qiConfig.ports,
@@ -1496,6 +1497,7 @@ document.getElementById('qi-install').addEventListener('click', async () => {
       labels:  hearthLabels,
     });
     toast(t('qi.installed').replace('{name}', name || image));
+    if (qiResult?.autoAssigned?.length) toast(`Port conflict resolved: ${qiResult.autoAssigned.map(p => `→ ${p.host}`).join(', ')}`, 'info');
     closeModal('modal-qi');
     loadContainers();
   } catch (err) {

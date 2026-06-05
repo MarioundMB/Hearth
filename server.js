@@ -41,12 +41,14 @@ const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 const PORT        = parseInt(process.env.PORT        || '4500', 10);
 // Separate public-facing port for the guest view only (no admin routes)
 const GUEST_PORT  = parseInt(process.env.GUEST_PORT  || '3000', 10);
-const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '80',   10);
+const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
+const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
 const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
 const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
+const CERTS_DIR       = '/etc/nginx/hearth-certs';
 const VPN_CONTAINER   = process.env.VPN_CONTAINER || 'hearth-vpn';
 
 // FILES_ROOT anlegen, falls nicht vorhanden
@@ -363,11 +365,61 @@ function validateProxyInputs(domain, target) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SSL-Zertifikat-Verwaltung
+// ---------------------------------------------------------------------------
+
+function certPaths(domain) {
+  const dir = path.join(CERTS_DIR, domain);
+  return { dir, cert: path.join(dir, 'cert.pem'), key: path.join(dir, 'key.pem') };
+}
+
+function certExists(domain) {
+  const { cert, key } = certPaths(domain);
+  return fs.existsSync(cert) && fs.existsSync(key);
+}
+
+function generateSelfSignedCert(domain) {
+  return new Promise((resolve, reject) => {
+    const { dir, cert, key } = certPaths(domain);
+    if (certExists(domain)) { resolve(); return; }
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    const p = spawn('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048',
+      '-keyout', key, '-out', cert,
+      '-days', '3650', '-nodes',
+      '-subj', `/CN=${domain}`,
+    ], { stdio: 'ignore' });
+    p.on('close', code => code === 0 ? resolve() : reject(new Error(`openssl fehlgeschlagen für ${domain}`)));
+  });
+}
+
+async function ensureDefaultCert() {
+  if (!certExists('_default')) {
+    await generateSelfSignedCert('_default').catch(e => console.warn('[CERT]', e.message));
+  }
+}
+
+async function ensureCertsForRules(rules) {
+  for (const r of (rules || []).filter(r => r.enabled)) {
+    if (!certExists(r.domain)) {
+      await generateSelfSignedCert(r.domain).catch(e => console.warn('[CERT]', e.message));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nginx-Konfiguration
+// ---------------------------------------------------------------------------
+
 function nginxConfForRule(rule) {
+  const { cert, key } = certPaths(rule.domain);
   return `# Hearth Proxy: ${rule.id} (${rule.domain})
 server {
-    listen ${PROXY_PORT};
+    listen ${PROXY_PORT} ssl;
     server_name ${rule.domain};
+    ssl_certificate     ${cert};
+    ssl_certificate_key ${key};
     location / {
         proxy_pass ${rule.target};
         proxy_http_version 1.1;
@@ -384,12 +436,14 @@ server {
 `;
 }
 
-function writeProxyConfigs(rules) {
+async function writeProxyConfigs(rules) {
   try {
     fs.mkdirSync(NGINX_PROXY_DIR, { recursive: true });
     for (const f of fs.readdirSync(NGINX_PROXY_DIR)) {
       fs.unlinkSync(path.join(NGINX_PROXY_DIR, f));
     }
+    await ensureDefaultCert();
+    await ensureCertsForRules(rules);
     for (const r of (rules || []).filter((r) => r.enabled)) {
       fs.writeFileSync(path.join(NGINX_PROXY_DIR, `${r.id}.conf`), nginxConfForRule(r));
     }
@@ -404,13 +458,13 @@ function reloadNginx() {
   });
 }
 
-function startNginx() {
+async function startNginx() {
   const nginxBin = ['/usr/sbin/nginx', '/usr/bin/nginx', '/sbin/nginx'].find(fs.existsSync);
   if (!nginxBin) {
     console.log('[PROXY] Nginx nicht gefunden – Reverse Proxy deaktiviert');
     return;
   }
-  writeProxyConfigs(runtimeConfig.proxyRules);
+  await writeProxyConfigs(runtimeConfig.proxyRules);
   _nginxProc = spawn(nginxBin, ['-g', 'daemon off;'], { stdio: ['ignore', 'pipe', 'pipe'] });
   _nginxProc.stderr.on('data', (d) => {
     const msg = d.toString().trim();
@@ -422,7 +476,7 @@ function startNginx() {
       setTimeout(startNginx, 3000);
     }
   });
-  console.log(`\x1b[32m✓ Reverse Proxy (Nginx) auf Port ${PROXY_PORT}\x1b[0m`);
+  console.log(`\x1b[32m✓ Reverse Proxy (Nginx) HTTPS:${PROXY_PORT} HTTP:${HTTP_PORT}\x1b[0m`);
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +641,31 @@ function getTemperatures() {
     } catch (_) {}
   }
   return temps;
+}
+
+// ---------------------------------------------------------------------------
+// Port-Konflikt Auflösung
+// ---------------------------------------------------------------------------
+async function findFreeHostPort(desired) {
+  let port = Math.max(1, parseInt(desired) || 8080);
+  if (!port || port > 65535) return port;
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const used = new Set([PORT, PROXY_PORT, HTTP_PORT, GUEST_PORT]);
+    containers.forEach(c => (c.Ports || []).forEach(p => { if (p.PublicPort) used.add(p.PublicPort); }));
+    while (used.has(port)) port++;
+  } catch (_) {}
+  return port;
+}
+
+async function resolvePortConflicts(ports) {
+  const resolved = [];
+  for (const p of (ports || [])) {
+    if (!p.host || !p.container) { resolved.push(p); continue; }
+    const free = await findFreeHostPort(p.host);
+    resolved.push({ ...p, host: String(free), _autoAssigned: free !== Number(p.host) });
+  }
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -889,7 +968,7 @@ app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
   const rule = { id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''), enabled: !!enabled, strip: strip.trim(), cfSync: !!cfSync, cfDnsId: null };
   rules.push(rule);
   saveConfig({ proxyRules: rules });
-  writeProxyConfigs(rules);
+  await writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
@@ -919,7 +998,7 @@ app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
     return updatedRule;
   });
   saveConfig({ proxyRules: rules });
-  writeProxyConfigs(rules);
+  await writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert. Bitte Domain und Target prüfen.' });
@@ -932,7 +1011,7 @@ app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) =>
   const toDelete = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   const rules = (runtimeConfig.proxyRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ proxyRules: rules });
-  writeProxyConfigs(rules);
+  await writeProxyConfigs(rules);
   const reloadOk = await reloadNginx();
   if (!reloadOk) {
     return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
@@ -1213,6 +1292,8 @@ app.get('/api/settings', requireAuth, (req, res) => {
     updateBranch: runtimeConfig.updateBranch || 'main',
     port:        PORT,
     guestPort:   GUEST_PORT,
+    proxyPort:   PROXY_PORT,
+    httpPort:    HTTP_PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
@@ -1929,9 +2010,10 @@ app.put(
     if (wasRunning) await oldC.stop().catch(() => {});
     await oldC.remove({ force: true });
 
-    // Port-Bindings aufbauen
+    // Port-Bindings aufbauen (mit automatischer Konflikt-Auflösung)
+    const resolvedPorts = await resolvePortConflicts(b.ports);
     const portBindings = {}, exposedPorts = {};
-    (b.ports || []).forEach((p) => {
+    resolvedPorts.forEach((p) => {
       if (!p.container) return;
       const proto = (p.proto || 'tcp').toLowerCase();
       const key = `${p.container}/${proto}`;
@@ -1966,7 +2048,8 @@ app.put(
 
     const newC = await docker.createContainer(createOpts);
     if (wasRunning) await newC.start();
-    res.json({ ok: true, id: newC.id });
+    const autoAssigned = resolvedPorts.filter(p => p._autoAssigned).map(p => ({ container: p.container, host: p.host }));
+    res.json({ ok: true, id: newC.id, ...(autoAssigned.length ? { autoAssigned } : {}) });
   })
 );
 
@@ -2015,9 +2098,11 @@ app.post(
       await pullImage(b.image);
     }
 
+    // Port-Bindings aufbauen (mit automatischer Konflikt-Auflösung)
+    const resolvedPorts = await resolvePortConflicts(b.ports);
     const portBindings = {};
     const exposedPorts = {};
-    (b.ports || []).forEach((p) => {
+    resolvedPorts.forEach((p) => {
       if (!p.container) return;
       const proto = (p.proto || 'tcp').toLowerCase();
       const key = `${p.container}/${proto}`;
@@ -2063,7 +2148,8 @@ app.post(
       }
     }
 
-    res.json({ ok: true, id: container.id });
+    const autoAssigned = resolvedPorts.filter(p => p._autoAssigned).map(p => ({ container: p.container, host: p.host }));
+    res.json({ ok: true, id: container.id, ...(autoAssigned.length ? { autoAssigned } : {}) });
   })
 );
 
