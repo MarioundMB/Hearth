@@ -2154,77 +2154,108 @@ function _exec(cmd, args) {
 }
 
 async function runHearthSelfUpdate() {
-  const branch = (runtimeConfig.updateBranch || 'main').trim();
+  const branch      = (runtimeConfig.updateBranch || 'main').trim();
+  const GITHUB_REPO = 'https://github.com/MarioundMB/Hearth.git';
+  const UPDATE_VOL  = 'hearth-update-src';
 
+  // Find self container
   const allC = await docker.listContainers({ all: true }).catch(() => []);
-  const self  = allC.find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater')));
-  const selfImage = self?.Image || 'hearth-hearth';
+  const self  = allC.find(c =>
+    c.Labels?.['hearth.self'] === 'true' &&
+    (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater'))
+  );
+  const selfImage   = self?.Image || 'hearth-hearth';
+  const projectName = self?.Labels?.['com.docker.compose.project'] || 'hearth';
 
-  // Resolve the HOST-side repo path via bind-mount inspection.
+  // Check if /app/repo is bind-mounted from HOST
   let repoHostPath = null;
   try {
     if (self) {
-      const info = await docker.getContainer(self.Id).inspect();
-      const mount = (info.Mounts || []).find(m => m.Destination === '/app/repo');
+      const info  = await docker.getContainer(self.Id).inspect();
+      const mount = (info.Mounts || []).find(m => m.Destination === '/app/repo' && m.Type === 'bind');
       if (mount?.Source) repoHostPath = mount.Source;
     }
   } catch (_) {}
 
-  // ── Fallback: volume not mounted → clone repo on the HOST via docker run ──
-  if (!repoHostPath || !fs.existsSync(path.join(_REPO, '.git'))) {
-    const tmpHostPath = '/tmp/hearth-src';
-    console.log('[UPDATE] /app/repo not mounted — cloning from GitHub to HOST ' + tmpHostPath);
-    await new Promise((resolve, reject) => {
-      const p = _spawn('docker', [
-        'run', '--rm',
-        '-v', `${tmpHostPath}:/dst`,
-        'alpine/git',
-        'clone', '--depth=1', '--branch', branch,
-        'https://github.com/MarioundMB/Hearth.git', '/dst',
-      ], { stdio: 'ignore' });
-      p.on('close', code => code === 0 ? resolve() : reject(new Error('Fallback git clone fehlgeschlagen — stell sicher dass Docker Internetzugang hat')));
-    });
-    repoHostPath = tmpHostPath;
-  } else {
-    // Volume is mounted — fetch + reset inside the container as usual
+  const hasVolume = !!repoHostPath && fs.existsSync(path.join(_REPO, '.git'));
+
+  // ── Helper: spawn the updater container ──────────────────────────────────
+  function spawnUpdater(repoMount) {
+    // Kill any leftover updater first
+    _spawn('docker', ['rm', '-f', 'hearth-updater'], { stdio: 'ignore' });
+    _spawn('docker', [
+      'run', '--rm', '--name', 'hearth-updater',
+      '--label', 'hearth.self=true',
+      '--label', 'hearth.hide=true',
+      '-v', '/var/run/docker.sock:/var/run/docker.sock',
+      '-v', `${repoMount}:/app/repo`,
+      selfImage,
+      'sh', '-c',
+      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1`,
+    ], { detached: true, stdio: 'ignore' }).unref();
+  }
+
+  // ── PATH A: bind-mount present — update in-place ──────────────────────────
+  if (hasVolume) {
+    console.log('[UPDATE] Volume mounted — updating in-place');
     await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
     await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
-    const remoteSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
-    const sourceSha = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
-    if (sourceSha !== remoteSha) {
+    const remote = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
+    const local  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+    if (local !== remote) {
       await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
       await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
     }
+    const pkg = JSON.parse(fs.readFileSync(path.join(_REPO, 'package.json'), 'utf8'));
+    if (pkg.version === VERSION) return { upToDate: true, version: VERSION };
+    _updateCache = { ts: 0, data: null };
+    spawnUpdater(repoHostPath);
+    return { upToDate: false, version: pkg.version };
   }
 
-  // Version aus dem (ggf. frisch geklonten) Repo lesen
-  const newPkgPath = fs.existsSync(path.join(_REPO, 'package.json'))
-    ? path.join(_REPO, 'package.json')
-    : path.join('/tmp/hearth-src', 'package.json');
-  const newVersion = fs.existsSync(newPkgPath)
-    ? JSON.parse(fs.readFileSync(newPkgPath, 'utf8')).version
-    : null;
+  // ── PATH B: no bind-mount — clone via named volume + selfImage ────────────
+  // Uses the already-local selfImage (has git). No external image pull needed.
+  console.log('[UPDATE] No bind-mount — using named-volume fallback');
+
+  // Ensure named volume exists
+  await new Promise((resolve, reject) => {
+    const p = _spawn('docker', ['volume', 'create', UPDATE_VOL], { stdio: 'ignore' });
+    p.on('close', code => code === 0 ? resolve() : reject(new Error(`docker volume create fehlgeschlagen (code ${code})`)));
+  });
+
+  // Clone into named volume using selfImage (already local, has git)
+  const cloneLog = await new Promise((resolve, reject) => {
+    let out = '';
+    const p = _spawn('docker', [
+      'run', '--rm', '--name', 'hearth-git-clone',
+      '-v', `${UPDATE_VOL}:/dst`,
+      selfImage,
+      'sh', '-c',
+      `git config --global --add safe.directory /dst 2>/dev/null; rm -rf /dst/* /dst/.[^.]* 2>/dev/null; git clone --depth=1 --branch ${branch} ${GITHUB_REPO} /dst 2>&1`,
+    ], { stdio: 'pipe' });
+    p.stdout?.on('data', d => { out += d; });
+    p.stderr?.on('data', d => { out += d; });
+    p.on('close', code => code === 0
+      ? resolve(out)
+      : reject(new Error(`git clone fehlgeschlagen (code ${code}): ${out.slice(-400)}`))
+    );
+  });
+  console.log('[UPDATE] Clone:', cloneLog.slice(-120));
+
+  // Read version from cloned repo (use selfImage — already local)
+  const pkgJson = await new Promise(resolve => {
+    let out = '';
+    const p = _spawn('docker', ['run', '--rm', '-v', `${UPDATE_VOL}:/src`, selfImage, 'cat', '/src/package.json'], { stdio: 'pipe' });
+    p.stdout?.on('data', d => { out += d; });
+    p.on('close', () => resolve(out));
+  }).catch(() => '{}');
+
+  let newVersion = null;
+  try { newVersion = JSON.parse(pkgJson).version; } catch (_) {}
   if (newVersion && newVersion === VERSION) return { upToDate: true, version: newVersion };
   _updateCache = { ts: 0, data: null };
 
-  const newSha = await _exec('git', ['-C', repoHostPath === '/tmp/hearth-src' ? _REPO : repoHostPath,
-    'rev-parse', '--short', 'HEAD']).catch(() => 'unknown');
-
-  const projectName = self?.Labels?.['com.docker.compose.project']
-    || path.basename(repoHostPath)
-    || 'hearth';
-
-  _spawn('docker', [
-    'run', '--rm', '--name', 'hearth-updater',
-    '--label', 'hearth.self=true',
-    '--label', 'hearth.hide=true',
-    '-v', '/var/run/docker.sock:/var/run/docker.sock',
-    '-v', `${repoHostPath}:/app/repo`,
-    selfImage,
-    'sh', '-c',
-    `sleep 3 && cd /app/repo && git config --global --add safe.directory /app/repo 2>/dev/null; docker compose -p ${projectName} up -d --build hearth`,
-  ], { detached: true, stdio: 'ignore' }).unref();
-
+  spawnUpdater(UPDATE_VOL);
   return { upToDate: false, version: newVersion };
 }
 
