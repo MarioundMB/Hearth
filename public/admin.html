@@ -498,6 +498,40 @@
       .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
 
       /* ===== Reverse Proxy ===== */
+      /* Proxy Modal Tabs */
+      .prl-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+      .prl-tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-faint); background: none; border-top: none; border-left: none; border-right: none; transition: color .15s, border-color .15s; }
+      .prl-tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+      .prl-tab-panel { display: none; }
+      .prl-tab-panel.active { display: block; }
+      /* Cert badge */
+      .cert-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; cursor: pointer; }
+      .cert-badge.le   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
+      .cert-badge.self { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
+      .cert-badge.warn { background: rgba(255,187,51,.15); color: #ffbb33; border: 1px solid rgba(255,187,51,.3); }
+      .cert-badge.custom { background: rgba(100,181,246,.15); color: #64b5f6; border: 1px solid rgba(100,181,246,.3); }
+      /* Log Modal */
+      .log-stats-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+      .log-stat-card { flex: 1; min-width: 70px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; text-align: center; }
+      .log-stat-num { font-size: 22px; font-weight: 700; }
+      .log-stat-num.s2xx { color: var(--ok); }
+      .log-stat-num.s3xx { color: #64b5f6; }
+      .log-stat-num.s4xx { color: #ffbb33; }
+      .log-stat-num.s5xx { color: var(--danger); }
+      .log-stat-label { font-size: 11px; color: var(--text-faint); margin-top: 3px; }
+      .log-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .log-table th { text-align: left; padding: 6px 8px; color: var(--text-faint); font-weight: 600; border-bottom: 1px solid var(--border); }
+      .log-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-faint, var(--border)); font-family: var(--font-mono); }
+      .log-table tr:last-child td { border-bottom: none; }
+      .log-status { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+      .log-status.s2 { background: var(--ok); }
+      .log-status.s3 { background: #64b5f6; }
+      .log-status.s4 { background: #ffbb33; }
+      .log-status.s5 { background: var(--danger); }
+      /* Cert panel in modal */
+      .cert-panel { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px; }
+      .cert-panel-title { font-size: 12px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+      .cert-method-btns { display: flex; gap: 8px; flex-wrap: wrap; }
       .proxy-info-bar {
         font-size: 12.5px; color: var(--text-faint);
         padding: 8px 0 16px; border-bottom: 1px solid var(--border);
@@ -2154,43 +2188,150 @@
 
     <!-- Proxy-Regel Modal -->
     <div class="modal-backdrop" id="modal-proxy-rule">
-      <div class="modal" style="max-width:500px">
+      <div class="modal" style="max-width:540px">
         <div class="modal-head">
           <h3 id="prl-title">Add Proxy Rule</h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
-        <div class="modal-body">
-          <div class="field">
-            <label><span data-i18n="proxy.domain">Domain</span> <span class="muted" style="font-size:11px" data-i18n="proxy.domainHint">(e.g. jellyfin.home.local)</span></label>
-            <input class="input" id="prl-domain" placeholder="app.myserver.com" autocomplete="off" />
+        <div class="modal-body" style="padding-top:0">
+          <!-- Tabs -->
+          <div class="prl-tabs">
+            <button class="prl-tab active" data-tab="general">General</button>
+            <button class="prl-tab" data-tab="cert">SSL / Cert</button>
+            <button class="prl-tab" data-tab="security">Security</button>
+            <button class="prl-tab" data-tab="advanced">Advanced</button>
           </div>
-          <div class="field">
-            <label><span data-i18n="proxy.target">Target</span> <span class="muted" style="font-size:11px" data-i18n="proxy.targetHint">(e.g. http://192.168.1.50:8096)</span></label>
-            <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
-            <div class="prl-picker" id="prl-picker" style="display:none">
-              <select class="input" id="prl-container-select">
-                <option value="" data-i18n="proxy.pickerPlaceholder">– Pick a container –</option>
-              </select>
-              <button class="btn sm ghost prl-pick-btn" id="prl-pick-btn" data-i18n="proxy.pickerApply">Use</button>
+
+          <!-- Tab: General -->
+          <div class="prl-tab-panel active" id="prl-panel-general">
+            <div class="field">
+              <label><span data-i18n="proxy.domain">Domain</span> <span class="muted" style="font-size:11px">(e.g. jellyfin.home.local)</span></label>
+              <input class="input" id="prl-domain" placeholder="app.myserver.com" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label><span data-i18n="proxy.target">Target</span> <span class="muted" style="font-size:11px">(e.g. http://192.168.1.50:8096)</span></label>
+              <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
+              <div class="prl-picker" id="prl-picker" style="display:none">
+                <select class="input" id="prl-container-select"><option value="">– Pick a container –</option></select>
+                <button class="btn sm ghost" id="prl-pick-btn">Use</button>
+              </div>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
+              <input type="checkbox" id="prl-enabled" checked style="width:auto" />
+              <label for="prl-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
+            </div>
+            <div class="cf-sync-row" id="prl-cf-row" style="display:none;margin-top:12px">
+              <svg width="20" height="20" viewBox="0 0 100 60" fill="none" style="flex-shrink:0"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F"/></svg>
+              <div class="cf-sync-label"><div>Cloudflare DNS sync</div><div class="cf-sync-sub">Auto-create A record when saving</div></div>
+              <input type="checkbox" id="prl-cf-sync" style="width:auto" />
             </div>
           </div>
-          <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
-            <input type="checkbox" id="prl-enabled" checked style="width:auto" />
-            <label for="prl-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
-          </div>
-          <!-- Cloudflare DNS Sync -->
-          <div class="cf-sync-row" id="prl-cf-row" style="display:none">
-            <svg width="20" height="20" viewBox="0 0 100 60" fill="none" style="flex-shrink:0"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F"/></svg>
-            <div class="cf-sync-label">
-              <div data-i18n="proxy.cfSync">Cloudflare DNS sync</div>
-              <div class="cf-sync-sub" data-i18n="proxy.cfSyncHint">Auto-create A record when saving</div>
+
+          <!-- Tab: SSL / Cert -->
+          <div class="prl-tab-panel" id="prl-panel-cert">
+            <div class="cert-panel">
+              <div class="cert-panel-title">Current Certificate</div>
+              <div id="prl-cert-info" style="font-size:13px;color:var(--text-faint)">Save rule first to manage certificate.</div>
             </div>
-            <input type="checkbox" id="prl-cf-sync" style="width:auto" />
+            <div class="cert-panel">
+              <div class="cert-panel-title">Get / Replace Certificate</div>
+              <div class="cert-method-btns">
+                <button class="btn sm primary" id="prl-le-btn" onclick="prlRequestLE()">
+                  🔒 Let's Encrypt
+                </button>
+                <label class="btn sm ghost" style="cursor:pointer">
+                  ⬆ Upload Custom Cert
+                  <input type="file" id="prl-cert-file" accept=".pem,.crt" style="display:none" />
+                </label>
+                <label class="btn sm ghost" style="cursor:pointer">
+                  ⬆ Upload Key
+                  <input type="file" id="prl-key-file" accept=".pem,.key" style="display:none" />
+                </label>
+                <button class="btn sm ghost" id="prl-upload-btn" onclick="prlUploadCert()">Apply Upload</button>
+              </div>
+              <div id="prl-cert-status" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
+            </div>
+          </div>
+
+          <!-- Tab: Security -->
+          <div class="prl-tab-panel" id="prl-panel-security">
+            <div class="field">
+              <label style="font-weight:600">Basic Auth</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <input type="checkbox" id="prl-ba-enabled" style="width:auto" />
+                <label for="prl-ba-enabled" style="margin:0">Enable password protection</label>
+              </div>
+              <div id="prl-ba-fields" style="display:none;gap:8px;flex-direction:column">
+                <input class="input" id="prl-ba-user" placeholder="Username" autocomplete="off" />
+                <input class="input" type="password" id="prl-ba-pass" placeholder="Password (leave empty to keep existing)" autocomplete="new-password" />
+              </div>
+            </div>
+            <div class="field">
+              <label style="font-weight:600">IP Allowlist</label>
+              <input class="input" id="prl-ip-allow" placeholder="192.168.0.0/24, 10.0.0.1 (comma separated)" autocomplete="off" />
+              <div class="s-sub" style="margin-top:4px">Only these IPs can access this domain. Leave empty for all.</div>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label style="font-weight:600">IP Denylist</label>
+              <input class="input" id="prl-ip-deny" placeholder="1.2.3.4, 5.6.7.0/24 (comma separated)" autocomplete="off" />
+              <div class="s-sub" style="margin-top:4px">These IPs are always blocked.</div>
+            </div>
+          </div>
+
+          <!-- Tab: Advanced -->
+          <div class="prl-tab-panel" id="prl-panel-advanced">
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="prl-sec-headers" style="width:auto" />
+              <div>
+                <label for="prl-sec-headers" style="margin:0;font-weight:600">Security Headers</label>
+                <div class="s-sub">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
+              </div>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="prl-cache-static" style="width:auto" />
+              <div>
+                <label for="prl-cache-static" style="margin:0;font-weight:600">Static Asset Caching</label>
+                <div class="s-sub">Cache CSS, JS, images 7 days in browser</div>
+              </div>
+            </div>
+            <div class="field">
+              <label style="font-weight:600">Max Upload Size</label>
+              <input class="input" id="prl-max-body" placeholder="e.g. 100m, 2g" autocomplete="off" style="max-width:140px" />
+              <div class="s-sub" style="margin-top:4px">nginx client_max_body_size (default: 1m)</div>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label style="font-weight:600">Custom nginx Snippet</label>
+              <textarea class="input" id="prl-snippet" rows="4" placeholder="add_header X-Custom-Header value;&#10;proxy_buffer_size 128k;" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
+              <div class="s-sub" style="margin-top:4px">Injected into the location / block.</div>
+            </div>
           </div>
         </div>
         <div class="modal-foot">
           <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
           <button class="btn primary" id="prl-save" data-i18n="proxy.save">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proxy Traffic Log Modal -->
+    <div class="modal-backdrop" id="modal-proxy-logs">
+      <div class="modal" style="max-width:700px">
+        <div class="modal-head">
+          <h3 id="pll-title">Traffic Logs</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="log-stats-row" id="pll-stats"></div>
+          <div style="max-height:400px;overflow-y:auto">
+            <table class="log-table">
+              <thead><tr><th>Status</th><th>Method</th><th>Path</th><th>Size</th><th>IP</th><th>Time</th></tr></thead>
+              <tbody id="pll-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close>Close</button>
+          <button class="btn ghost sm" onclick="loadProxyLogs(_currentLogRuleId)">↺ Refresh</button>
         </div>
       </div>
     </div>

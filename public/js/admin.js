@@ -2318,15 +2318,20 @@ async function loadProxyRules() {
     const cfBadge = _cfConfigured
       ? `<span class="cf-badge ${r.cfSync && r.cfDnsId ? 'synced' : 'unsynced'}" data-proxy-cf="${esc(r.id)}" title="${r.cfSync && r.cfDnsId ? 'DNS synced' : 'Click to sync DNS'}">CF</span>`
       : '';
+    const certType = r.certType || 'self-signed';
+    const certBadgeClass = certType === 'letsencrypt' ? 'le' : certType === 'custom' ? 'custom' : 'self';
+    const certBadgeLabel = certType === 'letsencrypt' ? '🔒 LE' : certType === 'custom' ? '🔑 Custom' : '⚠ Self';
+    const certBadge = `<span class="cert-badge ${certBadgeClass}" data-proxy-cert="${esc(r.id)}" title="Manage certificate">${certBadgeLabel}</span>`;
     return `
     <div class="proxy-row">
       <span class="proxy-status-dot ${r.enabled ? '' : 'off'}"></span>
       <div class="proxy-main">
-        <div class="proxy-domain">${esc(r.domain)} ${cfBadge}</div>
+        <div class="proxy-domain">${esc(r.domain)} ${certBadge} ${cfBadge}</div>
         <div class="proxy-target">→ ${esc(r.target)}</div>
       </div>
       <div class="proxy-actions">
         <button class="btn sm ghost proxy-test-btn" data-proxy-test="${esc(r.id)}" title="Test connection">⚡</button>
+        <button class="btn sm ghost" data-proxy-logs="${esc(r.id)}" title="Traffic logs">📊</button>
         <button class="btn sm ghost proxy-copy-btn" data-proxy-copy="${esc(r.domain)}" title="Copy domain">⎘</button>
         <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
           <input type="checkbox" ${r.enabled ? 'checked' : ''} data-proxy-toggle="${esc(r.id)}" />
@@ -2416,6 +2421,12 @@ document.getElementById('proxy-rules-list').addEventListener('click', async (e) 
     loadProxyRules();
     return;
   }
+
+  const certBadge = e.target.closest('[data-proxy-cert]');
+  if (certBadge) { openProxyModal(certBadge.dataset.proxyCert, 'cert'); return; }
+
+  const logsBtn = e.target.closest('[data-proxy-logs]');
+  if (logsBtn) { loadProxyLogs(logsBtn.dataset.proxyLogs); return; }
 });
 
 document.getElementById('proxy-rules-list').addEventListener('change', async (e) => {
@@ -2428,30 +2439,82 @@ document.getElementById('proxy-rules-list').addEventListener('change', async (e)
 
 let _editingProxyId = null;
 
-async function openProxyModal(id) {
+// Tab switching in proxy modal
+document.querySelectorAll('.prl-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.prl-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.prl-tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`prl-panel-${tab.dataset.tab}`)?.classList.add('active');
+  });
+});
+
+// Basic Auth toggle
+document.getElementById('prl-ba-enabled').addEventListener('change', function() {
+  document.getElementById('prl-ba-fields').style.display = this.checked ? 'flex' : 'none';
+});
+
+async function openProxyModal(id, tab = 'general') {
   _editingProxyId = id || null;
-  const title = document.getElementById('prl-title');
-  title.textContent = id ? t('proxy.editTitle') : t('proxy.addTitle');
+  document.getElementById('prl-title').textContent = id ? t('proxy.editTitle') : t('proxy.addTitle');
+
+  // Reset tabs
+  document.querySelectorAll('.prl-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.prl-tab-panel').forEach(p => p.classList.toggle('active', p.id === `prl-panel-${tab}`));
 
   const cfRow = document.getElementById('prl-cf-row');
   if (cfRow) cfRow.style.display = _cfConfigured ? 'flex' : 'none';
 
+  // Reset fields
+  document.getElementById('prl-domain').value = '';
+  document.getElementById('prl-target').value = '';
+  document.getElementById('prl-enabled').checked = true;
+  document.getElementById('prl-cf-sync').checked = false;
+  document.getElementById('prl-ba-enabled').checked = false;
+  document.getElementById('prl-ba-fields').style.display = 'none';
+  document.getElementById('prl-ba-user').value = '';
+  document.getElementById('prl-ba-pass').value = '';
+  document.getElementById('prl-ip-allow').value = '';
+  document.getElementById('prl-ip-deny').value = '';
+  document.getElementById('prl-sec-headers').checked = false;
+  document.getElementById('prl-cache-static').checked = false;
+  document.getElementById('prl-max-body').value = '';
+  document.getElementById('prl-snippet').value = '';
+  document.getElementById('prl-cert-info').textContent = id ? 'Loading…' : 'Save rule first to manage certificate.';
+  document.getElementById('prl-cert-status').textContent = '';
+
   if (id) {
-    api('GET', '/api/proxy/rules').then((rules) => {
-      const r = rules.find((x) => x.id === id);
+    api('GET', '/api/proxy/rules').then(rules => {
+      const r = rules.find(x => x.id === id);
       if (!r) return;
       document.getElementById('prl-domain').value    = r.domain;
       document.getElementById('prl-target').value    = r.target;
       document.getElementById('prl-enabled').checked = r.enabled;
-      const cfSync = document.getElementById('prl-cf-sync');
-      if (cfSync) cfSync.checked = !!r.cfSync;
+      document.getElementById('prl-cf-sync').checked = !!r.cfSync;
+      document.getElementById('prl-ip-allow').value  = r.ipAllowlist || '';
+      document.getElementById('prl-ip-deny').value   = r.ipDenylist || '';
+      document.getElementById('prl-sec-headers').checked  = !!r.securityHeaders;
+      document.getElementById('prl-cache-static').checked = !!r.cacheStatic;
+      document.getElementById('prl-max-body').value   = r.maxBodySize || '';
+      document.getElementById('prl-snippet').value    = r.customSnippet || '';
+      if (r.basicAuth?.enabled) {
+        document.getElementById('prl-ba-enabled').checked = true;
+        document.getElementById('prl-ba-fields').style.display = 'flex';
+        document.getElementById('prl-ba-user').value = r.basicAuth.user || '';
+      }
     });
-  } else {
-    document.getElementById('prl-domain').value    = '';
-    document.getElementById('prl-target').value    = '';
-    document.getElementById('prl-enabled').checked = true;
-    const cfSync = document.getElementById('prl-cf-sync');
-    if (cfSync) cfSync.checked = false;
+    // Load cert info
+    api('GET', `/api/proxy/rules/${id}/cert`).then(c => {
+      const el = document.getElementById('prl-cert-info');
+      if (c.expires) {
+        const d = new Date(c.expires);
+        const days = c.daysLeft;
+        const typeLabel = c.certType === 'letsencrypt' ? "Let's Encrypt" : c.certType === 'custom' ? 'Custom' : 'Self-signed';
+        el.innerHTML = `<strong>${typeLabel}</strong> — expires ${d.toLocaleDateString()} <span style="color:${days < 30 ? 'var(--danger)' : 'var(--text-faint)'}">(${days} days)</span>`;
+      } else {
+        el.textContent = 'Self-signed (no expiry info)';
+      }
+    }).catch(() => { document.getElementById('prl-cert-info').textContent = 'Could not load cert info.'; });
   }
 
   // Load running containers for picker
@@ -2466,16 +2529,12 @@ async function openProxyModal(id) {
         const ports = (c.ports || []).filter(p => p.PublicPort || p.PrivatePort);
         if (!ports.length) {
           const opt = document.createElement('option');
-          opt.value = `http://${c.name}`;
-          opt.textContent = c.name;
-          sel.appendChild(opt);
+          opt.value = `http://${c.name}`; opt.textContent = c.name; sel.appendChild(opt);
         } else {
           ports.forEach(p => {
             const port = p.PrivatePort || p.PublicPort;
             const opt = document.createElement('option');
-            opt.value = `http://${c.name}:${port}`;
-            opt.textContent = `${c.name} :${port}`;
-            sel.appendChild(opt);
+            opt.value = `http://${c.name}:${port}`; opt.textContent = `${c.name} :${port}`; sel.appendChild(opt);
           });
         }
       });
@@ -2498,15 +2557,29 @@ document.getElementById('prl-save').addEventListener('click', async () => {
   const target  = document.getElementById('prl-target').value.trim();
   const enabled = document.getElementById('prl-enabled').checked;
   const cfSync  = document.getElementById('prl-cf-sync')?.checked || false;
+  const baEnabled = document.getElementById('prl-ba-enabled').checked;
+  const baUser    = document.getElementById('prl-ba-user').value.trim();
+  const baPass    = document.getElementById('prl-ba-pass').value;
   if (!domain || !target) { toast(t('proxy.requiredFields'), 'error'); return; }
+
+  const payload = {
+    domain, target, enabled, cfSync,
+    basicAuth: { enabled: baEnabled, user: baUser, ...(baPass ? { password: baPass } : {}) },
+    ipAllowlist: document.getElementById('prl-ip-allow').value.trim(),
+    ipDenylist:  document.getElementById('prl-ip-deny').value.trim(),
+    securityHeaders: document.getElementById('prl-sec-headers').checked,
+    cacheStatic:     document.getElementById('prl-cache-static').checked,
+    maxBodySize:     document.getElementById('prl-max-body').value.trim(),
+    customSnippet:   document.getElementById('prl-snippet').value,
+  };
 
   const btn = document.getElementById('prl-save');
   btn.disabled = true;
   try {
     if (_editingProxyId) {
-      await api('PUT', `/api/proxy/rules/${_editingProxyId}`, { domain, target, enabled, cfSync });
+      await api('PUT', `/api/proxy/rules/${_editingProxyId}`, payload);
     } else {
-      await api('POST', '/api/proxy/rules', { domain, target, enabled, cfSync });
+      await api('POST', '/api/proxy/rules', payload);
     }
     toast(t('proxy.saved'));
     closeModal('modal-proxy-rule');
@@ -2514,6 +2587,97 @@ document.getElementById('prl-save').addEventListener('click', async () => {
   } catch (err) { toast(err.message, 'error'); }
   finally { btn.disabled = false; }
 });
+
+// ---------- Cert management ----------
+let _currentCertRuleId = null;
+
+async function prlRequestLE() {
+  if (!_editingProxyId) return;
+  const btn = document.getElementById('prl-le-btn');
+  const status = document.getElementById('prl-cert-status');
+  btn.disabled = true; btn.textContent = '⟳ Requesting…';
+  status.textContent = 'Contacting Let\'s Encrypt… this may take up to 60s';
+  status.style.color = 'var(--text-faint)';
+  try {
+    const r = await api('POST', `/api/proxy/rules/${_editingProxyId}/cert/letsencrypt`);
+    status.textContent = `✓ Certificate issued! Expires ${new Date(r.expires).toLocaleDateString()} (${r.daysLeft} days)`;
+    status.style.color = 'var(--ok)';
+    document.getElementById('prl-cert-info').textContent = `Let's Encrypt — expires ${new Date(r.expires).toLocaleDateString()}`;
+    loadProxyRules();
+  } catch(e) {
+    status.textContent = `✗ ${e.message}`;
+    status.style.color = 'var(--danger)';
+  }
+  finally { btn.disabled = false; btn.textContent = '🔒 Let\'s Encrypt'; }
+}
+
+async function prlUploadCert() {
+  if (!_editingProxyId) { toast('Save rule first', 'error'); return; }
+  const certFile = document.getElementById('prl-cert-file').files[0];
+  const keyFile  = document.getElementById('prl-key-file').files[0];
+  if (!certFile || !keyFile) { toast('Select both cert and key files', 'error'); return; }
+  const fd = new FormData();
+  fd.append('cert', certFile);
+  fd.append('key', keyFile);
+  const btn = document.getElementById('prl-upload-btn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    const res = await fetch(`/api/proxy/rules/${_editingProxyId}/cert/upload`, {
+      method: 'POST', body: fd,
+    });
+    const r = await res.json();
+    if (!r.ok) throw new Error(r.error || 'Upload failed');
+    toast('Certificate uploaded ✓');
+    document.getElementById('prl-cert-status').textContent = '✓ Custom certificate applied';
+    document.getElementById('prl-cert-status').style.color = 'var(--ok)';
+    loadProxyRules();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Apply Upload'; }
+}
+
+// ---------- Traffic Logs ----------
+let _currentLogRuleId = null;
+
+async function loadProxyLogs(ruleId) {
+  _currentLogRuleId = ruleId;
+  const rules = await api('GET', '/api/proxy/rules').catch(() => []);
+  const rule = (rules || []).find(r => r.id === ruleId);
+  document.getElementById('pll-title').textContent = `Traffic Logs — ${rule?.domain || ruleId}`;
+
+  const [logs, stats] = await Promise.all([
+    api('GET', `/api/proxy/rules/${ruleId}/logs`).catch(() => ({ entries: [] })),
+    api('GET', `/api/proxy/rules/${ruleId}/stats`).catch(() => ({ total: 0, s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 })),
+  ]);
+
+  document.getElementById('pll-stats').innerHTML = `
+    <div class="log-stat-card"><div class="log-stat-num">${stats.total}</div><div class="log-stat-label">Total</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s2xx">${stats.s2xx}</div><div class="log-stat-label">2xx OK</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s3xx">${stats.s3xx}</div><div class="log-stat-label">3xx Redirect</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s4xx">${stats.s4xx}</div><div class="log-stat-label">4xx Client</div></div>
+    <div class="log-stat-card"><div class="log-stat-num s5xx">${stats.s5xx}</div><div class="log-stat-label">5xx Error</div></div>
+  `;
+
+  const tbody = document.getElementById('pll-body');
+  if (!logs.entries.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:20px">No log entries yet</td></tr>`;
+  } else {
+    tbody.innerHTML = logs.entries.map(e => {
+      const cls = e.status >= 500 ? 's5' : e.status >= 400 ? 's4' : e.status >= 300 ? 's3' : 's2';
+      const time = e.time ? new Date(e.time).toLocaleTimeString() : '–';
+      const uri = esc((e.uri || '').slice(0, 60));
+      return `<tr>
+        <td><span class="log-status ${cls}"></span>${e.status}</td>
+        <td>${esc(e.method || '–')}</td>
+        <td title="${esc(e.uri || '')}">${uri}</td>
+        <td>${e.bytes > 1024 ? (e.bytes/1024).toFixed(1)+'k' : e.bytes+'b'}</td>
+        <td>${esc(e.ip || '–')}</td>
+        <td>${time}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  openModal('modal-proxy-logs');
+}
 
 // ---------- Cloudflare Settings helpers ----------
 async function cfVerifyCredentials(btn) {
