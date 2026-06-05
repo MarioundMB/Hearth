@@ -1872,7 +1872,7 @@ app.get(
       .map((c) => buildAppTile(c, reqHost))
       .filter(Boolean);
 
-    res.json({ apps: tiles, host: reqHost });
+    res.json({ apps: tiles, host: reqHost, serverName: runtimeConfig.serverName || 'Hearth' });
   })
 );
 

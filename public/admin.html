@@ -24,6 +24,16 @@
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
       }
+      .tabs-wrap { position: relative; }
+      .tabs-wrap::after {
+        content: '';
+        position: absolute;
+        right: 0; top: 0; bottom: 1px;
+        width: 48px;
+        background: linear-gradient(to right, transparent, rgba(12,14,13,.95));
+        pointer-events: none;
+        z-index: 1;
+      }
       .tabs {
         display: flex;
         gap: 4px;
@@ -64,6 +74,10 @@
       }
       /* Store */
       .store-category { margin-bottom: 32px; }
+      .store-cat-bar { display: none; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 0 0 12px; scrollbar-width: none; }
+      .store-cat-bar::-webkit-scrollbar { display: none; }
+      .store-cat-chip { flex-shrink: 0; padding: 5px 12px; font-size: 12px; font-weight: 600; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; color: var(--text-dim); cursor: pointer; transition: border-color .15s, color .15s; }
+      .store-cat-chip:hover { border-color: var(--accent-dim); color: var(--text); }
       .store-category-title {
         font-family: var(--font-display);
         font-size: 13px;
@@ -249,6 +263,10 @@
       }
       .file-row:hover .fileops {
         opacity: 1;
+      }
+      @media (hover: none) {
+        .fileops { opacity: 1; gap: 2px; }
+        .fileops .iconbtn { min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; }
       }
       .iconbtn {
         background: none;
@@ -530,7 +548,7 @@
       .log-status.s5 { background: var(--danger); }
       /* Cert panel in modal */
       .cert-panel { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px; }
-      .cert-panel-title { font-size: 12px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+      .cert-panel-title { font-size: 13px; font-weight: 700; color: var(--text-dim); margin-bottom: 10px; }
       .cert-method-btns { display: flex; gap: 8px; flex-wrap: wrap; }
       .proxy-info-bar {
         font-size: 12.5px; color: var(--text-faint);
@@ -587,7 +605,8 @@
 
       /* ===== Firewall ===== */
       .fw-quick-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 20px; }
-      .fw-port-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+      .fw-port-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; transition: border-color .15s, background .15s; }
+      .fw-port-card.active { background: rgba(88,214,141,.06); border-color: rgba(88,214,141,.3); }
       .fw-port-name { font-weight: 600; font-size: 13px; }
       .fw-port-num  { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
       .fw-rule-row  { display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
@@ -822,6 +841,7 @@
         padding: 12px;
         margin-bottom: 8px;
       }
+      .mon-section-divider { height: 1px; background: var(--border); margin: 8px 0; }
       .mon-row2 .mon-card { margin-bottom: 0; }
       .mon-head {
         display: flex;
@@ -832,10 +852,11 @@
       }
       .mon-title {
         font-family: var(--font-mono);
-        font-size: 10px;
-        letter-spacing: 0.1em;
+        font-size: 11px;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: var(--text-faint);
+        color: var(--text-dim);
+        font-weight: 600;
         flex-shrink: 0;
       }
       .mon-value {
@@ -1164,7 +1185,7 @@
 
         /* Layout: Hauptbereich oben, Monitor-Panel darunter als Klappleiste */
         .admin-layout { flex-direction: column; gap: 0; padding-top: 12px; }
-        .admin-main   { order: 1; width: 100%; }
+        .admin-main   { order: 1; width: 100%; max-width: 100%; }
         .monitor-panel {
           order: 2;
           width: 100%;
@@ -1276,6 +1297,7 @@
       @media (max-width: 480px) {
         .wrap { padding: 0 12px; }
         .store-grid { grid-template-columns: 1fr; }
+        .store-cat-bar { display: flex; }
         .store-card { padding: 14px; }
         /* Topbar Brand: nur Logo */
         .brand span { display: none; }
@@ -1358,8 +1380,8 @@
           <section class="view" id="view-store">
             <div class="toolbar">
               <h2 data-i18n="tab.store">Store</h2>
+              <input class="input" id="store-search" style="flex:1;max-width:320px;padding:8px 12px;font-size:13px;margin-left:16px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
               <div class="spacer"></div>
-              <input class="input" id="store-search" style="width:220px;max-width:100%;padding:8px 12px;font-size:13px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
             </div>
             <div id="store-categories"></div>
           </section>
@@ -1485,6 +1507,7 @@
                 <button class="btn sm fw-mode-btn active" id="fw-mode-normal" data-i18n="firewall.normalMode">Normal</button>
                 <button class="btn sm fw-mode-btn" id="fw-mode-advanced" data-i18n="firewall.expertMode">Expert</button>
               </div>
+              <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
               <div class="fw-status-badge" id="fw-status-badge"></div>
             </div>
 
@@ -1522,7 +1545,7 @@
 
             <!-- Advanced Mode -->
             <div id="fw-advanced" style="display:none">
-              <pre class="logs" id="fw-raw-output" style="max-height:60vh">Loading…</pre>
+              <pre class="logs" id="fw-raw-output" style="max-height:60vh;font-family:var(--font-mono);font-size:12px;line-height:1.6;tab-size:4;white-space:pre-wrap;word-break:break-all">Loading…</pre>
             </div>
           </section>
 
@@ -1541,7 +1564,7 @@
                 <div class="muted" style="margin-top:8px;font-size:13px">
                   Add the <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">hearth-vpn</code>
                   service to your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">docker-compose.yml</code>
-                  and set <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">VPN_HOST</code> in your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code>.
+                  Danach die öffentliche IP oder Domain des Servers als <strong>VPN_HOST</strong> in der <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code>-Datei eintragen.
                 </div>
               </div>
             </div>
@@ -1628,6 +1651,7 @@
             </div>
           </div>
 
+          <div class="mon-section-divider"></div>
           <!-- Network -->
           <div class="mon-card">
             <div class="mon-head">
@@ -1660,6 +1684,7 @@
             </div>
           </div>
 
+          <div class="mon-section-divider"></div>
           <!-- Storage -->
           <div class="mon-card">
             <div class="mon-head">
@@ -1673,6 +1698,7 @@
             <div id="mon-disk-each" style="display:none"></div>
           </div>
 
+          <div class="mon-section-divider"></div>
           <!-- Temperatures -->
           <div class="mon-card" id="mon-temps-card">
             <div class="mon-head">
@@ -1685,6 +1711,7 @@
 
           <!-- System -->
           <div class="mon-card">
+          <div class="mon-section-divider"></div>
             <div class="mon-title" style="margin-bottom:10px" data-i18n="mon.system">System</div>
             <div class="mon-info-grid">
               <span class="mon-info-key" data-i18n="mon.host">Host</span>
@@ -2070,12 +2097,10 @@
 
         </div>
 
-        <div class="modal-foot" style="justify-content:space-between">
-          <button class="btn danger" id="s-restart" data-i18n="settings.restart">⟳ Restart Hearth</button>
-          <div style="display:flex;gap:8px">
-            <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
-            <button class="btn primary" id="s-save" data-i18n="settings.save">Save</button>
-          </div>
+        <div class="modal-foot" style="justify-content:flex-end;gap:8px">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn ghost" id="s-restart" data-i18n="settings.restart" style="color:var(--danger);border-color:var(--danger)">⟳ Restart</button>
+          <button class="btn primary" id="s-save" data-i18n="settings.save">Save</button>
         </div>
       </div>
     </div>
@@ -2229,10 +2254,10 @@
         <div class="modal-body" style="padding-top:0">
           <!-- Tabs -->
           <div class="prl-tabs">
-            <button class="prl-tab active" data-tab="general">General</button>
-            <button class="prl-tab" data-tab="cert">SSL / Cert</button>
-            <button class="prl-tab" data-tab="security">Security</button>
-            <button class="prl-tab" data-tab="advanced">Advanced</button>
+            <button class="prl-tab active" data-tab="general" data-i18n="proxy.tabGeneral">Allgemein</button>
+            <button class="prl-tab" data-tab="cert" data-i18n="proxy.tabSSL">SSL / Zertifikat</button>
+            <button class="prl-tab" data-tab="security" data-i18n="proxy.tabSecurity">Sicherheit</button>
+            <button class="prl-tab" data-tab="advanced" data-i18n="proxy.tabAdvanced">Erweitert</button>
           </div>
 
           <!-- Tab: General -->
@@ -2263,11 +2288,11 @@
           <!-- Tab: SSL / Cert -->
           <div class="prl-tab-panel" id="prl-panel-cert">
             <div class="cert-panel">
-              <div class="cert-panel-title">Current Certificate</div>
+              <div class="cert-panel-title" data-i18n="proxy.certCurrent">Aktuelles Zertifikat</div>
               <div id="prl-cert-info" style="font-size:13px;color:var(--text-faint)">Save rule first to manage certificate.</div>
             </div>
             <div class="cert-panel">
-              <div class="cert-panel-title">Get / Replace Certificate</div>
+              <div class="cert-panel-title" data-i18n="proxy.certReplace">Zertifikat holen / ersetzen</div>
               <div class="cert-method-btns">
                 <button class="btn sm primary" id="prl-le-btn" onclick="prlRequestLE()">
                   🔒 Let's Encrypt
@@ -2289,10 +2314,10 @@
           <!-- Tab: Security -->
           <div class="prl-tab-panel" id="prl-panel-security">
             <div class="field">
-              <label style="font-weight:600">Basic Auth</label>
+              <label style="font-weight:600" data-i18n="proxy.baTitle">Passwortschutz</label>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
                 <input type="checkbox" id="prl-ba-enabled" style="width:auto" />
-                <label for="prl-ba-enabled" style="margin:0">Enable password protection</label>
+                <label for="prl-ba-enabled" style="margin:0" data-i18n="proxy.baEnable">Passwortschutz aktivieren</label>
               </div>
               <div id="prl-ba-fields" style="display:none;gap:8px;flex-direction:column">
                 <input class="input" id="prl-ba-user" placeholder="Username" autocomplete="off" />
@@ -2300,14 +2325,14 @@
               </div>
             </div>
             <div class="field">
-              <label style="font-weight:600">IP Allowlist</label>
+              <label style="font-weight:600" data-i18n="proxy.ipAllow">IP-Erlaubnisliste</label>
               <input class="input" id="prl-ip-allow" placeholder="192.168.0.0/24, 10.0.0.1 (comma separated)" autocomplete="off" />
-              <div class="s-sub" style="margin-top:4px">Only these IPs can access this domain. Leave empty for all.</div>
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipAllowHint">Nur diese IPs haben Zugriff. Leer = alle.</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600">IP Denylist</label>
+              <label style="font-weight:600" data-i18n="proxy.ipDeny">IP-Sperrliste</label>
               <input class="input" id="prl-ip-deny" placeholder="1.2.3.4, 5.6.7.0/24 (comma separated)" autocomplete="off" />
-              <div class="s-sub" style="margin-top:4px">These IPs are always blocked.</div>
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipDenyHint">Diese IPs werden immer blockiert.</div>
             </div>
           </div>
 
@@ -2316,26 +2341,26 @@
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
               <input type="checkbox" id="prl-sec-headers" style="width:auto" />
               <div>
-                <label for="prl-sec-headers" style="margin:0;font-weight:600">Security Headers</label>
-                <div class="s-sub">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
+                <label for="prl-sec-headers" style="margin:0;font-weight:600" data-i18n="proxy.secHeaders">Security-Header</label>
+                <div class="s-sub" data-i18n="proxy.secHeadersHint">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
               </div>
             </div>
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
               <input type="checkbox" id="prl-cache-static" style="width:auto" />
               <div>
-                <label for="prl-cache-static" style="margin:0;font-weight:600">Static Asset Caching</label>
-                <div class="s-sub">Cache CSS, JS, images 7 days in browser</div>
+                <label for="prl-cache-static" style="margin:0;font-weight:600" data-i18n="proxy.cacheStatic">Statische Dateien cachen</label>
+                <div class="s-sub" data-i18n="proxy.cacheStaticHint">CSS, JS, Bilder 7 Tage im Browser cachen</div>
               </div>
             </div>
             <div class="field">
-              <label style="font-weight:600">Max Upload Size</label>
+              <label style="font-weight:600" data-i18n="proxy.maxBody">Max. Upload-Größe</label>
               <input class="input" id="prl-max-body" placeholder="e.g. 100m, 2g" autocomplete="off" style="max-width:140px" />
-              <div class="s-sub" style="margin-top:4px">nginx client_max_body_size (default: 1m)</div>
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.maxBodyHint">nginx client_max_body_size (Standard: 1m)</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600">Custom nginx Snippet</label>
+              <label style="font-weight:600" data-i18n="proxy.snippet">Eigenes nginx-Snippet</label>
               <textarea class="input" id="prl-snippet" rows="4" placeholder="add_header X-Custom-Header value;&#10;proxy_buffer_size 128k;" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
-              <div class="s-sub" style="margin-top:4px">Injected into the location / block.</div>
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.snippetHint">Wird in den location / Block eingefügt.</div>
             </div>
           </div>
         </div>
