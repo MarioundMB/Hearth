@@ -1098,6 +1098,7 @@ async function loadSettings() {
     document.getElementById('s-showoffline').checked    = !!s.showOfflineApps;
     document.getElementById('s-refresh').value          = String(s.refreshInterval ?? 15);
     document.getElementById('s-port').textContent       = s.port;
+    document.getElementById('s-guest-port').textContent = s.guestPort;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
     document.getElementById('s-filesroot').textContent  = s.filesRoot;
     document.getElementById('s-version').textContent    = `v${s.version}`;
