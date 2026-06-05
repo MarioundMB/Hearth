@@ -2081,7 +2081,7 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
   // Try git first (fast, works when volume is mounted)
   if (fs.existsSync(path.join(_REPO, '.git'))) {
     await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
-    await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
+    await _exec('git', ['-C', _REPO, 'fetch', '--prune', '--quiet']).catch(() => {});
     const raw = await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => '');
     const branches = raw
       .split('\n')
