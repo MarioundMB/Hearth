@@ -598,8 +598,24 @@
       .fw-status-badge { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 20px; }
       .fw-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
       .fw-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
-      .fw-mode-toggle { display: flex; gap: 4px; margin-right: 8px; }
+      .fw-mode-toggle { display: flex; gap: 4px; margin-right: 4px; }
       .fw-mode-btn { background: var(--panel-2); border-color: var(--border-bright); color: var(--text-dim); }
+      /* Separator between mode toggle and Aktiv badge */
+      .fw-mode-sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; flex-shrink: 0; align-self: center; }
+      /* Live Firewall Log */
+      .fw-log-panel { margin-top: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+      .fw-log-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+      .fw-log-title { font-size: 13px; font-weight: 700; flex: 1; }
+      .fw-log-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
+      .fw-log-dot.live { background: var(--ok); box-shadow: 0 0 5px var(--ok); animation: fwpulse 1.5s infinite; }
+      @keyframes fwpulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+      .fw-log-body { max-height: 280px; overflow-y: auto; font-family: var(--font-mono); font-size: 11.5px; }
+      .fw-log-entry { display: flex; gap: 8px; padding: 5px 14px; border-bottom: 1px solid var(--border); }
+      .fw-log-entry:last-child { border-bottom: none; }
+      .fw-log-action { font-weight: 700; width: 46px; flex-shrink: 0; }
+      .fw-log-action.BLOCK { color: var(--danger); }
+      .fw-log-action.ALLOW { color: var(--ok); }
+      .fw-log-entry-meta { color: var(--text-faint); font-size: 11px; }
       .fw-mode-btn:hover { border-color: var(--accent-dim); color: var(--text); }
       .fw-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #0c0e0d; font-weight: 700; }
       .fw-mode-btn.active:hover { box-shadow: 0 0 16px var(--accent-glow); }
@@ -1410,33 +1426,33 @@
                 <div class="cf-settings-grid">
                   <div class="cf-field">
                     <label class="cf-field-label">API Token</label>
-                    <div class="cf-field-sub">DNS edit permission required</div>
+                    <div class="cf-field-sub" data-i18n="cf.apiTokenHint">DNS-Bearbeitungsrechte erforderlich</div>
                     <div style="display:flex;gap:6px">
                       <input class="input" id="s-cf-token" type="password" placeholder="••••••••" autocomplete="off" style="flex:1" />
-                      <button class="btn sm ghost" onclick="cfVerifyCredentials(this)">Verify</button>
+                      <button class="btn sm ghost" onclick="cfVerifyCredentials(this)" data-i18n="cf.verify">Prüfen</button>
                     </div>
                   </div>
                   <div class="cf-field">
                     <label class="cf-field-label">Zone ID</label>
-                    <div class="cf-field-sub">From your domain's CF dashboard</div>
+                    <div class="cf-field-sub" data-i18n="cf.zoneIdHint">Aus deinem Cloudflare-Dashboard</div>
                     <input class="input" id="s-cf-zone" placeholder="abc123…" autocomplete="off" />
                   </div>
                   <div class="cf-field">
                     <label class="cf-field-label">Public IP</label>
-                    <div class="cf-field-sub">Used for DNS A records</div>
+                    <div class="cf-field-sub" data-i18n="cf.publicIpHint">Für DNS-A-Einträge</div>
                     <div style="display:flex;gap:6px">
                       <input class="input" id="s-cf-ip" placeholder="auto-detect" autocomplete="off" style="flex:1" />
-                      <button class="btn sm ghost" onclick="cfDetectPublicIp(this)">Detect</button>
+                      <button class="btn sm ghost" onclick="cfDetectPublicIp(this)" data-i18n="cf.detect">Erkennen</button>
                     </div>
                   </div>
                   <div class="cf-field">
                     <label class="cf-field-label">Tunnel Token</label>
-                    <div class="cf-field-sub">From Cloudflare Tunnel dashboard</div>
+                    <div class="cf-field-sub" data-i18n="cf.tunnelHint">Vom Cloudflare-Tunnel-Dashboard</div>
                     <input class="input" id="s-cf-tunnel" type="password" placeholder="••••••••" autocomplete="off" />
                   </div>
                 </div>
                 <div class="cf-settings-foot">
-                  <button class="btn primary sm" onclick="saveCfSettings()">Save Cloudflare Settings</button>
+                  <button class="btn primary sm" onclick="saveCfSettings()" data-i18n="cf.save">Cloudflare-Einstellungen speichern</button>
                 </div>
               </div>
             </div>
@@ -1464,6 +1480,7 @@
                 <button class="btn sm fw-mode-btn active" id="fw-mode-normal" data-i18n="firewall.normalMode">Normal</button>
                 <button class="btn sm fw-mode-btn" id="fw-mode-advanced" data-i18n="firewall.expertMode">Expert</button>
               </div>
+              <div class="fw-mode-sep"></div>
               <div class="fw-status-badge" id="fw-status-badge"></div>
             </div>
 
@@ -1484,12 +1501,24 @@
                   <button class="btn primary sm" id="fw-add-rule-btn" data-i18n="firewall.addRule">+ Add Rule</button>
                 </div>
                 <div class="list" id="fw-rules-list"></div>
+
+                <!-- Live Firewall Log -->
+                <div class="fw-log-panel" id="fw-log-panel">
+                  <div class="fw-log-header">
+                    <span class="fw-log-dot" id="fw-log-dot"></span>
+                    <span class="fw-log-title" data-i18n="firewall.liveLog">Live-Firewall-Protokoll</span>
+                    <button class="btn sm ghost" id="fw-log-toggle-btn" onclick="fwToggleLiveLog()" data-i18n="firewall.logStart">Starten</button>
+                  </div>
+                  <div class="fw-log-body" id="fw-log-body">
+                    <div style="padding:16px;color:var(--text-faint);font-size:12px" data-i18n="firewall.logHint">„Starten" drücken um Firewall-Ereignisse zu überwachen.</div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <!-- Advanced Mode -->
             <div id="fw-advanced" style="display:none">
-              <pre class="logs" id="fw-raw-output" style="max-height:60vh">Loading…</pre>
+              <pre class="logs" id="fw-raw-output" style="max-height:60vh;font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all">Loading…</pre>
             </div>
           </section>
 
@@ -1533,7 +1562,7 @@
               <!-- Peer list -->
               <div class="toolbar" style="margin-top:20px">
                 <h2 style="font-size:16px">VPN Clients</h2>
-                <div class="muted" style="font-size:12px">Scan the QR code with the WireGuard app</div>
+                <div class="muted" style="font-size:12px" data-i18n="vpn.scanHint">QR-Code mit der WireGuard-App scannen</div>
               </div>
               <div class="list" id="vpn-peers-list"></div>
             </div>
@@ -1546,19 +1575,19 @@
                   <button class="iconbtn" data-close>✕</button>
                 </div>
                 <div class="modal-body" style="text-align:center">
-                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
-                    Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
+                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px" data-i18n="vpn.qrHint">
+                    Scanne mit der <strong>WireGuard-App</strong> auf deinem Handy oder importiere die .conf-Datei am Computer.
                   </p>
                   <div id="vpn-qr-img" style="background:white;padding:16px;border-radius:12px;display:inline-block">
                     <img id="vpn-qr-png" src="" alt="QR Code" style="width:220px;height:220px;display:block" />
                   </div>
-                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px">
-                    Keep this QR code private — it grants full VPN access.
+                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px" data-i18n="vpn.qrPrivate">
+                    Dieser QR-Code gewährt vollen VPN-Zugang — nicht teilen.
                   </p>
                 </div>
                 <div class="modal-foot" style="justify-content:space-between">
-                  <a id="vpn-qr-download" href="#" download class="btn ghost sm">⬇ Download .conf</a>
-                  <button class="btn ghost" data-close>Close</button>
+                  <a id="vpn-qr-download" href="#" download class="btn ghost sm" data-i18n="vpn.downloadConf">⬇ .conf herunterladen</a>
+                  <button class="btn ghost" data-close data-i18n="vpn.close">Schließen</button>
                 </div>
               </div>
             </div>
@@ -1688,8 +1717,8 @@
 
         <!-- Panel: docker run -->
         <div class="modal-body" id="ctab-run" style="display:none">
-          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
-            Paste a <code style="font-family:var(--font-mono)">docker run</code> command — it will be parsed and the form pre-filled.
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px" data-i18n="create.runDesc">
+            Füge einen <code style="font-family:var(--font-mono)">docker run</code> Befehl ein — er wird geparst und das Formular vorausgefüllt.
           </p>
           <div class="field">
             <textarea class="input" id="docker-run-input" rows="7"
@@ -1701,8 +1730,8 @@
 
         <!-- Panel: docker-compose -->
         <div class="modal-body" id="ctab-compose" style="display:none">
-          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
-            Paste a <code style="font-family:var(--font-mono)">docker-compose.yml</code> service block — the first service will be imported.
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px" data-i18n="create.composeDesc">
+            Füge einen <code style="font-family:var(--font-mono)">docker-compose.yml</code> Service-Block ein — der erste Service wird importiert.
           </p>
           <div class="field">
             <textarea class="input" id="compose-input" rows="12"
@@ -1732,7 +1761,7 @@
 
           <!-- App-Einstellungen (Hearth-Labels) -->
           <details class="c-app-details">
-            <summary><span data-i18n="create.appSettings">App Settings</span> <span style="color:var(--text-faint);font-size:12px">(name, icon, URL for guest view)</span></summary>
+            <summary><span data-i18n="create.appSettings">App-Einstellungen</span> <span style="color:var(--text-faint);font-size:12px" data-i18n="create.appSettingsHint">(Name, Icon, URL für Gäste-Ansicht)</span></summary>
             <div style="padding-top:12px">
               <div class="field">
                 <label>Display Name</label>
@@ -2063,16 +2092,16 @@
               <span class="cd-status-name" id="cd-name-label">–</span>
             </div>
             <div class="cd-meta-grid">
-              <div class="cd-meta-cell"><div class="cd-meta-k">Image</div><div class="cd-meta-v" id="cd-m-image">–</div></div>
-              <div class="cd-meta-cell"><div class="cd-meta-k">Status</div><div class="cd-meta-v" id="cd-m-status">–</div></div>
-              <div class="cd-meta-cell"><div class="cd-meta-k">Ports</div><div class="cd-meta-v" id="cd-m-ports">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k" data-i18n="cd.metaImage">Image</div><div class="cd-meta-v" id="cd-m-image">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k" data-i18n="cd.metaStatus">Status</div><div class="cd-meta-v" id="cd-m-status">–</div></div>
+              <div class="cd-meta-cell"><div class="cd-meta-k" data-i18n="cd.metaPorts">Ports</div><div class="cd-meta-v" id="cd-m-ports">–</div></div>
               <div class="cd-meta-cell"><div class="cd-meta-k">ID</div><div class="cd-meta-v mono" id="cd-m-id">–</div></div>
             </div>
             <!-- Guest page visibility toggle -->
             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border);margin-top:4px">
               <div>
-                <div style="font-size:13.5px;font-weight:500">🌐 Show on guest page</div>
-                <div style="font-size:12px;color:var(--text-faint);margin-top:2px">Visible even when offline</div>
+                <div style="font-size:13.5px;font-weight:500" data-i18n="cd.showGuest">🌐 In Gäste-Ansicht anzeigen</div>
+                <div style="font-size:12px;color:var(--text-faint);margin-top:2px" data-i18n="cd.offlineHint">Auch offline sichtbar</div>
               </div>
               <label class="toggle">
                 <input type="checkbox" id="cd-guest-visible" checked>
@@ -2080,8 +2109,8 @@
               </label>
             </div>
             <div class="cd-action-row">
-              <button class="btn primary cd-action-btn" id="cd-edit-btn" data-i18n="cd.edit">✎ Bearbeiten</button>
-              <button class="btn cd-action-btn" id="cd-open-btn" style="display:none" data-i18n="cd.open">↗ Öffnen</button>
+              <button class="btn ghost cd-action-btn" id="cd-edit-btn" data-i18n="cd.edit">✎ Bearbeiten</button>
+              <button class="btn primary cd-action-btn" id="cd-open-btn" style="display:none" data-i18n="cd.open">↗ Öffnen</button>
             </div>
           </div>
           <div class="cd-foot-ops">
@@ -2212,8 +2241,8 @@
               <label><span data-i18n="proxy.target">Target</span> <span class="muted" style="font-size:11px">(e.g. http://192.168.1.50:8096)</span></label>
               <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
               <div class="prl-picker" id="prl-picker" style="display:none">
-                <select class="input" id="prl-container-select"><option value="">– Pick a container –</option></select>
-                <button class="btn sm ghost" id="prl-pick-btn">Use</button>
+                <select class="input" id="prl-container-select"><option value="" data-i18n="proxy.pickContainer">– Container auswählen –</option></select>
+                <button class="btn sm ghost" id="prl-pick-btn" data-i18n="proxy.useContainer">Übernehmen</button>
               </div>
             </div>
             <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
@@ -2231,23 +2260,23 @@
           <div class="prl-tab-panel" id="prl-panel-cert">
             <div class="cert-panel">
               <div class="cert-panel-title">Current Certificate</div>
-              <div id="prl-cert-info" style="font-size:13px;color:var(--text-faint)">Save rule first to manage certificate.</div>
+              <div id="prl-cert-info" style="font-size:13px;color:var(--text-faint)" data-i18n="proxy.saveCertFirst">Regel zuerst speichern, um Zertifikat zu verwalten.</div>
             </div>
             <div class="cert-panel">
-              <div class="cert-panel-title">Get / Replace Certificate</div>
+              <div class="cert-panel-title" data-i18n="proxy.certReplace">Zertifikat holen / ersetzen</div>
               <div class="cert-method-btns">
                 <button class="btn sm primary" id="prl-le-btn" onclick="prlRequestLE()">
                   🔒 Let's Encrypt
                 </button>
-                <label class="btn sm ghost" style="cursor:pointer">
-                  ⬆ Upload Custom Cert
+                <label class="btn sm ghost" style="cursor:pointer" data-i18n="proxy.uploadCert">
+                  ⬆ Eigenes Zertifikat hochladen
                   <input type="file" id="prl-cert-file" accept=".pem,.crt" style="display:none" />
                 </label>
-                <label class="btn sm ghost" style="cursor:pointer">
-                  ⬆ Upload Key
+                <label class="btn sm ghost" style="cursor:pointer" data-i18n="proxy.uploadKey">
+                  ⬆ Schlüssel hochladen
                   <input type="file" id="prl-key-file" accept=".pem,.key" style="display:none" />
                 </label>
-                <button class="btn sm ghost" id="prl-upload-btn" onclick="prlUploadCert()">Apply Upload</button>
+                <button class="btn sm ghost" id="prl-upload-btn" onclick="prlUploadCert()" data-i18n="proxy.applyUpload">Upload anwenden</button>
               </div>
               <div id="prl-cert-status" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
             </div>
@@ -2256,25 +2285,25 @@
           <!-- Tab: Security -->
           <div class="prl-tab-panel" id="prl-panel-security">
             <div class="field">
-              <label style="font-weight:600">Basic Auth</label>
+              <label style="font-weight:600" data-i18n="proxy.basicAuth">Passwortschutz</label>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
                 <input type="checkbox" id="prl-ba-enabled" style="width:auto" />
-                <label for="prl-ba-enabled" style="margin:0">Enable password protection</label>
+                <label for="prl-ba-enabled" style="margin:0" data-i18n="proxy.basicAuthEnable">Passwortschutz aktivieren</label>
               </div>
               <div id="prl-ba-fields" style="display:none;gap:8px;flex-direction:column">
-                <input class="input" id="prl-ba-user" placeholder="Username" autocomplete="off" />
-                <input class="input" type="password" id="prl-ba-pass" placeholder="Password (leave empty to keep existing)" autocomplete="new-password" />
+                <input class="input" id="prl-ba-user" data-i18n-ph="proxy.usernamePH" placeholder="Benutzername" autocomplete="off" />
+                <input class="input" type="password" id="prl-ba-pass" data-i18n-ph="proxy.passwordPH" placeholder="Passwort (leer lassen um bestehendes zu behalten)" autocomplete="new-password" />
               </div>
             </div>
             <div class="field">
-              <label style="font-weight:600">IP Allowlist</label>
-              <input class="input" id="prl-ip-allow" placeholder="192.168.0.0/24, 10.0.0.1 (comma separated)" autocomplete="off" />
-              <div class="s-sub" style="margin-top:4px">Only these IPs can access this domain. Leave empty for all.</div>
+              <label style="font-weight:600" data-i18n="proxy.ipAllowlist">IP-Erlaubnisliste</label>
+              <input class="input" id="prl-ip-allow" data-i18n-ph="proxy.ipPH" placeholder="192.168.0.0/24, 10.0.0.1 (kommagetrennt)" autocomplete="off" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipAllowHint">Nur diese IPs haben Zugriff. Leer = alle.</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600">IP Denylist</label>
-              <input class="input" id="prl-ip-deny" placeholder="1.2.3.4, 5.6.7.0/24 (comma separated)" autocomplete="off" />
-              <div class="s-sub" style="margin-top:4px">These IPs are always blocked.</div>
+              <label style="font-weight:600" data-i18n="proxy.ipDenylist">IP-Sperrliste</label>
+              <input class="input" id="prl-ip-deny" data-i18n-ph="proxy.ipPH2" placeholder="1.2.3.4, 5.6.7.0/24 (kommagetrennt)" autocomplete="off" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipDenyHint">Diese IPs werden immer blockiert.</div>
             </div>
           </div>
 
@@ -2283,26 +2312,26 @@
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
               <input type="checkbox" id="prl-sec-headers" style="width:auto" />
               <div>
-                <label for="prl-sec-headers" style="margin:0;font-weight:600">Security Headers</label>
+                <label for="prl-sec-headers" style="margin:0;font-weight:600" data-i18n="proxy.secHeaders">Security-Header</label>
                 <div class="s-sub">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
               </div>
             </div>
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
               <input type="checkbox" id="prl-cache-static" style="width:auto" />
               <div>
-                <label for="prl-cache-static" style="margin:0;font-weight:600">Static Asset Caching</label>
-                <div class="s-sub">Cache CSS, JS, images 7 days in browser</div>
+                <label for="prl-cache-static" style="margin:0;font-weight:600" data-i18n="proxy.staticCache">Statische Dateien cachen</label>
+                <div class="s-sub" data-i18n="proxy.staticCacheHint">CSS, JS, Bilder 7 Tage im Browser cachen</div>
               </div>
             </div>
             <div class="field">
-              <label style="font-weight:600">Max Upload Size</label>
-              <input class="input" id="prl-max-body" placeholder="e.g. 100m, 2g" autocomplete="off" style="max-width:140px" />
-              <div class="s-sub" style="margin-top:4px">nginx client_max_body_size (default: 1m)</div>
+              <label style="font-weight:600" data-i18n="proxy.maxUpload">Max. Upload-Größe</label>
+              <input class="input" id="prl-max-body" data-i18n-ph="proxy.uploadSizePH" placeholder="z.B. 100m, 2g" autocomplete="off" style="max-width:140px" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.maxUploadHint">nginx client_max_body_size (Standard: 1m)</div>
             </div>
             <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600">Custom nginx Snippet</label>
+              <label style="font-weight:600" data-i18n="proxy.nginxSnippet">Eigenes nginx-Snippet</label>
               <textarea class="input" id="prl-snippet" rows="4" placeholder="add_header X-Custom-Header value;&#10;proxy_buffer_size 128k;" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
-              <div class="s-sub" style="margin-top:4px">Injected into the location / block.</div>
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.nginxSnippetHint">Wird in den location / Block eingefügt.</div>
             </div>
           </div>
         </div>
@@ -2340,35 +2369,62 @@
     <div class="modal-backdrop" id="modal-fw-rule">
       <div class="modal" style="max-width:460px">
         <div class="modal-head">
-          <h3 data-i18n="firewall.addTitle">Add Firewall Rule</h3>
+          <h3 data-i18n="firewall.addTitle">Firewall-Regel hinzufügen</h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body">
-          <div class="field">
-            <label data-i18n="firewall.action">Action</label>
-            <select class="input" id="fw-action">
-              <option value="allow">Allow</option>
-              <option value="deny">Deny</option>
-            </select>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.action">Aktion</label>
+              <select class="input" id="fw-action">
+                <option value="allow" data-i18n="firewall.allow">Erlauben</option>
+                <option value="deny" data-i18n="firewall.deny">Blockieren</option>
+                <option value="limit" data-i18n="firewall.limit">Limit (Anti-Brute)</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.direction">Richtung</label>
+              <select class="input" id="fw-direction">
+                <option value="in" data-i18n="firewall.inbound">Eingehend (in)</option>
+                <option value="out" data-i18n="firewall.outbound">Ausgehend (out)</option>
+              </select>
+            </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 100px;gap:10px">
-            <div class="field" style="margin:0"><label data-i18n="firewall.port">Port</label><input class="input" id="fw-port" placeholder="8096" /></div>
-            <div class="field" style="margin:0"><label data-i18n="firewall.protocol">Protocol</label>
+          <div style="display:grid;grid-template-columns:1fr 90px;gap:10px;margin-top:10px">
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.port">Port / Range</label>
+              <input class="input" id="fw-port" placeholder="22 or 8000:9000" />
+            </div>
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.protocol">Protokoll</label>
               <select class="input" id="fw-proto">
-                <option value="" data-i18n="firewall.protoAny">any</option>
+                <option value="any" data-i18n="firewall.protoAny">beliebig</option>
                 <option value="tcp">tcp</option>
                 <option value="udp">udp</option>
               </select>
             </div>
           </div>
-          <div class="field" style="margin-top:12px;margin-bottom:0">
-            <label><span data-i18n="firewall.fromIP">From IP</span> <span class="muted" style="font-size:11px" data-i18n="firewall.fromIPHint">(leave empty for any)</span></label>
-            <input class="input" id="fw-from" placeholder="any / 192.168.1.0/24" />
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.fromSubnet">Von IP / Subnetz</label>
+              <input class="input" id="fw-from" data-i18n-ph="firewall.fromPH" placeholder="beliebig / 192.168.1.0/24" />
+            </div>
+            <div class="field" style="margin:0">
+              <label><span data-i18n="firewall.interface">Netzwerkschnittstelle</span> <span class="muted" style="font-size:11px" data-i18n="firewall.optional">(optional)</span></label>
+              <input class="input" id="fw-iface" placeholder="eth0, wg0, …" autocomplete="off" />
+            </div>
+          </div>
+          <div class="field" style="margin-top:10px;margin-bottom:0">
+            <label><span data-i18n="firewall.comment">Kommentar</span> <span class="muted" style="font-size:11px" data-i18n="firewall.optional">(optional)</span></label>
+            <input class="input" id="fw-comment" data-i18n-ph="firewall.commentPH" placeholder="z.B. SSH-Zugang" autocomplete="off" />
+          </div>
+          <div id="fw-limit-hint" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(255,187,51,.08);border:1px solid rgba(255,187,51,.25);border-radius:var(--radius-sm);font-size:12px;color:#ffbb33" data-i18n="firewall.limitHint">
+            ⚡ Limit blockiert IPs mit mehr als 6 Verbindungen in 30 Sekunden — ideal für SSH und Admin-Ports.
           </div>
         </div>
         <div class="modal-foot">
-          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
-          <button class="btn primary" id="fw-rule-save" data-i18n="firewall.saveRule">Add Rule</button>
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
+          <button class="btn primary" id="fw-rule-save" data-i18n="firewall.saveRule">Regel hinzufügen</button>
         </div>
       </div>
     </div>

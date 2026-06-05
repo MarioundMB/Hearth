@@ -965,8 +965,8 @@ function portRow(host = '', container = '', proto = 'tcp') {
   const d = document.createElement('div');
   d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;margin-bottom:8px';
   d.innerHTML = `
-    <input class="input" placeholder="Host Port" data-k="host" value="${host}" />
-    <input class="input" placeholder="Container Port" data-k="container" value="${container}" />
+    <input class="input" placeholder="${t('create.hostPort')}" data-k="host" value="${host}" />
+    <input class="input" placeholder="${t('create.containerPort')}" data-k="container" value="${container}" />
     <select class="input" data-k="proto" style="padding:10px 6px">
       <option value="tcp" ${proto === 'tcp' ? 'selected' : ''}>TCP</option>
       <option value="udp" ${proto === 'udp' ? 'selected' : ''}>UDP</option>
@@ -2797,11 +2797,20 @@ document.getElementById('fw-rules-list').addEventListener('click', async (e) => 
 
 // Firewall-Regel hinzufügen
 document.getElementById('fw-add-rule-btn').addEventListener('click', () => {
-  document.getElementById('fw-port').value  = '';
-  document.getElementById('fw-from').value  = '';
-  document.getElementById('fw-action').value = 'allow';
-  document.getElementById('fw-proto').value  = 'tcp';
+  document.getElementById('fw-port').value      = '';
+  document.getElementById('fw-from').value      = '';
+  document.getElementById('fw-iface').value     = '';
+  document.getElementById('fw-comment').value   = '';
+  document.getElementById('fw-action').value    = 'allow';
+  document.getElementById('fw-direction').value = 'in';
+  document.getElementById('fw-proto').value     = 'any';
+  document.getElementById('fw-limit-hint').style.display = 'none';
   openModal('modal-fw-rule');
+});
+
+// Show limit hint when limit action is selected
+document.getElementById('fw-action').addEventListener('change', function() {
+  document.getElementById('fw-limit-hint').style.display = this.value === 'limit' ? '' : 'none';
 });
 
 document.getElementById('fw-rule-save').addEventListener('click', async () => {
@@ -2809,10 +2818,13 @@ document.getElementById('fw-rule-save').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     await api('POST', '/api/firewall/rules', {
-      action: document.getElementById('fw-action').value,
-      port:   document.getElementById('fw-port').value.trim(),
-      proto:  document.getElementById('fw-proto').value || undefined,
-      from:   document.getElementById('fw-from').value.trim() || undefined,
+      action:    document.getElementById('fw-action').value,
+      direction: document.getElementById('fw-direction').value,
+      port:      document.getElementById('fw-port').value.trim(),
+      proto:     document.getElementById('fw-proto').value || undefined,
+      from:      document.getElementById('fw-from').value.trim() || undefined,
+      iface:     document.getElementById('fw-iface').value.trim() || undefined,
+      comment:   document.getElementById('fw-comment').value.trim() || undefined,
     });
     toast(t('firewall.ruleAdded'));
     closeModal('modal-fw-rule');
@@ -2846,7 +2858,7 @@ async function loadVpn() {
   const badge = document.getElementById('vpn-status-badge');
   if (badge) {
     badge.className = `vpn-status-badge ${data.running ? 'active' : 'inactive'}`;
-    badge.textContent = data.running ? 'Running' : 'Stopped';
+    badge.textContent = data.running ? t('vpn.running') : t('vpn.stopped');
   }
 
   if (!data.available) return;
@@ -2854,11 +2866,11 @@ async function loadVpn() {
   // Parse server URL from wg show output or status string
   const serverLine = (data.status || '').split('\n').find(l => l.includes('endpoint')) || '';
   document.getElementById('vpn-server').textContent = serverLine || 'Configure VPN_HOST in .env';
-  document.getElementById('vpn-peer-count').textContent = (data.peers || []).length + ' configured';
+  document.getElementById('vpn-peer-count').textContent = t('vpn.configured').replace('{n}', (data.peers || []).length);
 
   const list = document.getElementById('vpn-peers-list');
   if (!(data.peers || []).length) {
-    list.innerHTML = '<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>No VPN clients found.<br><span class="muted" style="font-size:13px">Set VPN_PEERS in your .env and restart.</span></div>';
+    list.innerHTML = `<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>${t('vpn.noPeers')}<br><span class="muted" style="font-size:13px">${t('vpn.noPeersHint')}</span></div>`;
     return;
   }
 
@@ -2978,7 +2990,7 @@ async function renderStore() {
         </div>
         <div class="store-desc">${esc(app.desc)}</div>
         <button class="btn sm primary" onclick="storeInstall(${esc(JSON.stringify(app.image))})">
-          <svg class="icon icon-sm"><use href="#icon-zap"/></svg> Install
+          <svg class="icon icon-sm"><use href="#icon-zap"/></svg> ${t('store.install')}
         </button>
       </div>`;
     }
@@ -3055,3 +3067,47 @@ document.getElementById('editor-save-btn').addEventListener('click', async () =>
     btn.textContent = 'Speichern';
   }
 });
+
+// ── Live Firewall Log ─────────────────────────────────────────────────────
+let _fwLiveInterval = null;
+let _fwLastLogCount = 0;
+
+function fwToggleLiveLog() {
+  const btn = document.getElementById('fw-log-toggle-btn');
+  const dot = document.getElementById('fw-log-dot');
+  if (_fwLiveInterval) {
+    clearInterval(_fwLiveInterval);
+    _fwLiveInterval = null;
+    btn.setAttribute('data-i18n', 'firewall.logStart');
+    btn.textContent = t('firewall.logStart');
+    dot.classList.remove('live');
+  } else {
+    btn.setAttribute('data-i18n', 'firewall.logStop');
+    btn.textContent = t('firewall.logStop');
+    dot.classList.add('live');
+    fwFetchLogs();
+    _fwLiveInterval = setInterval(fwFetchLogs, 3000);
+  }
+}
+
+async function fwFetchLogs() {
+  const data = await api('GET', '/api/firewall/logs?lines=80').catch(() => null);
+  if (!data) return;
+  const body = document.getElementById('fw-log-body');
+  const entries = data.entries || [];
+  if (!entries.length) {
+    body.innerHTML = `<div style="padding:12px 14px;color:var(--text-faint);font-size:12px">Noch keine Firewall-Ereignisse aufgezeichnet.</div>`;
+    return;
+  }
+  if (entries.length === _fwLastLogCount) return;
+  _fwLastLogCount = entries.length;
+  body.innerHTML = entries.slice(0, 60).map(e => {
+    const actionClass = e.action === 'BLOCK' ? 'BLOCK' : 'ALLOW';
+    return `<div class="fw-log-entry">
+      <span class="fw-log-action ${actionClass}">${esc(e.action)}</span>
+      <span style="color:var(--text)">${esc(e.src)}${e.spt ? ':'+e.spt : ''}</span>
+      <span class="fw-log-entry-meta">→ :${esc(e.dpt)} ${esc(e.proto)}</span>
+      <span class="fw-log-entry-meta" style="margin-left:auto">${esc(e.iface)} ${esc(e.time)}</span>
+    </div>`;
+  }).join('');
+}
