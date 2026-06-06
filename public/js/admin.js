@@ -2126,8 +2126,8 @@ async function checkUpdates(force = false) {
     // Update-Indikator in Topbar
     if (badge) {
       if (pending > 0) {
-        badge.textContent  = `↑ ${pending} update${pending > 1 ? 's' : ''}`;
-        badge.className    = 'btn sm update-available';
+        badge.textContent   = `↑ ${pending} Update${pending > 1 ? 's' : ''} verfügbar`;
+        badge.className     = 'btn sm update-available';
         badge.style.display = '';
       } else {
         badge.style.display = 'none';
@@ -2155,27 +2155,6 @@ async function updateContainer(id, name) {
     loadContainers();
     checkUpdates(true);
   } catch (e) { showDockerError(e.message); }
-}
-
-async function updateAllContainersBtn(btn) {
-  btn.disabled = true;
-  const origText = btn.textContent;
-  // First check for updates if none found yet
-  const pending = Object.entries(_updateMap).filter(([, v]) => v.hasUpdate);
-  if (!pending.length) {
-    btn.textContent = '⟳ Prüfe…';
-    await checkUpdates(true);
-    const nowPending = Object.entries(_updateMap).filter(([, v]) => v.hasUpdate);
-    if (!nowPending.length) {
-      toast('Alle Container sind aktuell ✓');
-      btn.disabled = false;
-      btn.textContent = origText;
-      return;
-    }
-  }
-  btn.disabled = false;
-  btn.textContent = origText;
-  updateAllContainers();
 }
 
 async function updateAllContainers() {
