@@ -2157,6 +2157,27 @@ async function updateContainer(id, name) {
   } catch (e) { showDockerError(e.message); }
 }
 
+async function updateAllContainersBtn(btn) {
+  btn.disabled = true;
+  const origText = btn.textContent;
+  // First check for updates if none found yet
+  const pending = Object.entries(_updateMap).filter(([, v]) => v.hasUpdate);
+  if (!pending.length) {
+    btn.textContent = '⟳ Prüfe…';
+    await checkUpdates(true);
+    const nowPending = Object.entries(_updateMap).filter(([, v]) => v.hasUpdate);
+    if (!nowPending.length) {
+      toast('Alle Container sind aktuell ✓');
+      btn.disabled = false;
+      btn.textContent = origText;
+      return;
+    }
+  }
+  btn.disabled = false;
+  btn.textContent = origText;
+  updateAllContainers();
+}
+
 async function updateAllContainers() {
   const pending = Object.entries(_updateMap).filter(([, v]) => v.hasUpdate);
   if (!pending.length) return;
