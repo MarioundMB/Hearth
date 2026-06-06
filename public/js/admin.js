@@ -1162,10 +1162,12 @@ document.getElementById('s-save').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     const updateBranch = document.getElementById('s-update-branch').value || 'main';
+    const prevBranch = (await api('GET', '/api/settings').catch(() => ({}))).updateBranch || 'main';
     await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);
+    if (updateBranch !== prevBranch) checkUpdates(true);
   } catch (e) {
     toast(e.message, 'error');
   } finally {
