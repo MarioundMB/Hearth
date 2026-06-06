@@ -1340,7 +1340,8 @@
             <div id="notif-list"><div class="notif-empty" data-i18n="notif.empty">No notifications</div></div>
           </div>
         </div>
-        <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
+        <a class="btn ghost sm adv-only" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
+        <button class="btn sm update-available" id="topbar-updates" style="display:none" onclick="updateAllContainers()"></button>
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
       </div>
@@ -1370,7 +1371,6 @@
               <div class="spacer"></div>
               <span style="font-size:12px;color:var(--text-faint)" title="Drag a Docker Hub URL here or press Ctrl+V" data-i18n="drop.hint">🐳 Drop or paste URL</span>
               <button class="btn sm ghost" id="refresh-containers">⟳ <span data-i18n="nav.refresh">Aktualisieren</span></button>
-              <button class="btn sm update-available" id="topbar-updates" style="display:none" onclick="updateAllContainers()"></button>
               <button class="btn primary sm" id="new-container" data-i18n="containers.new">+ Neuer Container</button>
             </div>
             <div class="list" id="containers"></div>
