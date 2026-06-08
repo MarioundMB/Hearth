@@ -3441,6 +3441,10 @@ async function startStackContainer(containerId) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+document.getElementById('stack-export-btn').addEventListener('click', () => {
+  if (_stackModalId) exportStack(_stackModalId);
+});
+
 document.getElementById('stack-deploy-missing-btn').addEventListener('click', async () => {
   if (!_stackModalId) return;
   const stack = _stacksData.find(s => s.id === _stackModalId);
@@ -3604,6 +3608,238 @@ document.querySelectorAll('[data-view]').forEach(btn => {
     btn.addEventListener('click', () => loadStackGroups());
   }
 });
+
+// ── Tab-Handler für Community + Settings ─────────────────────────────────────
+
+document.querySelectorAll('[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.view === 'community') loadCommunityTab();
+  });
+});
+
+// ── Community Tab ────────────────────────────────────────────────────────────
+
+let _communityLoaded = false;
+
+async function loadCommunityTab(force = false) {
+  if (_communityLoaded && !force) return;
+  _communityLoaded = true;
+  await Promise.all([loadCommunityStacks(), loadCommunityThemes()]);
+}
+
+async function loadCommunityStacks(force = false) {
+  const grid = document.getElementById('community-stacks-grid');
+  grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Lädt…</span>';
+  try {
+    const url = force ? '/api/community/stacks?refresh=1' : '/api/community/stacks';
+    const stacks = await api('GET', url);
+    const existingIds = new Set(_stacksData.map(s => s.id));
+    if (!stacks.length) { grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Keine Community-Stacks gefunden.</span>'; return; }
+    grid.innerHTML = stacks.map(stack => {
+      const already = existingIds.has(stack.id);
+      const chips = (stack.services || []).map(s =>
+        `<span class="stack-svc-chip${s.optional ? ' optional' : ''}">${esc(s.name)}</span>`
+      ).join('');
+      const tagBadges = (stack.tags || []).map(t =>
+        `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--panel-2);border:1px solid var(--border);color:var(--text-faint)">${esc(t)}</span>`
+      ).join('');
+      return `
+        <div class="stack-store-card">
+          <div class="stack-store-head">
+            <div class="stack-store-icon">${stack.icon || '📦'}</div>
+            <div>
+              <div class="stack-store-title">${esc(stack.name)}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:2px">by ${esc(stack.author || 'community')}</div>
+            </div>
+          </div>
+          <div class="stack-store-desc">${esc(stack.description || '')}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${tagBadges}</div>
+          <div class="stack-store-services">${chips}</div>
+          <div style="margin-top:6px">
+            ${already
+              ? `<span style="font-size:12px;color:var(--text-faint)">✓ Bereits importiert</span>`
+              : `<button class="btn sm primary" onclick="importCommunityStack(${esc(JSON.stringify(stack))})">Importieren</button>`}
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    grid.innerHTML = `<span style="font-size:13px;color:var(--danger,#e74c3c)">${esc(e.message)}</span>`;
+  }
+}
+
+async function importCommunityStack(stackDef) {
+  try {
+    await api('POST', '/api/stacks/custom', { json: stackDef });
+    toast(`"${stackDef.name}" importiert`);
+    await refreshCustomStacksCache();
+    _stacksData = await api('GET', '/api/stacks');
+    renderStackGroups();
+    _storeRendered = false;
+    loadCommunityStacks();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadCommunityThemes(force = false) {
+  const grid = document.getElementById('community-themes-grid');
+  grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Lädt…</span>';
+  try {
+    const url = force ? '/api/community/themes?refresh=1' : '/api/community/themes';
+    const themes = await api('GET', url);
+    if (!themes.length) { grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Keine Themes gefunden.</span>'; return; }
+    grid.innerHTML = themes.map(theme => `
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:28px;height:28px;border-radius:6px;background:${esc(theme.preview || '#333')};flex-shrink:0;border:1px solid var(--border)"></div>
+          <div>
+            <div style="font-size:13px;font-weight:600">${esc(theme.name)}</div>
+            <div style="font-size:11px;color:var(--text-faint)">by ${esc(theme.author || 'community')}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim)">${esc(theme.description || '')}</div>
+        <button class="btn sm ghost" onclick="applyCommunityTheme(${esc(JSON.stringify(theme))})">Anwenden</button>
+      </div>`).join('');
+  } catch (e) {
+    grid.innerHTML = `<span style="font-size:13px;color:var(--danger,#e74c3c)">${esc(e.message)}</span>`;
+  }
+}
+
+async function applyCommunityTheme(theme) {
+  try {
+    await api('POST', '/api/theme', { css: theme.css, id: theme.id, name: theme.name });
+    toast(`Theme "${theme.name}" angewendet – Seite neu laden zum Sehen`);
+    loadThemeStatus();
+    // Hot-reload by updating the <link> tag
+    const link = document.querySelector('link[href="/custom.css"]');
+    if (link) { const h = link.href; link.href = ''; link.href = h; }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('community-refresh-btn').addEventListener('click', () => {
+  _communityLoaded = false;
+  loadCommunityTab(true);
+  loadCommunityStacks(true);
+  loadCommunityThemes(true);
+});
+
+// ── Theme Management (in Settings) ───────────────────────────────────────────
+
+async function loadThemeStatus() {
+  try {
+    const theme = await api('GET', '/api/theme');
+    const nameEl  = document.getElementById('theme-active-name');
+    const resetBtn = document.getElementById('theme-reset-btn');
+    if (theme) {
+      nameEl.textContent = theme.name + (theme.sourceUrl ? ' (via URL)' : '');
+      resetBtn.style.display = '';
+    } else {
+      nameEl.textContent = 'Standard (kein Custom Theme)';
+      resetBtn.style.display = 'none';
+    }
+  } catch (_) {}
+}
+
+async function loadSettingsThemePicker() {
+  const list = document.getElementById('theme-community-list');
+  try {
+    const themes = await api('GET', '/api/community/themes');
+    list.innerHTML = themes.map(t => `
+      <button onclick="applyCommunityTheme(${esc(JSON.stringify(t))})"
+        style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--panel-2);cursor:pointer;font-size:12px;color:var(--text)">
+        <span style="width:14px;height:14px;border-radius:3px;background:${esc(t.preview || '#333')};display:inline-block;flex-shrink:0;border:1px solid var(--border)"></span>
+        ${esc(t.name)}
+      </button>`).join('');
+  } catch (_) { list.innerHTML = '<span style="font-size:12px;color:var(--text-faint)">Nicht verfügbar</span>'; }
+}
+
+document.getElementById('theme-reset-btn').addEventListener('click', async () => {
+  await api('DELETE', '/api/theme');
+  toast('Theme zurückgesetzt');
+  loadThemeStatus();
+  const link = document.querySelector('link[href="/custom.css"]');
+  if (link) { const h = link.href; link.href = ''; link.href = h; }
+});
+
+document.getElementById('theme-css-toggle').addEventListener('click', () => {
+  const area = document.getElementById('theme-css-area');
+  const btn  = document.getElementById('theme-css-toggle');
+  const open = area.style.display === 'none';
+  area.style.display = open ? 'flex' : 'none';
+  btn.textContent = open ? 'Ausblenden ▴' : 'Anzeigen ▾';
+});
+
+document.getElementById('theme-apply-btn').addEventListener('click', async () => {
+  const css = document.getElementById('theme-css-input').value.trim();
+  const url = document.getElementById('theme-url-input').value.trim();
+  if (!css && !url) { toast('CSS oder URL eingeben', 'error'); return; }
+  try {
+    await api('POST', '/api/theme', url ? { url, name: 'Custom (URL)' } : { css, name: 'Custom CSS' });
+    toast('Theme angewendet');
+    loadThemeStatus();
+    const link = document.querySelector('link[href="/custom.css"]');
+    if (link) { const h = link.href; link.href = ''; link.href = h; }
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// Laden wenn Settings-Modal öffnet
+document.getElementById('modal-settings').addEventListener('click', e => {
+  if (e.target.closest('.modal') && !document.getElementById('theme-active-name').dataset.loaded) {
+    document.getElementById('theme-active-name').dataset.loaded = '1';
+    loadThemeStatus();
+    loadSettingsThemePicker();
+    loadChangelog();
+  }
+});
+document.querySelectorAll('[onclick*="modal-settings"], #open-settings, #btn-settings').forEach(el => {
+  el.addEventListener('click', () => { loadThemeStatus(); loadSettingsThemePicker(); loadChangelog(); });
+});
+
+// ── Changelog ────────────────────────────────────────────────────────────────
+
+async function loadChangelog(force = false) {
+  const list = document.getElementById('changelog-list');
+  list.innerHTML = '<span style="font-size:12px;color:var(--text-faint);padding:8px 0">Lädt…</span>';
+  try {
+    const url = force ? '/api/changelog?refresh=1' : '/api/changelog';
+    const releases = await api('GET', url);
+    if (!releases.length) { list.innerHTML = '<span style="font-size:12px;color:var(--text-faint)">Keine Releases gefunden.</span>'; return; }
+    list.innerHTML = releases.map((rel, i) => {
+      const date = new Date(rel.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const preTag = rel.prerelease ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(255,159,10,.15);color:#ff9f0a;border:1px solid rgba(255,159,10,.3)">pre</span> ` : '';
+      const bodyHtml = rel.body
+        ? rel.body
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/^## (.+)$/gm, '<strong style="font-size:12px;display:block;margin:6px 0 2px">$1</strong>')
+            .replace(/^### (.+)$/gm, '<strong style="font-size:11px;display:block;margin:4px 0 2px;color:var(--text-dim)">$1</strong>')
+            .replace(/^- (.+)$/gm, '<span style="display:block;padding-left:10px">· $1</span>')
+            .replace(/\n/g, '')
+        : '';
+      const isFirst = i === 0;
+      return `
+        <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:${bodyHtml ? '6px' : '0'}">
+            <span style="font-size:13px;font-weight:700">${preTag}${esc(rel.name)}</span>
+            ${isFirst ? `<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(52,199,89,.15);color:#34c759;border:1px solid rgba(52,199,89,.3)">Aktuell</span>` : ''}
+            <span style="margin-left:auto;font-size:11px;color:var(--text-faint)">${date}</span>
+            <a href="${esc(rel.url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" onclick="event.stopPropagation()">↗</a>
+          </div>
+          ${bodyHtml ? `<div style="font-size:12px;color:var(--text-dim);line-height:1.6;max-height:120px;overflow:hidden;position:relative" id="cl-body-${i}">
+            ${bodyHtml}
+            <button onclick="document.getElementById('cl-body-${i}').style.maxHeight='none';this.remove()" style="position:absolute;bottom:0;right:0;background:var(--panel);border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0 4px">mehr…</button>
+          </div>` : ''}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<span style="font-size:12px;color:var(--danger,#e74c3c)">${esc(e.message)}</span>`;
+  }
+}
+
+document.getElementById('changelog-refresh-btn').addEventListener('click', () => loadChangelog(true));
+
+// ── Stack Export ──────────────────────────────────────────────────────────────
+
+function exportStack(stackId) {
+  window.open(`/api/stacks/${encodeURIComponent(stackId)}/export`, '_blank');
+}
 
 loadContainers();
 loadStackGroups();

@@ -6,6 +6,7 @@
     <title>Hearth · Admin</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/custom.css" />
     <script src="/js/i18n.js"></script>
     <style>
       /* Sticky wrapper — has no overflow so the gap-fill and frosted glass
@@ -1355,6 +1356,7 @@
             <div class="tabs">
               <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
               <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
+              <div class="tab" data-view="community">🌐 Community</div>
               <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
               <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
               <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
@@ -1386,6 +1388,35 @@
               <div class="spacer"></div>
             </div>
             <div id="store-categories"></div>
+          </section>
+
+          <!-- Community -->
+          <section class="view" id="view-community">
+            <div class="toolbar">
+              <h2>Community</h2>
+              <div class="spacer"></div>
+              <button class="btn sm ghost" id="community-refresh-btn">⟳ Aktualisieren</button>
+            </div>
+
+            <!-- Community Stacks -->
+            <div style="padding:0 0 24px">
+              <div class="store-category-title">📦 Community Stacks
+                <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">Importiere & deploye community-gepflegte Stack-Definitionen</span>
+              </div>
+              <div id="community-stacks-grid" class="stack-store-grid">
+                <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
+              </div>
+            </div>
+
+            <!-- Community Themes -->
+            <div>
+              <div class="store-category-title">🎨 Community Themes
+                <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">CSS-Themes für Hearth direkt anwenden</span>
+              </div>
+              <div id="community-themes-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
+                <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
+              </div>
+            </div>
           </section>
 
           <!-- Images -->
@@ -2017,6 +2048,56 @@
                 </div>
               </div>
               <button class="btn sm ghost" onclick="openModal('modal-security')" data-i18n="settings.openSecurity">Open →</button>
+            </div>
+          </div>
+
+          <!-- Erscheinungsbild / Theme -->
+          <div class="s-group">
+            <div class="s-group-title">Erscheinungsbild</div>
+
+            <div class="s-row">
+              <div class="s-row-l">
+                <span class="s-icon">🎨</span>
+                <div>
+                  <div class="s-label">Aktives Theme</div>
+                  <div class="s-sub" id="theme-active-name">Standard (kein Custom Theme)</div>
+                </div>
+              </div>
+              <button class="btn sm ghost" id="theme-reset-btn" style="display:none">Zurücksetzen</button>
+            </div>
+
+            <!-- Community-Theme-Auswahl -->
+            <div style="padding:0 22px 6px">
+              <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-dim)">Community Themes</div>
+              <div id="theme-community-list" style="display:flex;flex-wrap:wrap;gap:8px">
+                <span style="font-size:12px;color:var(--text-faint)">Lädt…</span>
+              </div>
+            </div>
+
+            <!-- Custom CSS -->
+            <div style="padding:6px 22px 16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <div style="font-size:12px;font-weight:600;color:var(--text-dim)">Eigenes CSS</div>
+                <button class="btn sm ghost" style="font-size:11px;padding:2px 8px" id="theme-css-toggle">Anzeigen ▾</button>
+              </div>
+              <div id="theme-css-area" style="display:none;flex-direction:column;gap:8px">
+                <textarea class="input" id="theme-css-input" rows="8" placeholder=":root { --accent: #ff6b35; }" style="font-family:monospace;font-size:12px;resize:vertical"></textarea>
+                <div style="display:flex;gap:8px">
+                  <input class="input" id="theme-url-input" placeholder="CSS-URL (optional, überschreibt obiges)" style="flex:1;font-size:12px">
+                  <button class="btn sm primary" id="theme-apply-btn">Anwenden</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Neuigkeiten / Changelog -->
+          <div class="s-group">
+            <div class="s-group-title" style="display:flex;align-items:center;gap:10px">
+              Neuigkeiten
+              <button class="btn sm ghost" style="font-size:11px;padding:2px 8px;margin-left:auto" id="changelog-refresh-btn">⟳</button>
+            </div>
+            <div id="changelog-list" style="padding:0 22px 16px;display:flex;flex-direction:column;gap:0">
+              <span style="font-size:12px;color:var(--text-faint);padding:8px 0">Lädt…</span>
             </div>
           </div>
 
@@ -2745,7 +2826,10 @@
 
         </div>
         <div class="modal-foot" style="display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-top:1px solid var(--border)">
-          <button class="btn primary" id="stack-deploy-missing-btn">Fehlende installieren</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn primary" id="stack-deploy-missing-btn">Fehlende installieren</button>
+            <button class="btn ghost" id="stack-export-btn" title="Als JSON exportieren">⬇ Exportieren</button>
+          </div>
           <button class="btn ghost" data-close>Schließen</button>
         </div>
       </div>
