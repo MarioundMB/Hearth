@@ -3776,9 +3776,14 @@ async function loadCommunityThemes(force = false) {
   }
 }
 
-function _reloadCustomCss() {
-  const link = document.querySelector('link[href*="custom.css"]');
-  if (link) link.href = '/custom.css?_=' + Date.now();
+function _applyThemeCss(css) {
+  let el = document.getElementById('custom-theme');
+  if (!el) {
+    el = document.createElement('style');
+    el.id = 'custom-theme';
+    document.head.appendChild(el);
+  }
+  el.textContent = css || '';
 }
 
 async function applyCommunityTheme(theme) {
@@ -3786,7 +3791,7 @@ async function applyCommunityTheme(theme) {
     await api('POST', '/api/theme', { css: theme.css, id: theme.id, name: theme.name });
     toast(`Theme "${theme.name}" angewendet`);
     loadThemeStatus();
-    _reloadCustomCss();
+    _applyThemeCss(theme.css);
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -3897,7 +3902,7 @@ document.getElementById('theme-reset-btn').addEventListener('click', async () =>
   await api('DELETE', '/api/theme');
   toast('Theme zurückgesetzt');
   loadThemeStatus();
-  _reloadCustomCss();
+  _applyThemeCss('');
 });
 
 document.getElementById('theme-css-toggle').addEventListener('click', () => {
@@ -3916,7 +3921,11 @@ document.getElementById('theme-apply-btn').addEventListener('click', async () =>
     await api('POST', '/api/theme', url ? { url, name: 'Custom (URL)' } : { css, name: 'Custom CSS' });
     toast('Theme angewendet');
     loadThemeStatus();
-    _reloadCustomCss();
+    if (css) {
+      _applyThemeCss(css);
+    } else {
+      fetch('/custom.css?_=' + Date.now()).then(r => r.text()).then(_applyThemeCss);
+    }
   } catch (e) { toast(e.message, 'error'); }
 });
 
