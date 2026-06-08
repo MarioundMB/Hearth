@@ -3728,6 +3728,30 @@ async function importCommunityStack(stackDef) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+function _themePreviewHtml(theme) {
+  const c = theme.colors || {};
+  const bg  = c.bg     || theme.preview || '#1e1e2e';
+  const pnl = c.panel  || '#333';
+  const acc = c.accent || '#888';
+  const txt = c.text   || '#eee';
+  const bdr = c.border || '#555';
+  return `<div style="width:84px;height:58px;border-radius:7px;overflow:hidden;border:1px solid ${bdr};flex-shrink:0">
+    <div style="background:${bg};height:100%;display:flex">
+      <div style="background:${pnl};width:23px;border-right:1px solid ${bdr};padding:5px 3px;display:flex;flex-direction:column;gap:4px">
+        <div style="background:${acc};height:4px;border-radius:2px"></div>
+        <div style="background:${txt};height:3px;border-radius:2px;opacity:0.25"></div>
+        <div style="background:${txt};height:3px;border-radius:2px;opacity:0.18"></div>
+        <div style="background:${txt};height:3px;border-radius:2px;opacity:0.18"></div>
+      </div>
+      <div style="flex:1;padding:5px 4px;display:flex;flex-direction:column;gap:4px">
+        <div style="background:${txt};height:3px;border-radius:2px;opacity:0.6;width:65%"></div>
+        <div style="background:${pnl};height:16px;border-radius:4px;border:1px solid ${bdr}"></div>
+        <div style="background:${acc};height:4px;border-radius:2px;width:45%"></div>
+      </div>
+    </div>
+  </div>`;
+}
+
 async function loadCommunityThemes(force = false) {
   const grid = document.getElementById('community-themes-grid');
   grid.innerHTML = hearthLoading();
@@ -3736,15 +3760,15 @@ async function loadCommunityThemes(force = false) {
     const themes = await api('GET', url);
     if (!themes.length) { grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Keine Themes gefunden.</span>'; return; }
     grid.innerHTML = themes.map(theme => `
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:8px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:28px;height:28px;border-radius:6px;background:${esc(theme.preview || '#333')};flex-shrink:0;border:1px solid var(--border)"></div>
-          <div>
-            <div style="font-size:13px;font-weight:600">${esc(theme.name)}</div>
-            <div style="font-size:11px;color:var(--text-faint)">by ${esc(theme.author || 'community')}</div>
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          ${_themePreviewHtml(theme)}
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px">${esc(theme.name)}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">by ${esc(theme.author || 'community')}</div>
+            <div style="font-size:12px;color:var(--text-dim);line-height:1.4">${esc(theme.description || '')}</div>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--text-dim)">${esc(theme.description || '')}</div>
         <button class="btn sm ghost" onclick="applyCommunityTheme(${esc(JSON.stringify(theme))})">Anwenden</button>
       </div>`).join('');
   } catch (e) {
@@ -3752,14 +3776,17 @@ async function loadCommunityThemes(force = false) {
   }
 }
 
+function _reloadCustomCss() {
+  const link = document.querySelector('link[href*="custom.css"]');
+  if (link) link.href = '/custom.css?_=' + Date.now();
+}
+
 async function applyCommunityTheme(theme) {
   try {
     await api('POST', '/api/theme', { css: theme.css, id: theme.id, name: theme.name });
-    toast(`Theme "${theme.name}" angewendet – Seite neu laden zum Sehen`);
+    toast(`Theme "${theme.name}" angewendet`);
     loadThemeStatus();
-    // Hot-reload by updating the <link> tag
-    const link = document.querySelector('link[href="/custom.css"]');
-    if (link) { const h = link.href; link.href = ''; link.href = h; }
+    _reloadCustomCss();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -3870,8 +3897,7 @@ document.getElementById('theme-reset-btn').addEventListener('click', async () =>
   await api('DELETE', '/api/theme');
   toast('Theme zurückgesetzt');
   loadThemeStatus();
-  const link = document.querySelector('link[href="/custom.css"]');
-  if (link) { const h = link.href; link.href = ''; link.href = h; }
+  _reloadCustomCss();
 });
 
 document.getElementById('theme-css-toggle').addEventListener('click', () => {
@@ -3890,8 +3916,7 @@ document.getElementById('theme-apply-btn').addEventListener('click', async () =>
     await api('POST', '/api/theme', url ? { url, name: 'Custom (URL)' } : { css, name: 'Custom CSS' });
     toast('Theme angewendet');
     loadThemeStatus();
-    const link = document.querySelector('link[href="/custom.css"]');
-    if (link) { const h = link.href; link.href = ''; link.href = h; }
+    _reloadCustomCss();
   } catch (e) { toast(e.message, 'error'); }
 });
 
