@@ -2783,7 +2783,7 @@ app.get(
     if (hearthUpdate?.hasUpdate) {
       addNotif('update', 'Hearth update available',
         `v${hearthUpdate.localVersion} → v${hearthUpdate.remoteVersion}: ${hearthUpdate.message}`,
-        { section: 'updates' });
+        { section: 'updates', label: 'Aktualisieren' });
     }
 
     const result = { containers: containerUpdates, hearth: hearthUpdate, ts: Date.now() };

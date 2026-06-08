@@ -1274,15 +1274,22 @@ function renderNotifications(list) {
     return;
   }
   const icons = { update: '🔼', 'update-done': '✅', error: '⚠️', info: 'ℹ️' };
-  el.innerHTML = list.map(n => `
-    <div class="notif-item ${n.read ? '' : 'unread'}" data-id="${n.id}" data-action='${JSON.stringify(n.action || {})}'>
-      <div class="notif-item-icon">${icons[n.type] || 'ℹ️'}</div>
-      <div class="notif-item-body">
-        <div class="notif-item-title">${esc(n.title)}</div>
-        <div class="notif-item-msg">${esc(n.body)}</div>
-        <div class="notif-item-time">${new Date(n.ts).toLocaleString()}</div>
-      </div>
-    </div>`).join('');
+  el.innerHTML = list.map(n => {
+    const actionBtn = n.action?.label
+      ? `<button class="btn sm primary" style="margin-top:8px;font-size:12px;padding:4px 10px"
+           onclick="event.stopPropagation();_notifAction(${esc(JSON.stringify(n.action))})">${esc(n.action.label)}</button>`
+      : '';
+    return `
+      <div class="notif-item ${n.read ? '' : 'unread'}" data-id="${n.id}" data-action='${JSON.stringify(n.action || {})}'>
+        <div class="notif-item-icon">${icons[n.type] || 'ℹ️'}</div>
+        <div class="notif-item-body">
+          <div class="notif-item-title">${esc(n.title)}</div>
+          <div class="notif-item-msg">${esc(n.body)}</div>
+          <div class="notif-item-time">${new Date(n.ts).toLocaleString()}</div>
+          ${actionBtn}
+        </div>
+      </div>`;
+  }).join('');
 
   el.querySelectorAll('.notif-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -1304,6 +1311,11 @@ async function markAllRead() {
   await api('POST', '/api/notifications/read-all').catch(() => {});
   document.getElementById('notif-badge').style.display = 'none';
   document.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+}
+
+function _notifAction(action) {
+  document.getElementById('notif-panel').style.display = 'none';
+  if (action.section === 'updates') updateHearth();
 }
 
 // Poll for notifications every 30s
