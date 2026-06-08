@@ -1309,7 +1309,181 @@ document.getElementById('modal-security').addEventListener('click', e => {
 });
 // Also load when first opened
 document.querySelectorAll('[onclick*="modal-security"]').forEach(el => {
-  el.addEventListener('click', loadUserList);
+  el.addEventListener('click', () => { loadUserList(); loadTotpStatus(); loadPasskeys(); });
+});
+
+// ── WebAuthn helpers ────────────────────────────────────────────────────────
+function _b64uToBuffer(b64u) {
+  const base64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
+  const bin = atob(padded);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+function _bufToB64u(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = '';
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// ── 2FA / TOTP ──────────────────────────────────────────────────────────────
+async function loadTotpStatus() {
+  try {
+    const { enabled } = await api('GET', '/api/2fa/status');
+    const badge   = document.getElementById('totp-status-badge');
+    const actions = document.getElementById('totp-actions');
+    badge.textContent   = enabled ? 'Aktiviert' : 'Deaktiviert';
+    badge.style.cssText = enabled
+      ? 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;background:rgba(52,199,89,.15);color:#34c759;border:1px solid rgba(52,199,89,.3)'
+      : 'font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;background:var(--panel-2);color:var(--text-faint);border:1px solid var(--border)';
+    actions.innerHTML = enabled
+      ? `<button class="btn sm ghost" id="totp-disable-open-btn" style="color:var(--danger,#e74c3c);border-color:var(--danger,#e74c3c)">2FA deaktivieren</button>`
+      : `<button class="btn sm ghost" id="totp-setup-open-btn">2FA einrichten</button>`;
+    document.getElementById('totp-setup-open-btn')?.addEventListener('click', startTotpSetup);
+    document.getElementById('totp-disable-open-btn')?.addEventListener('click', () => {
+      document.getElementById('totp-disable-area').style.display = 'flex';
+      document.getElementById('totp-actions').style.display = 'none';
+      document.getElementById('totp-disable-code').focus();
+    });
+  } catch (_) {}
+}
+
+async function startTotpSetup() {
+  try {
+    const { secret, qrDataUrl } = await api('POST', '/api/2fa/setup');
+    document.getElementById('totp-qr').src           = qrDataUrl;
+    document.getElementById('totp-secret-text').textContent = secret;
+    document.getElementById('totp-setup-area').style.display  = 'flex';
+    document.getElementById('totp-actions').style.display     = 'none';
+    document.getElementById('totp-verify-code').focus();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('totp-confirm-btn').addEventListener('click', async () => {
+  const token = document.getElementById('totp-verify-code').value.trim();
+  if (!token) { toast('Bitte Code eingeben', 'error'); return; }
+  try {
+    await api('POST', '/api/2fa/enable', { token });
+    toast('2FA aktiviert');
+    document.getElementById('totp-setup-area').style.display = 'none';
+    document.getElementById('totp-verify-code').value = '';
+    loadTotpStatus();
+  } catch (e) {
+    toast(e.message, 'error');
+    document.getElementById('totp-verify-code').value = '';
+    document.getElementById('totp-verify-code').focus();
+  }
+});
+
+document.getElementById('totp-cancel-btn').addEventListener('click', () => {
+  document.getElementById('totp-setup-area').style.display = 'none';
+  document.getElementById('totp-verify-code').value = '';
+  loadTotpStatus();
+});
+
+document.getElementById('totp-disable-confirm-btn').addEventListener('click', async () => {
+  const token = document.getElementById('totp-disable-code').value.trim();
+  if (!token) { toast('Bitte Code eingeben', 'error'); return; }
+  try {
+    await api('POST', '/api/2fa/disable', { token });
+    toast('2FA deaktiviert');
+    document.getElementById('totp-disable-area').style.display = 'none';
+    document.getElementById('totp-disable-code').value = '';
+    document.getElementById('totp-actions').style.display = '';
+    loadTotpStatus();
+  } catch (e) {
+    toast(e.message, 'error');
+    document.getElementById('totp-disable-code').value = '';
+    document.getElementById('totp-disable-code').focus();
+  }
+});
+
+document.getElementById('totp-disable-cancel-btn').addEventListener('click', () => {
+  document.getElementById('totp-disable-area').style.display = 'none';
+  document.getElementById('totp-disable-code').value = '';
+  document.getElementById('totp-actions').style.display = '';
+});
+
+// ── Passkeys ────────────────────────────────────────────────────────────────
+async function loadPasskeys() {
+  const isSecure = window.isSecureContext && window.PublicKeyCredential;
+  const hint = document.getElementById('passkey-unavail-hint');
+  const addArea = document.getElementById('passkey-add-area');
+  if (!isSecure) {
+    hint.style.display = '';
+    addArea.style.display = 'none';
+    document.getElementById('passkey-list').innerHTML = '';
+    return;
+  }
+  hint.style.display = 'none';
+  addArea.style.display = '';
+  try {
+    const keys = await api('GET', '/api/passkeys');
+    const list = document.getElementById('passkey-list');
+    if (!keys.length) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--text-faint)">Noch keine Passkeys registriert.</div>';
+      return;
+    }
+    list.innerHTML = keys.map(k => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--accent)"><circle cx="8" cy="8" r="3"/><path d="M13 8h8M18 5v6"/><path d="M11 13.5A4 4 0 1 0 7 17h13l3-3-1-1-2 2-1-1 2-2-1-1-2 2-1.5-1.5"/></svg>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(k.name)}</div>
+          <div style="font-size:11px;color:var(--text-faint)">${new Date(k.createdAt).toLocaleDateString()}</div>
+        </div>
+        <button class="iconbtn" onclick="deletePasskey('${esc(k.id)}')" title="Passkey löschen" style="flex-shrink:0">✕</button>
+      </div>
+    `).join('');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deletePasskey(id) {
+  if (!confirm('Diesen Passkey wirklich löschen?')) return;
+  try {
+    await api('DELETE', `/api/passkey/${encodeURIComponent(id)}`);
+    toast('Passkey gelöscht');
+    loadPasskeys();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('passkey-add-btn').addEventListener('click', async () => {
+  const btn  = document.getElementById('passkey-add-btn');
+  const name = document.getElementById('passkey-name-input').value.trim() || 'Passkey';
+  btn.disabled = true;
+  btn.textContent = 'Warte auf Authenticator…';
+  try {
+    const options = await api('POST', '/api/passkey/register-options');
+    const publicKey = {
+      ...options,
+      challenge: _b64uToBuffer(options.challenge),
+      user: { ...options.user, id: _b64uToBuffer(options.user.id) },
+      excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: _b64uToBuffer(c.id) })),
+    };
+    const credential = await navigator.credentials.create({ publicKey });
+    const regJSON = {
+      name,
+      id:    credential.id,
+      rawId: _bufToB64u(credential.rawId),
+      type:  credential.type,
+      response: {
+        clientDataJSON:    _bufToB64u(credential.response.clientDataJSON),
+        attestationObject: _bufToB64u(credential.response.attestationObject),
+      },
+      transports: credential.response.getTransports?.() || [],
+      clientExtensionResults: credential.getClientExtensionResults?.() || {},
+    };
+    await api('POST', '/api/passkey/register-verify', regJSON);
+    toast('Passkey erfolgreich registriert');
+    document.getElementById('passkey-name-input').value = '';
+    loadPasskeys();
+  } catch (err) {
+    if (err?.name !== 'NotAllowedError') toast(err.message || 'Passkey-Registrierung fehlgeschlagen', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Passkey hinzufügen';
+  }
 });
 
 // Fetch own role on page load

@@ -2587,6 +2587,62 @@
             </div>
           </div>
 
+          <!-- 2FA / TOTP -->
+          <div class="s-group">
+            <div class="s-group-title">Zwei-Faktor-Authentifizierung</div>
+            <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                <div>
+                  <div style="font-size:13px;font-weight:600">TOTP Authenticator-App</div>
+                  <div style="font-size:12px;color:var(--text-faint);margin-top:2px">Google Authenticator, Authy, Bitwarden, etc.</div>
+                </div>
+                <span id="totp-status-badge" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap">…</span>
+              </div>
+              <!-- Setup flow (hidden by default) -->
+              <div id="totp-setup-area" style="display:none;flex-direction:column;gap:10px">
+                <div style="font-size:12px;color:var(--text-dim)">Scanne den QR-Code mit deiner Authenticator-App und gib danach den angezeigten 6-stelligen Code ein.</div>
+                <img id="totp-qr" src="" alt="QR-Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px;align-self:center">
+                <details style="font-size:11px;color:var(--text-faint)">
+                  <summary style="cursor:pointer">Secret manuell eingeben</summary>
+                  <code id="totp-secret-text" style="display:block;margin-top:4px;word-break:break-all;font-size:12px;background:var(--panel);padding:6px 8px;border-radius:4px"></code>
+                </details>
+                <div style="display:flex;gap:8px">
+                  <input class="input" id="totp-verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000" style="flex:1;letter-spacing:4px;font-size:16px">
+                  <button class="btn primary sm" id="totp-confirm-btn">Bestätigen</button>
+                </div>
+                <button class="btn sm ghost" id="totp-cancel-btn" style="align-self:flex-start">Abbrechen</button>
+              </div>
+              <!-- Disable flow (hidden by default) -->
+              <div id="totp-disable-area" style="display:none;flex-direction:column;gap:10px">
+                <div style="font-size:12px;color:var(--text-dim)">Gib deinen aktuellen Code ein, um 2FA zu deaktivieren.</div>
+                <div style="display:flex;gap:8px">
+                  <input class="input" id="totp-disable-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000" style="flex:1;letter-spacing:4px;font-size:16px">
+                  <button class="btn sm" style="background:var(--danger,#c0392b);color:#fff;border:none" id="totp-disable-confirm-btn">Deaktivieren</button>
+                </div>
+                <button class="btn sm ghost" id="totp-disable-cancel-btn" style="align-self:flex-start">Abbrechen</button>
+              </div>
+              <!-- Action buttons -->
+              <div id="totp-actions" style="display:flex;gap:8px"></div>
+            </div>
+          </div>
+
+          <!-- Passkeys -->
+          <div class="s-group" id="sec-passkeys-section">
+            <div class="s-group-title">Passkeys</div>
+            <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:12px;color:var(--text-faint)" id="passkey-unavail-hint" style="display:none">
+                Passkeys sind nur über HTTPS oder localhost verfügbar.
+              </div>
+              <div id="passkey-list" style="display:flex;flex-direction:column;gap:6px"></div>
+              <div id="passkey-add-area" style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;gap:8px">
+                  <input class="input" id="passkey-name-input" placeholder="Name (z.B. iPhone, YubiKey)" style="flex:1">
+                  <button class="btn sm ghost" id="passkey-add-btn">+ Passkey hinzufügen</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- User list (admin only) -->
           <div class="s-group" id="sec-users-section">
             <div class="s-group-title" data-i18n="security.users">Users</div>

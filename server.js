@@ -24,6 +24,14 @@ const os = require('os');
 const { exec, spawn } = require('child_process');
 const bcrypt = require('bcryptjs');
 const BCRYPT_ROUNDS = 12;
+const { authenticator } = require('otplib');
+const QRCode = require('qrcode');
+const {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} = require('@simplewebauthn/server');
 
 // Modul-weite Zustandsvariablen (müssen vor jeder Nutzung deklariert sein)
 let _nginxProc  = null;
@@ -1730,14 +1738,221 @@ app.post('/api/login', asyncHandler(async (req, res) => {
   const passOk = await bcrypt.compare(String(password || ''), user.password);
   if (!passOk) return res.status(401).json({ error: 'Invalid username or password' });
 
+  if (user.totp_enabled && user.totp_secret) {
+    req.session.pending2fa = username;
+    return res.json({ pending: '2fa' });
+  }
+
   req.session.authed = true;
   req.session.user   = username;
   req.session.role   = user.role;
+  delete req.session.pending2fa;
   res.json({ ok: true, role: user.role });
 }));
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
+});
+
+// ---------------------------------------------------------------------------
+// 2FA / TOTP
+// ---------------------------------------------------------------------------
+
+app.get('/api/2fa/status', requireAuth, (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ enabled: !!(user.totp_enabled && user.totp_secret) });
+});
+
+app.post('/api/2fa/setup', requireAuth, asyncHandler(async (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const secret = authenticator.generateSecret();
+  const otpauthUrl = authenticator.keyuri(user.username, runtimeConfig.serverName || 'Hearth', secret);
+  const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
+  req.session.pending_totp_secret = secret;
+  res.json({ secret, qrDataUrl });
+}));
+
+app.post('/api/2fa/enable', requireAuth, asyncHandler(async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ error: 'Token required' });
+  const secret = req.session.pending_totp_secret;
+  if (!secret) return res.status(400).json({ error: 'No pending setup. Call /api/2fa/setup first.' });
+  if (!authenticator.verify({ token: String(token), secret }))
+    return res.status(401).json({ error: 'Invalid token' });
+  const users = runtimeConfig.users || [];
+  const user  = users.find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  user.totp_secret  = secret;
+  user.totp_enabled = true;
+  delete req.session.pending_totp_secret;
+  saveConfig({ users });
+  res.json({ ok: true });
+}));
+
+app.post('/api/2fa/disable', requireAuth, asyncHandler(async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ error: 'Token required' });
+  const users = runtimeConfig.users || [];
+  const user  = users.find(u => u.username === req.session.user);
+  if (!user)              return res.status(404).json({ error: 'User not found' });
+  if (!user.totp_enabled) return res.status(400).json({ error: '2FA is not enabled' });
+  if (!authenticator.verify({ token: String(token), secret: user.totp_secret }))
+    return res.status(401).json({ error: 'Invalid token' });
+  user.totp_secret  = null;
+  user.totp_enabled = false;
+  saveConfig({ users });
+  res.json({ ok: true });
+}));
+
+app.post('/api/2fa/verify', asyncHandler(async (req, res) => {
+  const pendingUser = req.session.pending2fa;
+  if (!pendingUser) return res.status(400).json({ error: 'No pending 2FA login' });
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ error: 'Token required' });
+  const user = (runtimeConfig.users || []).find(u => u.username === pendingUser);
+  if (!user || !user.totp_enabled) return res.status(400).json({ error: 'Invalid state' });
+  if (!authenticator.verify({ token: String(token), secret: user.totp_secret }))
+    return res.status(401).json({ error: 'Invalid code' });
+  delete req.session.pending2fa;
+  req.session.authed = true;
+  req.session.user   = user.username;
+  req.session.role   = user.role;
+  res.json({ ok: true, role: user.role });
+}));
+
+// ---------------------------------------------------------------------------
+// Passkeys / WebAuthn
+// ---------------------------------------------------------------------------
+
+function _webauthnOrigin(req) {
+  const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const host  = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+  const rpID  = host.split(':')[0];
+  return { origin: `${proto}://${host}`, rpID };
+}
+
+app.get('/api/passkeys', requireAuth, (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json((user.passkeys || []).map(pk => ({ id: pk.id, name: pk.name, createdAt: pk.createdAt, transports: pk.transports })));
+});
+
+app.post('/api/passkey/register-options', requireAuth, asyncHandler(async (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const { rpID } = _webauthnOrigin(req);
+  const options = await generateRegistrationOptions({
+    rpName: runtimeConfig.serverName || 'Hearth',
+    rpID,
+    userID:      user.username,
+    userName:    user.username,
+    attestationType: 'none',
+    excludeCredentials: (user.passkeys || []).map(pk => ({ id: pk.id, type: 'public-key', transports: pk.transports })),
+    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+  });
+  req.session.webauthn_reg_challenge = options.challenge;
+  req.session.webauthn_rp_id         = rpID;
+  res.json(options);
+}));
+
+app.post('/api/passkey/register-verify', requireAuth, asyncHandler(async (req, res) => {
+  const challenge = req.session.webauthn_reg_challenge;
+  const rpID      = req.session.webauthn_rp_id;
+  if (!challenge || !rpID) return res.status(400).json({ error: 'No pending registration' });
+  const { name, ...regResponse } = req.body || {};
+  const { origin } = _webauthnOrigin(req);
+  let verification;
+  try {
+    verification = await verifyRegistrationResponse({ response: regResponse, expectedChallenge: challenge, expectedOrigin: origin, expectedRPID: rpID });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (!verification.verified) return res.status(400).json({ error: 'Verification failed' });
+  const { credentialID, credentialPublicKey, counter, transports } = verification.registrationInfo;
+  const users = runtimeConfig.users || [];
+  const user  = users.find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user.passkeys) user.passkeys = [];
+  user.passkeys.push({
+    id:        Buffer.from(credentialID).toString('base64url'),
+    publicKey: Buffer.from(credentialPublicKey).toString('base64'),
+    counter,
+    transports: transports || [],
+    name:      (name || 'Passkey').trim().slice(0, 50),
+    createdAt: new Date().toISOString(),
+  });
+  delete req.session.webauthn_reg_challenge;
+  delete req.session.webauthn_rp_id;
+  saveConfig({ users });
+  res.json({ ok: true });
+}));
+
+app.post('/api/passkey/auth-options', asyncHandler(async (req, res) => {
+  const { username } = req.body || {};
+  const { rpID } = _webauthnOrigin(req);
+  let allowCredentials = [];
+  if (username) {
+    const user = (runtimeConfig.users || []).find(u => u.username === username);
+    if (user?.passkeys?.length)
+      allowCredentials = user.passkeys.map(pk => ({ id: pk.id, type: 'public-key', transports: pk.transports }));
+  }
+  const options = await generateAuthenticationOptions({ rpID, userVerification: 'preferred', allowCredentials });
+  req.session.webauthn_auth_challenge = options.challenge;
+  req.session.webauthn_auth_rp_id     = rpID;
+  res.json(options);
+}));
+
+app.post('/api/passkey/auth-verify', asyncHandler(async (req, res) => {
+  const challenge = req.session.webauthn_auth_challenge;
+  const rpID      = req.session.webauthn_auth_rp_id;
+  if (!challenge || !rpID) return res.status(400).json({ error: 'No pending authentication' });
+  const { origin } = _webauthnOrigin(req);
+  const body = req.body || {};
+  let matchedUser = null, matchedKey = null;
+  for (const u of runtimeConfig.users || []) {
+    const pk = (u.passkeys || []).find(k => k.id === body.id);
+    if (pk) { matchedUser = u; matchedKey = pk; break; }
+  }
+  if (!matchedUser || !matchedKey) return res.status(400).json({ error: 'Passkey not found' });
+  let verification;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response: body,
+      expectedChallenge: challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      authenticator: {
+        credentialID:        Buffer.from(matchedKey.id, 'base64url'),
+        credentialPublicKey: Buffer.from(matchedKey.publicKey, 'base64'),
+        counter:             matchedKey.counter,
+        transports:          matchedKey.transports,
+      },
+    });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (!verification.verified) return res.status(400).json({ error: 'Verification failed' });
+  matchedKey.counter = verification.authenticationInfo.newCounter;
+  saveConfig({ users: runtimeConfig.users });
+  delete req.session.webauthn_auth_challenge;
+  delete req.session.webauthn_auth_rp_id;
+  req.session.authed = true;
+  req.session.user   = matchedUser.username;
+  req.session.role   = matchedUser.role;
+  res.json({ ok: true, role: matchedUser.role });
+}));
+
+app.delete('/api/passkey/:id', requireAuth, (req, res) => {
+  const users = runtimeConfig.users || [];
+  const user  = users.find(u => u.username === req.session.user);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const before = (user.passkeys || []).length;
+  user.passkeys = (user.passkeys || []).filter(pk => pk.id !== req.params.id);
+  if (user.passkeys.length === before) return res.status(404).json({ error: 'Passkey not found' });
+  saveConfig({ users });
+  res.json({ ok: true });
 });
 
 app.get('/api/me', (req, res) => {
