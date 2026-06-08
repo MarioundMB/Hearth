@@ -45,6 +45,65 @@
       .back:hover {
         color: var(--accent);
       }
+      /* Divider */
+      .or-divider {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 16px 0;
+        color: var(--text-faint);
+        font-size: 12px;
+      }
+      .or-divider::before,
+      .or-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+      /* Passkey button */
+      .btn-passkey {
+        width: 100%;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        cursor: pointer;
+        transition: background .15s, border-color .15s;
+        display: flex;
+        align-items: center;
+      }
+      .btn-passkey:hover {
+        background: var(--panel-3, var(--panel-2));
+        border-color: var(--accent);
+      }
+      /* 2FA step */
+      #step-2fa {
+        display: none;
+      }
+      .totp-hint {
+        font-size: 12px;
+        color: var(--text-faint);
+        margin-top: 6px;
+        margin-bottom: 4px;
+      }
+      .back-link {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        font-size: 13px;
+        cursor: pointer;
+        padding: 0;
+        margin-top: 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .back-link:hover { color: var(--accent); }
     </style>
   </head>
   <body>
@@ -53,21 +112,45 @@
         <span class="flame">▲</span>
         <span>Hearth</span>
       </div>
-      <div class="sub" data-i18n="login.subtitle">Admin-Anmeldung</div>
 
-      <form id="form">
-        <div class="field">
-          <label for="u" data-i18n="login.username">Benutzername</label>
-          <input class="input" id="u" autocomplete="username" placeholder="Benutzername" />
-        </div>
-        <div class="field">
-          <label for="p" data-i18n="login.password">Passwort</label>
-          <input class="input" id="p" type="password" autocomplete="current-password" />
-        </div>
-        <button class="btn primary" type="submit" data-i18n="login.submit">Anmelden</button>
-      </form>
+      <!-- Step 1: Username + Password -->
+      <div id="step-password">
+        <div class="sub" data-i18n="login.subtitle">Admin-Anmeldung</div>
+        <form id="form-password">
+          <div class="field">
+            <label for="u" data-i18n="login.username">Benutzername</label>
+            <input class="input" id="u" autocomplete="username" placeholder="Benutzername" />
+          </div>
+          <div class="field">
+            <label for="p" data-i18n="login.password">Passwort</label>
+            <input class="input" id="p" type="password" autocomplete="current-password" />
+          </div>
+          <button class="btn primary" type="submit" data-i18n="login.submit">Anmelden</button>
+        </form>
 
-      <a class="back" href="/" data-i18n="login.back">← Zurück zur Dienste-Übersicht</a>
+        <div class="or-divider" id="passkey-divider" style="display:none">oder</div>
+        <button class="btn-passkey" id="btn-passkey" style="display:none" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="8" cy="8" r="3"/><path d="M13 8h8M18 5v6"/><path d="M11 13.5A4 4 0 1 0 7 17h13l3-3-1-1-2 2-1-1 2-2-1-1-2 2-1.5-1.5"/>
+          </svg>
+          Mit Passkey anmelden
+        </button>
+      </div>
+
+      <!-- Step 2: TOTP Code -->
+      <div id="step-2fa">
+        <div class="sub">Zwei-Faktor-Authentifizierung</div>
+        <form id="form-2fa">
+          <div class="field">
+            <label for="totp-code">Code aus deiner Authenticator-App</label>
+            <input class="input" id="totp-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" />
+          </div>
+          <div class="totp-hint">Gib den 6-stelligen Code aus Google Authenticator, Authy oder einer ähnlichen App ein.</div>
+          <button class="btn primary" type="submit">Bestätigen</button>
+        </form>
+        <button class="back-link" id="btn-back-to-pw" type="button">← Zurück</button>
+      </div>
+
     </div>
 
     <div id="toast"></div>
@@ -76,18 +159,110 @@
       api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
     </script>
     <script>
-      document.getElementById('form').addEventListener('submit', async (e) => {
+      // ── WebAuthn helpers ────────────────────────────────────────────────
+      function b64uToBuffer(b64u) {
+        const base64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
+        const bin = atob(padded);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        return buf.buffer;
+      }
+      function bufToB64u(buf) {
+        const bytes = new Uint8Array(buf);
+        let str = '';
+        for (const b of bytes) str += String.fromCharCode(b);
+        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      }
+
+      // ── Passkey availability ─────────────────────────────────────────────
+      if (window.isSecureContext && window.PublicKeyCredential) {
+        document.getElementById('passkey-divider').style.display = '';
+        document.getElementById('btn-passkey').style.display = '';
+      }
+
+      // ── Password form ────────────────────────────────────────────────────
+      document.getElementById('form-password').addEventListener('submit', async (e) => {
         e.preventDefault();
         try {
-          await api('POST', '/api/login', {
+          const res = await api('POST', '/api/login', {
             username: document.getElementById('u').value,
             password: document.getElementById('p').value,
           });
-          location.href = '/admin';
+          if (res.pending === '2fa') {
+            document.getElementById('step-password').style.display = 'none';
+            document.getElementById('step-2fa').style.display = '';
+            document.getElementById('totp-code').focus();
+          } else {
+            location.href = '/admin';
+          }
         } catch (err) {
           toast(err.message, 'error');
         }
       });
+
+      // ── 2FA form ──────────────────────────────────────────────────────────
+      document.getElementById('form-2fa').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api('POST', '/api/2fa/verify', { token: document.getElementById('totp-code').value.trim() });
+          location.href = '/admin';
+        } catch (err) {
+          toast(err.message, 'error');
+          document.getElementById('totp-code').value = '';
+          document.getElementById('totp-code').focus();
+        }
+      });
+
+      document.getElementById('btn-back-to-pw').addEventListener('click', () => {
+        document.getElementById('step-2fa').style.display = 'none';
+        document.getElementById('step-password').style.display = '';
+        document.getElementById('totp-code').value = '';
+      });
+
+      // ── Passkey login ─────────────────────────────────────────────────────
+      document.getElementById('btn-passkey').addEventListener('click', async () => {
+        const btn = document.getElementById('btn-passkey');
+        btn.disabled = true;
+        btn.textContent = 'Warte auf Authenticator…';
+        try {
+          const username = document.getElementById('u').value.trim() || undefined;
+          const options = await api('POST', '/api/passkey/auth-options', username ? { username } : {});
+
+          const publicKey = {
+            ...options,
+            challenge: b64uToBuffer(options.challenge),
+            allowCredentials: (options.allowCredentials || []).map(c => ({
+              ...c,
+              id: b64uToBuffer(c.id),
+            })),
+          };
+
+          const assertion = await navigator.credentials.get({ publicKey });
+
+          const assertionJSON = {
+            id:    assertion.id,
+            rawId: bufToB64u(assertion.rawId),
+            type:  assertion.type,
+            response: {
+              clientDataJSON:    bufToB64u(assertion.response.clientDataJSON),
+              authenticatorData: bufToB64u(assertion.response.authenticatorData),
+              signature:         bufToB64u(assertion.response.signature),
+              userHandle:        assertion.response.userHandle ? bufToB64u(assertion.response.userHandle) : null,
+            },
+            clientExtensionResults: assertion.getClientExtensionResults?.() || {},
+          };
+
+          await api('POST', '/api/passkey/auth-verify', assertionJSON);
+          location.href = '/admin';
+        } catch (err) {
+          if (err?.name !== 'NotAllowedError') toast(err.message || 'Passkey-Anmeldung fehlgeschlagen', 'error');
+          btn.disabled = false;
+          btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M13 8h8M18 5v6"/><path d="M11 13.5A4 4 0 1 0 7 17h13l3-3-1-1-2 2-1-1 2-2-1-1-2 2-1.5-1.5"/></svg> Mit Passkey anmelden`;
+        }
+      });
     </script>
+
+    <a class="back" href="/" data-i18n="login.back">← Zurück zur Dienste-Übersicht</a>
   </body>
 </html>
