@@ -1373,6 +1373,8 @@
               <button class="btn sm ghost" id="refresh-containers">⟳ <span data-i18n="nav.refresh">Aktualisieren</span></button>
               <button class="btn primary sm" id="new-container" data-i18n="containers.new">+ Neuer Container</button>
             </div>
+            <!-- Stack-Gruppen (erscheinen wenn erkannte Stacks vorhanden) -->
+            <div id="stack-groups"></div>
             <div class="list" id="containers"></div>
           </section>
 
@@ -2683,6 +2685,119 @@
         </div>
       </div>
     </div>
+
+    <!-- Stack-Detail-Modal -->
+    <div class="modal-backdrop" id="modal-stack">
+      <div class="modal" style="max-width:660px">
+        <div class="modal-head">
+          <h3 id="stack-modal-title" style="display:flex;align-items:center;gap:10px;font-size:18px"></h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body" style="padding:0;max-height:75vh;overflow-y:auto">
+
+          <!-- Beschreibung + Pfade -->
+          <div class="s-group">
+            <div class="s-group-title">Beschreibung</div>
+            <div style="padding:0 22px 4px;font-size:13px;color:var(--text-dim)" id="stack-modal-desc"></div>
+            <div class="s-group-title" style="margin-top:12px">Pfade konfigurieren</div>
+            <div style="padding:0 22px 16px" id="stack-modal-paths"></div>
+          </div>
+
+          <!-- Dienste -->
+          <div class="s-group">
+            <div class="s-group-title">Dienste</div>
+            <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:8px" id="stack-modal-services"></div>
+          </div>
+
+        </div>
+        <div class="modal-foot" style="display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-top:1px solid var(--border)">
+          <button class="btn primary" id="stack-deploy-missing-btn">Fehlende installieren</button>
+          <button class="btn ghost" data-close>Schließen</button>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      /* ── Stack-Gruppen im Container-Panel ── */
+      #stack-groups:not(:empty) { margin-bottom: 16px; }
+      .stack-group {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 16px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: border-color .15s, background .15s;
+      }
+      .stack-group:hover { border-color: var(--accent); background: var(--panel-2); }
+      .stack-group-icon { font-size: 24px; flex-shrink: 0; }
+      .stack-group-info { flex: 1; min-width: 0; }
+      .stack-group-name { font-size: 14px; font-weight: 600; }
+      .stack-group-desc { font-size: 12px; color: var(--text-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .stack-group-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+      .stack-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+      .stack-pill {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 20px;
+        font-weight: 600;
+        border: 1px solid transparent;
+      }
+      .stack-pill.running  { background: rgba(52,199,89,.15); color: #34c759; border-color: rgba(52,199,89,.3); }
+      .stack-pill.stopped  { background: rgba(255,159,10,.15); color: #ff9f0a; border-color: rgba(255,159,10,.3); }
+      .stack-pill.missing  { background: var(--panel-2); color: var(--text-faint); border-color: var(--border); }
+      .stack-pill.optional { opacity: .55; }
+      .stack-status-badge {
+        font-size: 11px; font-weight: 700; padding: 3px 9px;
+        border-radius: 20px; white-space: nowrap;
+      }
+      .stack-status-badge.ok      { background: rgba(52,199,89,.15); color: #34c759; border: 1px solid rgba(52,199,89,.3); }
+      .stack-status-badge.partial { background: rgba(255,159,10,.15); color: #ff9f0a; border: 1px solid rgba(255,159,10,.3); }
+      .stack-status-badge.missing { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
+
+      /* ── Stack-Karten im Store ── */
+      .stack-store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+      .stack-store-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        cursor: pointer;
+        transition: border-color .15s;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .stack-store-card:hover { border-color: var(--accent); }
+      .stack-store-head { display: flex; align-items: center; gap: 10px; }
+      .stack-store-icon { font-size: 28px; }
+      .stack-store-title { font-size: 15px; font-weight: 700; }
+      .stack-store-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; flex: 1; }
+      .stack-store-services { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+      .stack-svc-chip {
+        font-size: 11px; padding: 2px 6px; border-radius: 4px;
+        background: var(--panel-2); border: 1px solid var(--border);
+        color: var(--text-faint);
+      }
+      .stack-svc-chip.optional { opacity: .6; font-style: italic; }
+
+      /* ── Stack-Modal Dienste-Liste ── */
+      .stack-svc-row {
+        display: flex; align-items: center; gap: 12px;
+        padding: 10px 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .stack-svc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .stack-svc-dot.running { background: #34c759; }
+      .stack-svc-dot.stopped { background: #ff9f0a; }
+      .stack-svc-dot.missing { background: var(--text-faint); }
+      .stack-svc-info { flex: 1; min-width: 0; }
+      .stack-svc-name { font-size: 13px; font-weight: 600; }
+      .stack-svc-meta { font-size: 11px; color: var(--text-faint); }
+    </style>
 
     <div id="toast"></div>
     <script src="/js/common.js"></script>
