@@ -9,43 +9,24 @@
     <link rel="stylesheet" href="/custom.css" />
     <script src="/js/i18n.js"></script>
     <style>
-      /* Sticky wrapper — has no overflow so the gap-fill and frosted glass
-         both work correctly. overflow-x:auto on .tabs would clip box-shadow
-         and ::before, so all sticky + visual logic lives on the wrapper. */
       .tabs-wrap {
         position: relative;
         border-top: 1px solid var(--border);
-        /* glow bleed: follows active tab, bleeds downward into content */
-        --ti-left: 0px;
-        --ti-width: 120px;
       }
       /* right-side scroll fade */
       .tabs-wrap::after {
         content: '';
         position: absolute;
         right: 0; top: 0; bottom: 0;
-        width: 48px;
+        width: 56px;
         background: linear-gradient(to right, transparent, var(--bg));
         pointer-events: none;
         z-index: 1;
       }
-      /* downward glow that connects active tab to content below */
-      .tabs-wrap::before {
-        content: '';
-        position: absolute;
-        bottom: -36px;
-        left: var(--ti-left);
-        width: var(--ti-width);
-        height: 36px;
-        background: linear-gradient(to bottom, var(--accent-glow), transparent);
-        transition: left .32s cubic-bezier(.4,0,.2,1), width .32s cubic-bezier(.4,0,.2,1);
-        pointer-events: none;
-        z-index: 0;
-      }
       .tabs {
         display: flex;
-        gap: 0;
-        border-bottom: 1px solid var(--border);
+        gap: 4px;
+        padding: 8px 0 8px;
         margin-bottom: 0;
         overflow-x: auto;
         flex-wrap: nowrap;
@@ -55,58 +36,63 @@
         position: relative;
       }
       .tabs::-webkit-scrollbar { display: none; }
-      /* sliding accent bar */
-      .tab-indicator {
-        position: absolute;
-        bottom: -1px;
-        left: 0;
-        width: 0;
-        height: 2px;
-        background: var(--accent);
-        border-radius: 2px 2px 0 0;
-        box-shadow: 0 0 10px var(--accent), 0 0 4px var(--accent);
-        transition: left .32s cubic-bezier(.4,0,.2,1), width .32s cubic-bezier(.4,0,.2,1);
-        pointer-events: none;
-        z-index: 2;
-      }
+      /* unused — kept for JS compat */
+      .tab-indicator { display: none; }
       .tab {
-        padding: 11px 18px;
+        padding: 7px 15px;
         cursor: pointer;
         color: var(--text-dim);
         font-weight: 600;
-        font-size: 14.5px;
-        transition: color 0.18s ease;
+        font-size: 14px;
+        border-radius: 9px;
+        transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
         white-space: nowrap;
         flex-shrink: 0;
-        position: relative;
       }
-      .tab:hover { color: var(--text); }
-      .tab.active { color: var(--accent); }
+      .tab:hover {
+        color: var(--text);
+        background: rgba(255,255,255,0.04);
+      }
+      .tab.active {
+        color: var(--accent);
+        background: rgba(196, 240, 66, 0.08);
+        box-shadow: 0 0 0 1px var(--border);
+      }
+      /* Glass content panel */
+      .admin-layout { padding-top: 12px; }
+      .admin-main {
+        background: color-mix(in srgb, var(--panel) 55%, transparent);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 0 20px;
+      }
       .view {
         display: none;
-        padding-top: 28px;
-        padding-bottom: 32px;
+        padding-top: 22px;
+        padding-bottom: 28px;
       }
       .view.active {
         display: block;
-        animation: viewFadeIn .26s cubic-bezier(.4,0,.2,1);
+        animation: viewFadeIn .24s cubic-bezier(.4,0,.2,1);
       }
       @keyframes viewFadeIn {
-        from { opacity: 0; transform: translateY(10px); }
+        from { opacity: 0; transform: translateY(8px); }
         to   { opacity: 1; transform: translateY(0); }
       }
-      /* Tab accent glow that slides under the active tab */
+      /* Tab accent glow behind the active pill */
       .tab-glow-inner {
         position: absolute;
         top: 0; left: 0;
-        width: 300px;
-        height: 70px;
+        width: 280px;
+        height: 56px;
         background: radial-gradient(
-          ellipse 100% 100% at 50% 0%,
-          rgba(196, 240, 66, 0.10),
-          transparent 72%
+          ellipse 80% 100% at 50% 60%,
+          rgba(196, 240, 66, 0.09),
+          transparent 70%
         );
-        transition: transform .32s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
+        transition: transform .30s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
         pointer-events: none;
       }
       /* Store */
