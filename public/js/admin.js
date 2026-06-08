@@ -3,6 +3,26 @@
 // Sprache sofort aus localStorage anwenden (verhindert Flackern)
 if (typeof applyLang === 'function') applyLang(localStorage.getItem('hearth-lang') || 'de');
 
+// ---------- Tab glow ----------
+function updateTabGlow(el) {
+  const glow = document.getElementById('tab-glow-inner');
+  if (!glow || !el) return;
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2 - 150; // center 300px glow on element
+  glow.style.transform = `translateX(${x}px)`;
+}
+
+function initTabGlowPosition() {
+  const tabsEl = document.querySelector('.wrap.tabs');
+  if (!tabsEl) return;
+  const update = () => {
+    const r = tabsEl.getBoundingClientRect();
+    document.documentElement.style.setProperty('--tab-glow-top', r.bottom + 'px');
+  };
+  update();
+  window.addEventListener('resize', update);
+}
+
 // ---------- Tabs ----------
 document.querySelectorAll('.tab').forEach((t) => {
   t.addEventListener('click', () => {
@@ -12,6 +32,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     document.getElementById('view-' + t.dataset.view).classList.add('active');
     document.getElementById('btn-community-nav').classList.remove('active');
     closeCommunityHub();
+    updateTabGlow(t);
     if (t.dataset.view === 'store')    renderStore();
     if (t.dataset.view === 'images')   loadImages();
     if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
@@ -28,6 +49,7 @@ function openCommunityHub() {
   document.getElementById('overlay-community').style.display = '';
   document.body.style.overflow = 'hidden';
   document.getElementById('btn-community-nav').classList.add('active');
+  updateTabGlow(document.getElementById('btn-community-nav'));
   loadCommunityTab();
 }
 
@@ -41,6 +63,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.getElementById('overlay-community').style.display !== 'none') {
     closeCommunityHub();
   }
+});
+
+// Init: position glow line + center on active tab
+requestAnimationFrame(() => {
+  initTabGlowPosition();
+  const activeTab = document.querySelector('.tab.active');
+  if (activeTab) updateTabGlow(activeTab);
 });
 
 document.getElementById('logout').addEventListener('click', async () => {
