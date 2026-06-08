@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "themes": [
     {
       "id": "catppuccin-mocha",
@@ -7,7 +7,8 @@
       "author": "community",
       "description": "Warmes, pastelliges Dark Theme – basierend auf der beliebten Catppuccin-Palette.",
       "preview": "#1e1e2e",
-      "css": ":root { --bg: #1e1e2e; --panel: #181825; --panel-2: #313244; --panel-3: #45475a; --border: #45475a; --text: #cdd6f4; --text-dim: #bac2de; --text-faint: #6c7086; --accent: #cba6f7; --accent-hover: #b4befe; }"
+      "colors": { "bg": "#1e1e2e", "panel": "#313244", "accent": "#cba6f7", "text": "#cdd6f4", "border": "#45475a" },
+      "css": ":root { --bg: #1e1e2e; --bg-soft: #181825; --panel: #181825; --panel-2: #313244; --panel-3: #45475a; --border: #45475a; --border-bright: #585b70; --text: #cdd6f4; --text-dim: #bac2de; --text-faint: #6c7086; --accent: #cba6f7; --accent-dim: #b4befe; --accent-glow: rgba(203,166,247,0.14); --danger: #f38ba8; --danger-bg: rgba(243,139,168,0.12); --ok: #a6e3a1; --warn: #f9e2af; --shadow: 0 18px 50px -18px rgba(0,0,0,0.7); }"
     },
     {
       "id": "nord",
@@ -15,7 +16,8 @@
       "author": "community",
       "description": "Kühles, arktisches Dark Theme – ruhige Blautöne inspiriert vom Norden.",
       "preview": "#2e3440",
-      "css": ":root { --bg: #2e3440; --panel: #3b4252; --panel-2: #434c5e; --panel-3: #4c566a; --border: #4c566a; --text: #eceff4; --text-dim: #d8dee9; --text-faint: #7b88a1; --accent: #88c0d0; --accent-hover: #81a1c1; }"
+      "colors": { "bg": "#2e3440", "panel": "#434c5e", "accent": "#88c0d0", "text": "#eceff4", "border": "#4c566a" },
+      "css": ":root { --bg: #2e3440; --bg-soft: #292f3b; --panel: #3b4252; --panel-2: #434c5e; --panel-3: #4c566a; --border: #4c566a; --border-bright: #5a6580; --text: #eceff4; --text-dim: #d8dee9; --text-faint: #7b88a1; --accent: #88c0d0; --accent-dim: #81a1c1; --accent-glow: rgba(136,192,208,0.14); --danger: #bf616a; --danger-bg: rgba(191,97,106,0.12); --ok: #a3be8c; --warn: #ebcb8b; --shadow: 0 18px 50px -18px rgba(0,0,0,0.6); }"
     },
     {
       "id": "gruvbox",
@@ -23,7 +25,8 @@
       "author": "community",
       "description": "Warmes Retro-Theme mit gedämpften Erdtönen – zeitloser Klassiker.",
       "preview": "#282828",
-      "css": ":root { --bg: #282828; --panel: #3c3836; --panel-2: #504945; --panel-3: #665c54; --border: #504945; --text: #ebdbb2; --text-dim: #d5c4a1; --text-faint: #928374; --accent: #d79921; --accent-hover: #fabd2f; }"
+      "colors": { "bg": "#282828", "panel": "#504945", "accent": "#d79921", "text": "#ebdbb2", "border": "#504945" },
+      "css": ":root { --bg: #282828; --bg-soft: #242424; --panel: #3c3836; --panel-2: #504945; --panel-3: #665c54; --border: #504945; --border-bright: #7c6f64; --text: #ebdbb2; --text-dim: #d5c4a1; --text-faint: #928374; --accent: #d79921; --accent-dim: #b57614; --accent-glow: rgba(215,153,33,0.14); --danger: #fb4934; --danger-bg: rgba(251,73,52,0.12); --ok: #b8bb26; --warn: #fabd2f; --shadow: 0 18px 50px -18px rgba(0,0,0,0.7); }"
     },
     {
       "id": "solarized-dark",
@@ -31,7 +34,8 @@
       "author": "community",
       "description": "Klassisches Solarized Dark – präzise kalkulierte Farbpalette für angenehmes Lesen.",
       "preview": "#002b36",
-      "css": ":root { --bg: #002b36; --panel: #073642; --panel-2: #094352; --panel-3: #0d5160; --border: #094352; --text: #839496; --text-dim: #657b83; --text-faint: #4a6a73; --accent: #268bd2; --accent-hover: #2aa198; }"
+      "colors": { "bg": "#002b36", "panel": "#094352", "accent": "#268bd2", "text": "#839496", "border": "#094352" },
+      "css": ":root { --bg: #002b36; --bg-soft: #00212a; --panel: #073642; --panel-2: #094352; --panel-3: #0d5160; --border: #094352; --border-bright: #175f6d; --text: #839496; --text-dim: #657b83; --text-faint: #4a6a73; --accent: #268bd2; --accent-dim: #2176af; --accent-glow: rgba(38,139,210,0.14); --danger: #dc322f; --danger-bg: rgba(220,50,47,0.12); --ok: #859900; --warn: #b58900; --shadow: 0 18px 50px -18px rgba(0,0,0,0.7); }"
     },
     {
       "id": "rose-pine",
@@ -39,7 +43,8 @@
       "author": "community",
       "description": "Gedämpftes, natürliches Dark Theme – weiche Rosatöne für einen entspannten Look.",
       "preview": "#191724",
-      "css": ":root { --bg: #191724; --panel: #1f1d2e; --panel-2: #26233a; --panel-3: #403d52; --border: #403d52; --text: #e0def4; --text-dim: #908caa; --text-faint: #6e6a86; --accent: #c4a7e7; --accent-hover: #ebbcba; }"
+      "colors": { "bg": "#191724", "panel": "#26233a", "accent": "#c4a7e7", "text": "#e0def4", "border": "#403d52" },
+      "css": ":root { --bg: #191724; --bg-soft: #141320; --panel: #1f1d2e; --panel-2: #26233a; --panel-3: #403d52; --border: #403d52; --border-bright: #524f67; --text: #e0def4; --text-dim: #908caa; --text-faint: #6e6a86; --accent: #c4a7e7; --accent-dim: #b09bdb; --accent-glow: rgba(196,167,231,0.14); --danger: #eb6f92; --danger-bg: rgba(235,111,146,0.12); --ok: #9ccfd8; --warn: #f6c177; --shadow: 0 18px 50px -18px rgba(0,0,0,0.7); }"
     },
     {
       "id": "hearth-light",
@@ -47,7 +52,8 @@
       "author": "official",
       "description": "Offizielles helles Theme für Hearth – für gut beleuchtete Umgebungen.",
       "preview": "#f5f5f7",
-      "css": ":root { --bg: #f5f5f7; --panel: #ffffff; --panel-2: #f0f0f2; --panel-3: #e5e5ea; --border: #d1d1d6; --text: #1c1c1e; --text-dim: #3a3a3c; --text-faint: #8e8e93; --accent: #ff6b35; --accent-hover: #e55a24; --radius: 10px; --radius-sm: 6px; }"
+      "colors": { "bg": "#f5f5f7", "panel": "#ffffff", "accent": "#ff6b35", "text": "#1c1c1e", "border": "#d1d1d6" },
+      "css": ":root { --bg: #f5f5f7; --bg-soft: #ededf0; --panel: #ffffff; --panel-2: #f0f0f2; --panel-3: #e5e5ea; --border: #d1d1d6; --border-bright: #b0b0b8; --text: #1c1c1e; --text-dim: #3a3a3c; --text-faint: #8e8e93; --accent: #ff6b35; --accent-dim: #e55a24; --accent-glow: rgba(255,107,53,0.14); --danger: #ff3b30; --danger-bg: rgba(255,59,48,0.12); --ok: #34c759; --warn: #ff9500; --radius: 10px; --radius-sm: 6px; --shadow: 0 18px 50px -18px rgba(0,0,0,0.15); }"
     }
   ]
 }
