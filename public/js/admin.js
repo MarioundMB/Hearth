@@ -11,6 +11,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     t.classList.add('active');
     document.getElementById('view-' + t.dataset.view).classList.add('active');
     document.getElementById('btn-community-nav').classList.remove('active');
+    closeCommunityHub();
     if (t.dataset.view === 'store')    renderStore();
     if (t.dataset.view === 'images')   loadImages();
     if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
@@ -20,13 +21,26 @@ document.querySelectorAll('.tab').forEach((t) => {
   });
 });
 
-// ── Community Nav Button ─────────────────────────────────────────────────────
-document.getElementById('btn-community-nav').addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+// ── Community Hub Overlay ────────────────────────────────────────────────────
+document.getElementById('btn-community-nav').addEventListener('click', openCommunityHub);
+
+function openCommunityHub() {
+  document.getElementById('overlay-community').style.display = '';
+  document.body.style.overflow = 'hidden';
   document.getElementById('btn-community-nav').classList.add('active');
-  document.getElementById('view-community').classList.add('active');
   loadCommunityTab();
+}
+
+function closeCommunityHub() {
+  document.getElementById('overlay-community').style.display = 'none';
+  document.body.style.overflow = '';
+  document.getElementById('btn-community-nav').classList.remove('active');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('overlay-community').style.display !== 'none') {
+    closeCommunityHub();
+  }
 });
 
 document.getElementById('logout').addEventListener('click', async () => {
