@@ -67,3 +67,16 @@ function esc(s) {
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
 }
+
+// ── Hearth Mini-Spinner ─────────────────────────────────────────────────────
+// Returns an inline SVG with the looping running-light triangle.
+// size: pixel size (default 22). Works wherever innerHTML is set.
+function hearthSpinner(size) {
+  size = size || 22;
+  return `<svg class="hearth-spin" width="${size}" height="${size}" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg>`;
+}
+
+// Returns a flex row with spinner + optional label (replaces "Lädt…" placeholders).
+function hearthLoading(text) {
+  return `<div class="hearth-loading">${hearthSpinner(20)}<span>${text || 'Lädt…'}</span></div>`;
+}
