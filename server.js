@@ -3520,6 +3520,34 @@ const _STATIC_DIR  = fs.existsSync(path.join(_REPO_PUBLIC, 'index.html'))
   ? _REPO_PUBLIC
   : path.join(__dirname, 'public');
 console.log('[STATIC] Serving from:', _STATIC_DIR);
+
+// Inject ?v=VERSION into all JS/CSS references in HTML pages so CDN caches
+// are automatically busted on every version bump.
+const _VER_RE = /(src|href)="(\/(?:js|css)\/[^"]+\.(?:js|css))"/g;
+function injectVersion(html) {
+  return html.replace(_VER_RE, (_, attr, url) => `${attr}="${url}?v=${VERSION}"`);
+}
+for (const page of ['admin.html', 'index.html', 'login.html', 'setup.html']) {
+  app.get('/' + page.replace('index.html', ''), (req, res, next) => {
+    const file = path.join(_STATIC_DIR, page);
+    fs.readFile(file, 'utf8', (err, html) => {
+      if (err) return next();
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.send(injectVersion(html));
+    });
+  });
+}
+app.get('/admin', (req, res, next) => {
+  const file = path.join(_STATIC_DIR, 'admin.html');
+  fs.readFile(file, 'utf8', (err, html) => {
+    if (err) return next();
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(injectVersion(html));
+  });
+});
+
 app.use(express.static(_STATIC_DIR));
 
 // ---------------------------------------------------------------------------
