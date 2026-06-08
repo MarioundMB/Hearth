@@ -1377,35 +1377,6 @@
             <div id="store-categories"></div>
           </section>
 
-          <!-- Community -->
-          <section class="view" id="view-community">
-            <div class="toolbar">
-              <h2>Community</h2>
-              <div class="spacer"></div>
-              <button class="btn primary sm" id="btn-contribute">+ Beitragen</button>
-              <button class="btn sm ghost" id="community-refresh-btn">⟳ Aktualisieren</button>
-            </div>
-
-            <!-- Community Stacks -->
-            <div style="padding:0 0 24px">
-              <div class="store-category-title">📦 Community Stacks
-                <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">Importiere & deploye community-gepflegte Stack-Definitionen</span>
-              </div>
-              <div id="community-stacks-grid" class="stack-store-grid">
-                <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
-              </div>
-            </div>
-
-            <!-- Community Themes -->
-            <div>
-              <div class="store-category-title">🎨 Community Themes
-                <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">CSS-Themes für Hearth direkt anwenden</span>
-              </div>
-              <div id="community-themes-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
-                <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
-              </div>
-            </div>
-          </section>
 
           <!-- Images -->
           <section class="view" id="view-images">
@@ -2930,6 +2901,80 @@
       .stack-svc-info { flex: 1; min-width: 0; }
       .stack-svc-name { font-size: 13px; font-weight: 600; }
       .stack-svc-meta { font-size: 11px; color: var(--text-faint); }
+    </style>
+
+    <!-- Community Hub Fullscreen Overlay -->
+    <div id="overlay-community" style="display:none">
+      <div class="community-hub-inner">
+        <div class="community-hub-header">
+          <span style="font-size:19px;font-weight:700;display:flex;align-items:center;gap:10px">
+            🌐 Community Hub
+          </span>
+          <div class="spacer"></div>
+          <button class="btn primary sm" id="btn-contribute">+ Beitragen</button>
+          <button class="btn sm ghost" id="community-refresh-btn">⟳ Aktualisieren</button>
+          <button class="btn sm ghost" onclick="closeCommunityHub()" style="font-size:16px;padding:5px 10px">✕</button>
+        </div>
+
+        <div class="community-hub-body">
+          <!-- Community Stacks -->
+          <div style="margin-bottom:36px">
+            <div class="store-category-title" style="font-size:14px;margin-bottom:14px">
+              📦 Community Stacks
+              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">Importiere &amp; deploye community-gepflegte Stack-Definitionen</span>
+            </div>
+            <div id="community-stacks-grid" class="stack-store-grid">
+              <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
+            </div>
+          </div>
+
+          <!-- Community Themes -->
+          <div>
+            <div class="store-category-title" style="font-size:14px;margin-bottom:14px">
+              🎨 Community Themes
+              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">CSS-Themes für Hearth direkt anwenden</span>
+            </div>
+            <div id="community-themes-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
+              <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      #overlay-community {
+        position: fixed;
+        inset: 0;
+        z-index: 300;
+        background: var(--bg);
+        overflow-y: auto;
+        animation: communityIn .18s ease;
+      }
+      @keyframes communityIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .community-hub-inner {
+        max-width: 1300px;
+        margin: 0 auto;
+        padding: 0 28px 60px;
+      }
+      .community-hub-header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        padding: 16px 0;
+        margin-bottom: 32px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .community-hub-body {
+        padding-top: 4px;
+      }
     </style>
 
     <!-- Contribute Modal -->
