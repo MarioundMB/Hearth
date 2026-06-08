@@ -62,6 +62,25 @@
       }
       .view.active {
         display: block;
+        animation: viewFadeIn .21s ease;
+      }
+      @keyframes viewFadeIn {
+        from { opacity: 0; transform: translateY(-5px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      /* Tab accent glow that slides under the active tab */
+      .tab-glow-inner {
+        position: absolute;
+        top: 0; left: 0;
+        width: 300px;
+        height: 70px;
+        background: radial-gradient(
+          ellipse 100% 100% at 50% 0%,
+          rgba(196, 240, 66, 0.13),
+          transparent 72%
+        );
+        transition: transform .38s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
+        pointer-events: none;
       }
       /* Store */
       .store-category { margin-bottom: 32px; }
@@ -1346,6 +1365,11 @@
       </div>
     </header>
 
+    <!-- Tab accent glow — position:fixed, top set by JS to sit right at the tab border -->
+    <div style="position:fixed;top:var(--tab-glow-top,104px);left:0;right:0;height:0;overflow:visible;pointer-events:none;z-index:19" aria-hidden="true">
+      <div class="tab-glow-inner" id="tab-glow-inner"></div>
+    </div>
+
     <div class="wrap" style="max-width:1440px">
       <div class="admin-layout">
 
@@ -1355,7 +1379,6 @@
           <!-- Container -->
           <section class="view active" id="view-containers">
             <div class="toolbar">
-              <h2 data-i18n="containers.title">Container</h2>
               <button class="btn sm update-available" id="topbar-updates" style="display:none" onclick="updateAllContainers()"></button>
               <div class="spacer"></div>
               <span style="font-size:12px;color:var(--text-faint)" title="Drag a Docker Hub URL here or press Ctrl+V" data-i18n="drop.hint">🐳 Drop or paste URL</span>
@@ -1370,7 +1393,6 @@
           <!-- Store -->
           <section class="view" id="view-store">
             <div class="toolbar">
-              <h2 data-i18n="tab.store">Store</h2>
               <input class="input" id="store-search" style="flex:1;max-width:320px;padding:8px 12px;font-size:13px;margin-left:16px" data-i18n-ph="store.search" placeholder="Search apps…" oninput="filterStore(this.value)">
               <div class="spacer"></div>
             </div>
@@ -1381,7 +1403,6 @@
           <!-- Images -->
           <section class="view" id="view-images">
             <div class="toolbar">
-              <h2 data-i18n="images.title">Images</h2>
               <div class="spacer"></div>
               <button class="btn primary sm" id="pull-image" data-i18n="images.pull">↓ Image ziehen</button>
             </div>
@@ -1391,7 +1412,6 @@
           <!-- Dateimanager -->
           <section class="view" id="view-files">
             <div class="toolbar">
-              <h2 data-i18n="files.title">Dateimanager</h2>
               <div class="fm-nav-btns">
                 <button class="btn ghost sm" id="fm-back" title="Zurück">&#8592;</button>
                 <button class="btn ghost sm" id="fm-forward" title="Vorwärts">&#8594;</button>
@@ -1423,7 +1443,6 @@
           <!-- Reverse Proxy -->
           <section class="view" id="view-proxy">
             <div class="toolbar">
-              <h2 data-i18n="proxy.tab">Reverse Proxy</h2>
               <div class="spacer"></div>
               <div class="proxy-status" id="proxy-status-badge"></div>
               <button class="btn primary sm" id="add-proxy-btn" data-i18n="proxy.addRule">+ Add Rule</button>
@@ -1493,7 +1512,6 @@
           <!-- Firewall -->
           <section class="view" id="view-firewall">
             <div class="toolbar">
-              <h2 data-i18n="firewall.tab">Firewall</h2>
               <div class="spacer"></div>
               <div class="fw-mode-toggle">
                 <button class="btn sm fw-mode-btn active" id="fw-mode-normal" data-i18n="firewall.normalMode">Normal</button>
@@ -1544,7 +1562,6 @@
           <!-- VPN (WireGuard) -->
           <section class="view" id="view-vpn">
             <div class="toolbar">
-              <h2>VPN</h2>
               <div class="spacer"></div>
               <span class="vpn-status-badge" id="vpn-status-badge"></span>
             </div>
