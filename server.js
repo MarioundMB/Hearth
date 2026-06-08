@@ -2274,44 +2274,109 @@ function _matchService(service, rawContainers) {
   return null;
 }
 
-app.get('/api/stacks', requireAuth, asyncHandler(async (req, res) => {
-  const rawContainers = await docker.listContainers({ all: true }).catch(() => []);
-  const result = STACK_PRESETS.map(preset => {
-    let detectedCount = 0;
-    const services = preset.services.map(svc => {
-      const match = _matchService(svc, rawContainers);
-      if (match) detectedCount++;
-      const state = match ? match.c.State : 'missing';
-      const pub = (match?.c.Ports || []).find(p => String(p.PrivatePort) === String(svc.ports?.[0]?.container));
-      return {
-        key: svc.key, name: svc.name, description: svc.description,
-        image: svc.image, optional: !!svc.optional,
-        status: state,          // 'running' | 'exited' | 'missing'
-        matchType: match?.type || null,
-        containerId:   match?.c.Id || null,
-        containerName: match ? ((match.c.Names || [])[0] || '').replace(/^\//, '') : null,
-        hostPort: pub?.PublicPort || svc.ports?.[0]?.host || null,
-        ports: svc.ports, volumes: svc.volumes, env: svc.env, extra: svc.extra || {},
-      };
-    });
-    const required = services.filter(s => !s.optional);
-    const runningCount = services.filter(s => s.status === 'running').length;
+function _enrichPreset(preset, rawContainers) {
+  let detectedCount = 0;
+  const services = (preset.services || []).map(svc => {
+    const match = _matchService(svc, rawContainers);
+    if (match) detectedCount++;
+    const state = match ? match.c.State : 'missing';
+    const pub = (match?.c.Ports || []).find(p => String(p.PrivatePort) === String(svc.ports?.[0]?.container));
     return {
-      id: preset.id, name: preset.name, icon: preset.icon, description: preset.description,
-      paths: preset.paths,
-      services,
-      detected: detectedCount > 0,
-      runningCount,
-      totalCount: services.length,
-      requiredCount: required.length,
-      requiredRunning: required.filter(s => s.status === 'running').length,
+      key: svc.key, name: svc.name, description: svc.description,
+      image: svc.image, optional: !!svc.optional,
+      status: state,
+      matchType: match?.type || null,
+      containerId:   match?.c.Id || null,
+      containerName: match ? ((match.c.Names || [])[0] || '').replace(/^\//, '') : null,
+      hostPort: pub?.PublicPort || svc.ports?.[0]?.host || null,
+      ports: svc.ports, volumes: svc.volumes, env: svc.env, extra: svc.extra || {},
     };
   });
-  res.json(result);
+  const required = services.filter(s => !s.optional);
+  const runningCount = services.filter(s => s.status === 'running').length;
+  return {
+    id: preset.id, name: preset.name, icon: preset.icon || '📦', description: preset.description || '',
+    paths: preset.paths || {},
+    services,
+    custom: !!preset._custom,
+    detected: detectedCount > 0,
+    runningCount,
+    totalCount: services.length,
+    requiredCount: required.length,
+    requiredRunning: required.filter(s => s.status === 'running').length,
+  };
+}
+
+app.get('/api/stacks', requireAuth, asyncHandler(async (req, res) => {
+  const rawContainers = await docker.listContainers({ all: true }).catch(() => []);
+  const customStacks  = (runtimeConfig.customStacks || []).map(s => ({ ...s, _custom: true }));
+  const allPresets    = [...STACK_PRESETS, ...customStacks];
+  res.json(allPresets.map(p => _enrichPreset(p, rawContainers)));
 }));
 
+// ── Custom Stack CRUD ────────────────────────────────────────────────────────
+
+function _validateCustomStack(s) {
+  if (!s || typeof s !== 'object')         throw new Error('Invalid JSON');
+  if (!s.id || !/^[a-z0-9_-]+$/.test(s.id)) throw new Error('id must be lowercase alphanumeric/dash/underscore');
+  if (!s.name || typeof s.name !== 'string')  throw new Error('name required');
+  if (!Array.isArray(s.services) || !s.services.length) throw new Error('services array required');
+  for (const svc of s.services) {
+    if (!svc.key || !svc.name || !svc.image) throw new Error(`Service missing key/name/image: ${JSON.stringify(svc)}`);
+  }
+}
+
+app.get('/api/stacks/custom', requireAuth, (req, res) => {
+  res.json(runtimeConfig.customStacks || []);
+});
+
+app.post('/api/stacks/custom', requireAuth, asyncHandler(async (req, res) => {
+  const { json, url } = req.body || {};
+  let stackDef;
+  if (url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Fetch failed: ${resp.status} ${resp.statusText}`);
+    stackDef = await resp.json();
+  } else if (json) {
+    stackDef = typeof json === 'string' ? JSON.parse(json) : json;
+  } else {
+    return res.status(400).json({ error: 'Provide json or url' });
+  }
+  _validateCustomStack(stackDef);
+  const customs = runtimeConfig.customStacks || [];
+  if ([...STACK_PRESETS, ...customs].find(p => p.id === stackDef.id))
+    return res.status(409).json({ error: `Stack id "${stackDef.id}" already exists` });
+  customs.push(stackDef);
+  saveConfig({ customStacks: customs });
+  res.json({ ok: true, id: stackDef.id });
+}));
+
+app.put('/api/stacks/custom/:id', requireAuth, asyncHandler(async (req, res) => {
+  const { json } = req.body || {};
+  const stackDef = typeof json === 'string' ? JSON.parse(json) : json;
+  _validateCustomStack(stackDef);
+  if (stackDef.id !== req.params.id) return res.status(400).json({ error: 'id mismatch' });
+  const customs = runtimeConfig.customStacks || [];
+  const idx = customs.findIndex(s => s.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Custom stack not found' });
+  customs[idx] = stackDef;
+  saveConfig({ customStacks: customs });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/stacks/custom/:id', requireAuth, (req, res) => {
+  const customs = runtimeConfig.customStacks || [];
+  const filtered = customs.filter(s => s.id !== req.params.id);
+  if (filtered.length === customs.length) return res.status(404).json({ error: 'Custom stack not found' });
+  saveConfig({ customStacks: filtered });
+  res.json({ ok: true });
+});
+
+// ── Stack Deploy ─────────────────────────────────────────────────────────────
+
 app.post('/api/stacks/:presetId/services/:serviceKey/deploy', requireAuth, asyncHandler(async (req, res) => {
-  const preset  = STACK_PRESETS.find(p => p.id === req.params.presetId);
+  const customStacks = runtimeConfig.customStacks || [];
+  const preset = [...STACK_PRESETS, ...customStacks].find(p => p.id === req.params.presetId);
   if (!preset) return res.status(404).json({ error: 'Stack not found' });
   const service = preset.services.find(s => s.key === req.params.serviceKey);
   if (!service) return res.status(404).json({ error: 'Service not found' });

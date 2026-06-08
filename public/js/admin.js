@@ -3460,6 +3460,93 @@ document.getElementById('stack-deploy-missing-btn').addEventListener('click', as
   openStackModal(_stackModalId);
 });
 
+// ── Custom Stack Import ──────────────────────────────────────────────────────
+
+function openStackImport(existingId = null) {
+  const title = document.getElementById('stack-import-title');
+  const jsonTA = document.getElementById('stack-import-json');
+  const urlIn  = document.getElementById('stack-import-url');
+  const errDiv = document.getElementById('stack-import-error');
+
+  title.textContent = existingId ? '📦 Custom Stack bearbeiten' : '📦 Custom Stack importieren';
+  urlIn.value  = '';
+  errDiv.style.display = 'none';
+
+  if (existingId) {
+    const stack = _stacksData.find(s => s.id === existingId);
+    const raw   = (runtimeConfig_customStacks || []).find(s => s.id === existingId);
+    jsonTA.value = JSON.stringify(raw || { id: existingId }, null, 2);
+    document.getElementById('stack-import-save-btn').dataset.editId = existingId;
+  } else {
+    jsonTA.value = '';
+    delete document.getElementById('stack-import-save-btn').dataset.editId;
+  }
+  openModal('modal-stack-import');
+}
+
+let runtimeConfig_customStacks = [];
+
+async function refreshCustomStacksCache() {
+  try { runtimeConfig_customStacks = await api('GET', '/api/stacks/custom'); } catch (_) {}
+}
+
+document.getElementById('stack-import-fetch-btn').addEventListener('click', async () => {
+  const url = document.getElementById('stack-import-url').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('stack-import-fetch-btn');
+  btn.disabled = true; btn.textContent = '…';
+  const errDiv = document.getElementById('stack-import-error');
+  errDiv.style.display = 'none';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    document.getElementById('stack-import-json').value = JSON.stringify(json, null, 2);
+  } catch (e) {
+    errDiv.textContent = `Fehler beim Laden: ${e.message}`;
+    errDiv.style.display = '';
+  } finally { btn.disabled = false; btn.textContent = 'Laden'; }
+});
+
+document.getElementById('stack-import-save-btn').addEventListener('click', async () => {
+  const jsonText = document.getElementById('stack-import-json').value.trim();
+  const editId   = document.getElementById('stack-import-save-btn').dataset.editId;
+  const errDiv   = document.getElementById('stack-import-error');
+  errDiv.style.display = 'none';
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (editId) {
+      await api('PUT', `/api/stacks/custom/${editId}`, { json: parsed });
+      toast('Stack aktualisiert');
+    } else {
+      await api('POST', '/api/stacks/custom', { json: parsed });
+      toast('Stack importiert');
+    }
+    closeModal('modal-stack-import');
+    await refreshCustomStacksCache();
+    _stacksData = await api('GET', '/api/stacks');
+    renderStackGroups();
+    _storeRendered = false;
+    if (document.getElementById('view-store').classList.contains('active')) renderStore();
+  } catch (e) {
+    errDiv.textContent = e.message;
+    errDiv.style.display = '';
+  }
+});
+
+async function deleteCustomStack(id) {
+  if (!confirm(`Custom Stack "${id}" wirklich löschen?`)) return;
+  try {
+    await api('DELETE', `/api/stacks/custom/${id}`);
+    toast('Stack gelöscht');
+    await refreshCustomStacksCache();
+    _stacksData = await api('GET', '/api/stacks');
+    renderStackGroups();
+    _storeRendered = false;
+    if (document.getElementById('view-store').classList.contains('active')) renderStore();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // Stacks-Sektion im Store
 const _origRenderStore = renderStore;
 renderStore = async function () {
@@ -3480,21 +3567,33 @@ renderStore = async function () {
     const svcChips = stack.services.map(svc =>
       `<span class="stack-svc-chip${svc.optional ? ' optional' : ''}">${esc(svc.name)}</span>`
     ).join('');
+    const customBadge = stack.custom
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(249,130,52,.15);color:#f98234;border:1px solid rgba(249,130,52,.3);margin-left:6px">Custom</span>`
+      : '';
+    const customActions = stack.custom ? `
+      <div style="display:flex;gap:6px;margin-top:6px" onclick="event.stopPropagation()">
+        <button class="btn sm ghost" style="font-size:11px;padding:3px 8px" onclick="openStackImport('${esc(stack.id)}')">Bearbeiten</button>
+        <button class="btn sm ghost" style="font-size:11px;padding:3px 8px;color:var(--danger,#e74c3c);border-color:var(--danger,#e74c3c)" onclick="deleteCustomStack('${esc(stack.id)}')">Löschen</button>
+      </div>` : '';
     return `
       <div class="stack-store-card" onclick="openStackModal('${esc(stack.id)}')">
         <div class="stack-store-head">
           <div class="stack-store-icon">${stack.icon}</div>
-          <div class="stack-store-title">${esc(stack.name)}</div>
+          <div class="stack-store-title">${esc(stack.name)}${customBadge}</div>
         </div>
         <div class="stack-store-desc">${esc(stack.description)}</div>
         <div class="stack-store-services">${svcChips}</div>
+        ${customActions}
       </div>`;
   }).join('');
 
   const section = document.createElement('div');
   section.id = 'store-stacks-section';
   section.innerHTML = `
-    <div class="store-category-title" style="margin-top:0">📦 Stacks</div>
+    <div class="store-category-title" style="margin-top:0;display:flex;align-items:center;gap:10px">
+      📦 Stacks
+      <button class="btn sm ghost" style="margin-left:auto;font-size:12px" onclick="openStackImport()">+ Custom Stack</button>
+    </div>
     <div class="stack-store-grid">${cards}</div>`;
   container.insertBefore(section, container.firstChild);
 };
@@ -3508,6 +3607,7 @@ document.querySelectorAll('[data-view]').forEach(btn => {
 
 loadContainers();
 loadStackGroups();
+refreshCustomStacksCache();
 applyRefreshInterval(15);
 
 // Update-Check: beim Start und dann alle 30 Minuten
