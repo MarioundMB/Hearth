@@ -3,13 +3,29 @@
 // Sprache sofort aus localStorage anwenden (verhindert Flackern)
 if (typeof applyLang === 'function') applyLang(localStorage.getItem('hearth-lang') || 'de');
 
-// ---------- Tab glow ----------
+// ---------- Tab glow + sliding indicator ----------
 function updateTabGlow(el) {
   const glow = document.getElementById('tab-glow-inner');
   if (!glow || !el) return;
   const rect = el.getBoundingClientRect();
-  const x = rect.left + rect.width / 2 - 150; // center 300px glow on element
-  glow.style.transform = `translateX(${x}px)`;
+  glow.style.transform = `translateX(${rect.left + rect.width / 2 - 150}px)`;
+
+  // Sliding indicator bar inside .tabs
+  const indicator = document.getElementById('tab-indicator');
+  const tabs = document.querySelector('.wrap.tabs');
+  const wrap = document.querySelector('.tabs-wrap');
+  if (indicator && tabs) {
+    const tabsRect = tabs.getBoundingClientRect();
+    const absLeft = rect.left - tabsRect.left + tabs.scrollLeft;
+    indicator.style.left  = absLeft + 'px';
+    indicator.style.width = rect.width + 'px';
+  }
+  // Glow bleed: visual position relative to tabs-wrap (viewport-based, no scroll offset)
+  if (wrap) {
+    const wrapRect = wrap.getBoundingClientRect();
+    wrap.style.setProperty('--ti-left', (rect.left - wrapRect.left) + 'px');
+    wrap.style.setProperty('--ti-width', rect.width + 'px');
+  }
 }
 
 function initTabGlowPosition() {
