@@ -3512,7 +3512,15 @@ app.get(
 // ---------------------------------------------------------------------------
 // Statisches Frontend
 // ---------------------------------------------------------------------------
-app.use(express.static(path.join(__dirname, 'public')));
+// Prefer the live git-repo mount (/app/repo/public) so static file changes
+// take effect immediately after git reset --hard, without a Docker rebuild.
+// Falls back to the baked /app/public if no repo mount is present.
+const _REPO_PUBLIC = path.join('/app/repo', 'public');
+const _STATIC_DIR  = fs.existsSync(path.join(_REPO_PUBLIC, 'index.html'))
+  ? _REPO_PUBLIC
+  : path.join(__dirname, 'public');
+console.log('[STATIC] Serving from:', _STATIC_DIR);
+app.use(express.static(_STATIC_DIR));
 
 // ---------------------------------------------------------------------------
 // VPN (WireGuard via hearth-vpn container)
