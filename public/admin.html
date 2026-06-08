@@ -1528,17 +1528,18 @@
       </div>
     </div>
     <script>
-      // Hide overlay after fade-out animation completes
-      document.getElementById('loading-overlay').addEventListener('animationend', (e) => {
-        if (e.animationName === 'lo-bg-fade') {
-          document.getElementById('loading-overlay').style.display = 'none';
-        }
-      });
-      // Safety fallback: force-hide after 3.5s
-      setTimeout(() => {
-        const el = document.getElementById('loading-overlay');
-        if (el) el.style.display = 'none';
-      }, 3500);
+      (function() {
+        var lo = document.getElementById('loading-overlay');
+        if (!lo) return;
+        // Disable pointer-events before the fade starts so clicks pass through immediately
+        setTimeout(function() { lo.style.pointerEvents = 'none'; }, 2100);
+        // Hide when animation completes
+        setTimeout(function() { lo.style.display = 'none'; }, 2800);
+        // Belt-and-suspenders: animationend as secondary trigger
+        lo.addEventListener('animationend', function(e) {
+          if (e.animationName === 'lo-bg-fade') lo.style.display = 'none';
+        });
+      })();
     </script>
 
     <!-- SVG icon sprite -->
@@ -1554,7 +1555,7 @@
           <img src="/favicon.svg" alt="Hearth" class="flame" width="28" height="28">
           <span>Hearth <small>Admin</small></span>
         </button>
-        <button class="btn-community-nav" id="btn-community-nav" title="Community Hub">
+        <button class="btn-community-nav" id="btn-community-nav" onclick="openCommunityHub()" title="Community Hub">
           🌐 Community
         </button>
         <div class="spacer"></div>
@@ -3153,7 +3154,7 @@
           </span>
           <div class="spacer"></div>
           <button class="btn primary sm" id="btn-contribute">+ Beitragen</button>
-          <button class="btn sm ghost" id="community-refresh-btn">⟳ Aktualisieren</button>
+          <button class="btn sm ghost" id="community-refresh-btn"><svg class="hearth-spin" width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg> Aktualisieren</button>
           <button class="btn sm ghost" onclick="closeCommunityHub()" style="font-size:16px;padding:5px 10px">✕</button>
         </div>
 
