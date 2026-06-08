@@ -15,57 +15,84 @@
       .tabs-wrap {
         position: relative;
         border-top: 1px solid var(--border);
+        /* glow bleed: follows active tab, bleeds downward into content */
+        --ti-left: 0px;
+        --ti-width: 120px;
       }
+      /* right-side scroll fade */
       .tabs-wrap::after {
         content: '';
         position: absolute;
-        right: 0; top: 0; bottom: 1px;
+        right: 0; top: 0; bottom: 0;
         width: 48px;
-        background: linear-gradient(to right, transparent, rgba(12,14,13,.95));
+        background: linear-gradient(to right, transparent, var(--bg));
         pointer-events: none;
         z-index: 1;
       }
+      /* downward glow that connects active tab to content below */
+      .tabs-wrap::before {
+        content: '';
+        position: absolute;
+        bottom: -36px;
+        left: var(--ti-left);
+        width: var(--ti-width);
+        height: 36px;
+        background: linear-gradient(to bottom, var(--accent-glow), transparent);
+        transition: left .32s cubic-bezier(.4,0,.2,1), width .32s cubic-bezier(.4,0,.2,1);
+        pointer-events: none;
+        z-index: 0;
+      }
       .tabs {
         display: flex;
-        gap: 4px;
+        gap: 0;
         border-bottom: 1px solid var(--border);
-        margin-bottom: 22px;
+        margin-bottom: 0;
         overflow-x: auto;
         flex-wrap: nowrap;
         scrollbar-width: none;
         -ms-overflow-style: none;
         background: transparent;
+        position: relative;
       }
       .tabs::-webkit-scrollbar { display: none; }
+      /* sliding accent bar */
+      .tab-indicator {
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        width: 0;
+        height: 2px;
+        background: var(--accent);
+        border-radius: 2px 2px 0 0;
+        box-shadow: 0 0 10px var(--accent), 0 0 4px var(--accent);
+        transition: left .32s cubic-bezier(.4,0,.2,1), width .32s cubic-bezier(.4,0,.2,1);
+        pointer-events: none;
+        z-index: 2;
+      }
       .tab {
         padding: 11px 18px;
         cursor: pointer;
         color: var(--text-dim);
         font-weight: 600;
         font-size: 14.5px;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-        transition: all 0.15s ease;
+        transition: color 0.18s ease;
         white-space: nowrap;
         flex-shrink: 0;
+        position: relative;
       }
-      .tab:hover {
-        color: var(--text);
-      }
-      .tab.active {
-        color: var(--accent);
-        border-bottom-color: var(--accent);
-      }
+      .tab:hover { color: var(--text); }
+      .tab.active { color: var(--accent); }
       .view {
         display: none;
+        padding-top: 28px;
         padding-bottom: 32px;
       }
       .view.active {
         display: block;
-        animation: viewFadeIn .21s ease;
+        animation: viewFadeIn .26s cubic-bezier(.4,0,.2,1);
       }
       @keyframes viewFadeIn {
-        from { opacity: 0; transform: translateY(-5px); }
+        from { opacity: 0; transform: translateY(10px); }
         to   { opacity: 1; transform: translateY(0); }
       }
       /* Tab accent glow that slides under the active tab */
@@ -76,10 +103,10 @@
         height: 70px;
         background: radial-gradient(
           ellipse 100% 100% at 50% 0%,
-          rgba(196, 240, 66, 0.13),
+          rgba(196, 240, 66, 0.10),
           transparent 72%
         );
-        transition: transform .38s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
+        transition: transform .32s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
         pointer-events: none;
       }
       /* Store */
@@ -1578,6 +1605,7 @@
       </div>
       <div class="tabs-wrap">
         <div class="wrap tabs" style="max-width:1440px">
+          <div class="tab-indicator" id="tab-indicator"></div>
           <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
           <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
           <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
