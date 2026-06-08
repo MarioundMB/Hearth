@@ -39,9 +39,9 @@
       /* unused — kept for JS compat */
       .tab-indicator { display: none; }
       .tab {
-        padding: 7px 15px;
+        padding: 7px 16px;
         cursor: pointer;
-        color: var(--text-dim);
+        color: var(--text-faint);
         font-weight: 600;
         font-size: 14px;
         border-radius: 9px;
@@ -50,20 +50,21 @@
         flex-shrink: 0;
       }
       .tab:hover {
-        color: var(--text);
-        background: rgba(255,255,255,0.04);
+        color: var(--text-dim);
+        background: rgba(255,255,255,0.05);
       }
       .tab.active {
         color: var(--accent);
-        background: rgba(196, 240, 66, 0.08);
-        box-shadow: 0 0 0 1px var(--border);
+        background: color-mix(in srgb, var(--accent) 14%, var(--panel-2));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, var(--border)),
+                    0 2px 8px -2px rgba(0,0,0,0.35);
       }
       /* Glass content panel */
-      .admin-layout { padding-top: 12px; }
+      .admin-layout { padding-top: 10px; }
       .admin-main {
-        background: color-mix(in srgb, var(--panel) 55%, transparent);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
+        background: color-mix(in srgb, var(--panel) 65%, transparent);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 0 20px;
