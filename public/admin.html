@@ -13,19 +13,9 @@
          both work correctly. overflow-x:auto on .tabs would clip box-shadow
          and ::before, so all sticky + visual logic lives on the wrapper. */
       .tabs-wrap {
-        position: sticky;
-        top: 65px;
-        z-index: 10;
-        /* Pull into admin-layout padding-top so wrapper starts right under
-           the topbar. The 18px padding-top + frosted background covers the
-           gap, preventing scrolled content from bleeding through. */
-        margin-top: -18px;
-        padding-top: 18px;
-        background: rgba(12, 14, 13, 0.92);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
+        position: relative;
+        border-top: 1px solid var(--border);
       }
-      .tabs-wrap { position: relative; }
       .tabs-wrap::after {
         content: '';
         position: absolute;
@@ -1169,12 +1159,7 @@
 
         /* Sticky tabs: negativen Margin-Trick abschalten, voll opak damit
            kein Inhalt von unten durchscheint (backdrop-filter oft unsupported) */
-        .tabs-wrap {
-          margin-top: 0;
-          padding-top: 8px;
-          top: 64px;
-          background: var(--bg);
-        }
+        .tabs-wrap { padding-top: 0; }
 
         /* Topbar: kompakt, Gäste-Link ausblenden */
         .topbar-inner { gap: 8px; }
@@ -1345,6 +1330,18 @@
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
       </div>
+      <div class="tabs-wrap">
+        <div class="wrap tabs" style="max-width:1440px">
+          <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
+          <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
+          <div class="tab" data-view="community">🌐 Community</div>
+          <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
+          <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
+          <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
+          <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
+          <div class="tab" data-view="vpn">VPN</div>
+        </div>
+      </div>
     </header>
 
     <div class="wrap" style="max-width:1440px">
@@ -1352,18 +1349,6 @@
 
         <!-- ── Hauptbereich ───────────────────────────────────── -->
         <div class="admin-main">
-          <div class="tabs-wrap">
-            <div class="tabs">
-              <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
-              <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
-              <div class="tab" data-view="community">🌐 Community</div>
-              <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
-              <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
-              <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
-              <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
-              <div class="tab" data-view="vpn">VPN</div>
-            </div>
-          </div>
 
           <!-- Container -->
           <section class="view active" id="view-containers">
