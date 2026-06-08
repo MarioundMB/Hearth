@@ -2035,6 +2035,339 @@ app.patch('/api/users/:username', requireAuth, asyncHandler(async (req, res) => 
 }));
 
 // ---------------------------------------------------------------------------
+// Stacks – Preset-Definitionen + API
+// ---------------------------------------------------------------------------
+
+const STACK_PRESETS = [
+  {
+    id: 'media',
+    name: 'Medien-Stack',
+    icon: '🎬',
+    description: 'Vollständiger Medienserver: Jellyfin zum Streamen, Sonarr für Serien, Radarr für Filme, SABnzbd zum Herunterladen und Prowlarr als Indexer-Manager.',
+    services: [
+      {
+        key: 'jellyfin', name: 'Jellyfin', description: 'Open-Source Medienserver',
+        image: 'jellyfin/jellyfin', matchImages: ['jellyfin/jellyfin'], matchNames: ['jellyfin'],
+        ports: [{ host: '8096', container: '8096' }],
+        volumes: [
+          { host: '{config}/jellyfin', container: '/config' },
+          { host: '{media}', container: '/media' },
+        ],
+        env: [{ key: 'TZ', value: 'Europe/Berlin' }],
+      },
+      {
+        key: 'sonarr', name: 'Sonarr', description: 'Automatischer Serien-Downloader',
+        image: 'linuxserver/sonarr', matchImages: ['linuxserver/sonarr'], matchNames: ['sonarr'],
+        ports: [{ host: '8989', container: '8989' }],
+        volumes: [
+          { host: '{config}/sonarr', container: '/config' },
+          { host: '{media}/tv', container: '/tv' },
+          { host: '{downloads}', container: '/downloads' },
+        ],
+        env: [{ key: 'PUID', value: '1000' }, { key: 'PGID', value: '1000' }, { key: 'TZ', value: 'Europe/Berlin' }],
+      },
+      {
+        key: 'radarr', name: 'Radarr', description: 'Automatischer Film-Downloader',
+        image: 'linuxserver/radarr', matchImages: ['linuxserver/radarr'], matchNames: ['radarr'],
+        ports: [{ host: '7878', container: '7878' }],
+        volumes: [
+          { host: '{config}/radarr', container: '/config' },
+          { host: '{media}/movies', container: '/movies' },
+          { host: '{downloads}', container: '/downloads' },
+        ],
+        env: [{ key: 'PUID', value: '1000' }, { key: 'PGID', value: '1000' }, { key: 'TZ', value: 'Europe/Berlin' }],
+      },
+      {
+        key: 'sabnzbd', name: 'SABnzbd', description: 'Usenet-Downloader',
+        image: 'linuxserver/sabnzbd', matchImages: ['linuxserver/sabnzbd'], matchNames: ['sabnzbd'],
+        ports: [{ host: '8080', container: '8080' }],
+        volumes: [
+          { host: '{config}/sabnzbd', container: '/config' },
+          { host: '{downloads}', container: '/downloads' },
+        ],
+        env: [{ key: 'PUID', value: '1000' }, { key: 'PGID', value: '1000' }, { key: 'TZ', value: 'Europe/Berlin' }],
+      },
+      {
+        key: 'prowlarr', name: 'Prowlarr', description: 'Indexer-Manager für Sonarr & Radarr',
+        image: 'linuxserver/prowlarr', matchImages: ['linuxserver/prowlarr'], matchNames: ['prowlarr'],
+        ports: [{ host: '9696', container: '9696' }],
+        volumes: [{ host: '{config}/prowlarr', container: '/config' }],
+        env: [{ key: 'PUID', value: '1000' }, { key: 'PGID', value: '1000' }, { key: 'TZ', value: 'Europe/Berlin' }],
+        optional: true,
+      },
+      {
+        key: 'bazarr', name: 'Bazarr', description: 'Automatische Untertitel-Downloads',
+        image: 'linuxserver/bazarr', matchImages: ['linuxserver/bazarr'], matchNames: ['bazarr'],
+        ports: [{ host: '6767', container: '6767' }],
+        volumes: [
+          { host: '{config}/bazarr', container: '/config' },
+          { host: '{media}/tv', container: '/tv' },
+          { host: '{media}/movies', container: '/movies' },
+        ],
+        env: [{ key: 'PUID', value: '1000' }, { key: 'PGID', value: '1000' }, { key: 'TZ', value: 'Europe/Berlin' }],
+        optional: true,
+      },
+    ],
+    paths: {
+      config:    { label: 'Konfigurationen', default: '/opt/stacks/media', description: 'App-Configs (Sonarr, Radarr, …)' },
+      media:     { label: 'Medienbibliothek', default: '/mnt/media',       description: 'Serien- und Film-Ordner' },
+      downloads: { label: 'Downloads',        default: '/mnt/downloads',   description: 'Temporärer Download-Ordner' },
+    },
+  },
+  {
+    id: 'home-automation',
+    name: 'Heimautomatisierung',
+    icon: '🏠',
+    description: 'Smart Home Zentrale: Home Assistant als Steuerzentrale, Mosquitto als MQTT-Broker und Node-RED für Automatisierungsregeln.',
+    services: [
+      {
+        key: 'homeassistant', name: 'Home Assistant', description: 'Open-Source Smart Home Plattform',
+        image: 'ghcr.io/home-assistant/home-assistant:stable',
+        matchImages: ['home-assistant/home-assistant', 'homeassistant/home-assistant'],
+        matchNames: ['homeassistant', 'home-assistant', 'hass'],
+        ports: [{ host: '8123', container: '8123' }],
+        volumes: [{ host: '{config}/homeassistant', container: '/config' }],
+        env: [{ key: 'TZ', value: 'Europe/Berlin' }],
+        extra: { privileged: true, network: 'host' },
+      },
+      {
+        key: 'mosquitto', name: 'Mosquitto', description: 'MQTT-Broker',
+        image: 'eclipse-mosquitto', matchImages: ['eclipse-mosquitto'], matchNames: ['mosquitto'],
+        ports: [{ host: '1883', container: '1883' }, { host: '9001', container: '9001' }],
+        volumes: [
+          { host: '{config}/mosquitto/config', container: '/mosquitto/config' },
+          { host: '{config}/mosquitto/data', container: '/mosquitto/data' },
+          { host: '{config}/mosquitto/log', container: '/mosquitto/log' },
+        ],
+        env: [],
+      },
+      {
+        key: 'nodered', name: 'Node-RED', description: 'Visueller Automatisierungseditor',
+        image: 'nodered/node-red', matchImages: ['nodered/node-red'], matchNames: ['nodered', 'node-red'],
+        ports: [{ host: '1880', container: '1880' }],
+        volumes: [{ host: '{config}/nodered', container: '/data' }],
+        env: [{ key: 'TZ', value: 'Europe/Berlin' }],
+      },
+      {
+        key: 'zigbee2mqtt', name: 'Zigbee2MQTT', description: 'Zigbee-Geräte ohne Herstellerbridge',
+        image: 'koenkk/zigbee2mqtt', matchImages: ['koenkk/zigbee2mqtt'], matchNames: ['zigbee2mqtt'],
+        ports: [{ host: '8088', container: '8080' }],
+        volumes: [
+          { host: '{config}/zigbee2mqtt', container: '/app/data' },
+          { host: '/run/udev', container: '/run/udev' },
+        ],
+        env: [{ key: 'TZ', value: 'Europe/Berlin' }],
+        optional: true,
+      },
+    ],
+    paths: {
+      config: { label: 'Konfigurationen', default: '/opt/stacks/home', description: 'Konfigurationsdaten aller Dienste' },
+    },
+  },
+  {
+    id: 'monitoring',
+    name: 'Monitoring',
+    icon: '📊',
+    description: 'Server-Überwachung: Grafana für Dashboards, Prometheus für Metriken, cAdvisor für Container-Stats und Node Exporter für Host-Metriken.',
+    services: [
+      {
+        key: 'grafana', name: 'Grafana', description: 'Metriken-Dashboards',
+        image: 'grafana/grafana', matchImages: ['grafana/grafana'], matchNames: ['grafana'],
+        ports: [{ host: '3000', container: '3000' }],
+        volumes: [{ host: '{config}/grafana', container: '/var/lib/grafana' }],
+        env: [{ key: 'GF_SECURITY_ADMIN_PASSWORD', value: 'changeme' }],
+      },
+      {
+        key: 'prometheus', name: 'Prometheus', description: 'Metriken-Datenbank',
+        image: 'prom/prometheus', matchImages: ['prom/prometheus'], matchNames: ['prometheus'],
+        ports: [{ host: '9090', container: '9090' }],
+        volumes: [
+          { host: '{config}/prometheus', container: '/etc/prometheus' },
+          { host: '{config}/prometheus-data', container: '/prometheus' },
+        ],
+        env: [],
+      },
+      {
+        key: 'cadvisor', name: 'cAdvisor', description: 'Container-Ressourcen live',
+        image: 'gcr.io/cadvisor/cadvisor:latest',
+        matchImages: ['cadvisor/cadvisor', 'gcr.io/cadvisor'],
+        matchNames: ['cadvisor'],
+        ports: [{ host: '8888', container: '8080' }],
+        volumes: [
+          { host: '//', container: '/rootfs', extra: ':ro' },
+          { host: '/var/run', container: '/var/run', extra: ':ro' },
+          { host: '/sys', container: '/sys', extra: ':ro' },
+          { host: '/var/lib/docker/', container: '/var/lib/docker', extra: ':ro' },
+        ],
+        env: [],
+        extra: { privileged: true },
+      },
+      {
+        key: 'node-exporter', name: 'Node Exporter', description: 'Host-System-Metriken',
+        image: 'prom/node-exporter', matchImages: ['prom/node-exporter'], matchNames: ['node-exporter', 'nodeexporter'],
+        ports: [{ host: '9100', container: '9100' }],
+        volumes: [
+          { host: '/proc', container: '/host/proc', extra: ':ro' },
+          { host: '/sys', container: '/host/sys', extra: ':ro' },
+          { host: '/', container: '/rootfs', extra: ':ro' },
+        ],
+        env: [],
+        extra: { network: 'host' },
+        optional: true,
+      },
+    ],
+    paths: {
+      config: { label: 'Konfigurationen', default: '/opt/stacks/monitoring', description: 'Prometheus-Config und Grafana-Daten' },
+    },
+  },
+  {
+    id: 'security',
+    name: 'Security & Passwörter',
+    icon: '🔐',
+    description: 'Passwort-Verwaltung und Zugriffskontrolle: Vaultwarden als Bitwarden-kompatibler Passwort-Manager und LLDAP als leichtgewichtiger LDAP-Server.',
+    services: [
+      {
+        key: 'vaultwarden', name: 'Vaultwarden', description: 'Bitwarden-kompatibler Passwort-Manager',
+        image: 'vaultwarden/server', matchImages: ['vaultwarden/server'], matchNames: ['vaultwarden', 'bitwarden'],
+        ports: [{ host: '3012', container: '80' }],
+        volumes: [{ host: '{config}/vaultwarden', container: '/data' }],
+        env: [{ key: 'WEBSOCKET_ENABLED', value: 'true' }],
+      },
+      {
+        key: 'lldap', name: 'LLDAP', description: 'Leichtgewichtiger LDAP-Server',
+        image: 'lldap/lldap', matchImages: ['lldap/lldap'], matchNames: ['lldap'],
+        ports: [{ host: '17170', container: '17170' }, { host: '3890', container: '3890' }],
+        volumes: [{ host: '{config}/lldap', container: '/data' }],
+        env: [
+          { key: 'LLDAP_JWT_SECRET', value: 'CHANGE_ME_RANDOM' },
+          { key: 'LLDAP_LDAP_USER_PASS', value: 'changeme' },
+          { key: 'LLDAP_LDAP_BASE_DN', value: 'dc=hearth,dc=local' },
+        ],
+        optional: true,
+      },
+      {
+        key: 'authelia', name: 'Authelia', description: 'Single Sign-On & 2FA-Gateway',
+        image: 'authelia/authelia', matchImages: ['authelia/authelia'], matchNames: ['authelia'],
+        ports: [{ host: '9091', container: '9091' }],
+        volumes: [{ host: '{config}/authelia', container: '/config' }],
+        env: [],
+        optional: true,
+      },
+    ],
+    paths: {
+      config: { label: 'Konfigurationen', default: '/opt/stacks/security', description: 'Passwort- und Auth-Daten' },
+    },
+  },
+];
+
+function _matchService(service, rawContainers) {
+  for (const c of rawContainers) {
+    const labels = c.Labels || {};
+    if (labels['hearth.stack.service'] === service.key) return { c, type: 'labeled' };
+  }
+  for (const c of rawContainers) {
+    const img  = (c.Image || '').toLowerCase();
+    const name = ((c.Names || [])[0] || '').replace(/^\//, '').toLowerCase();
+    if (service.matchImages?.some(m => img.includes(m.toLowerCase()))) return { c, type: 'fuzzy' };
+    if (service.matchNames?.some(m => name === m || name.startsWith(m + '-') || name.startsWith(m + '_'))) return { c, type: 'fuzzy' };
+  }
+  return null;
+}
+
+app.get('/api/stacks', requireAuth, asyncHandler(async (req, res) => {
+  const rawContainers = await docker.listContainers({ all: true }).catch(() => []);
+  const result = STACK_PRESETS.map(preset => {
+    let detectedCount = 0;
+    const services = preset.services.map(svc => {
+      const match = _matchService(svc, rawContainers);
+      if (match) detectedCount++;
+      const state = match ? match.c.State : 'missing';
+      const pub = (match?.c.Ports || []).find(p => String(p.PrivatePort) === String(svc.ports?.[0]?.container));
+      return {
+        key: svc.key, name: svc.name, description: svc.description,
+        image: svc.image, optional: !!svc.optional,
+        status: state,          // 'running' | 'exited' | 'missing'
+        matchType: match?.type || null,
+        containerId:   match?.c.Id || null,
+        containerName: match ? ((match.c.Names || [])[0] || '').replace(/^\//, '') : null,
+        hostPort: pub?.PublicPort || svc.ports?.[0]?.host || null,
+        ports: svc.ports, volumes: svc.volumes, env: svc.env, extra: svc.extra || {},
+      };
+    });
+    const required = services.filter(s => !s.optional);
+    const runningCount = services.filter(s => s.status === 'running').length;
+    return {
+      id: preset.id, name: preset.name, icon: preset.icon, description: preset.description,
+      paths: preset.paths,
+      services,
+      detected: detectedCount > 0,
+      runningCount,
+      totalCount: services.length,
+      requiredCount: required.length,
+      requiredRunning: required.filter(s => s.status === 'running').length,
+    };
+  });
+  res.json(result);
+}));
+
+app.post('/api/stacks/:presetId/services/:serviceKey/deploy', requireAuth, asyncHandler(async (req, res) => {
+  const preset  = STACK_PRESETS.find(p => p.id === req.params.presetId);
+  if (!preset) return res.status(404).json({ error: 'Stack not found' });
+  const service = preset.services.find(s => s.key === req.params.serviceKey);
+  if (!service) return res.status(404).json({ error: 'Service not found' });
+
+  const pathVars = req.body?.paths || {};
+
+  function resolvePath(p) {
+    return p.replace(/\{(\w+)\}/g, (_, k) => pathVars[k] || preset.paths[k]?.default || `/${k}`);
+  }
+
+  // Pull image
+  await new Promise((resolve, reject) => {
+    docker.pull(service.image, (err, stream) => {
+      if (err) return reject(err);
+      docker.modem.followProgress(stream, (pullErr) => pullErr ? reject(pullErr) : resolve());
+    });
+  });
+
+  const portBindings = {}, exposedPorts = {};
+  (service.ports || []).forEach(p => {
+    const key = `${p.container}/tcp`;
+    exposedPorts[key] = {};
+    portBindings[key] = [{ HostPort: String(p.host || '') }];
+  });
+
+  const binds = (service.volumes || [])
+    .filter(v => v.host && v.container)
+    .map(v => `${resolvePath(v.host)}:${v.container}${v.extra || ''}`);
+
+  const envArr = (service.env || []).map(e => `${e.key}=${e.value ?? ''}`);
+
+  const labels = {
+    'hearth.stack':         preset.id,
+    'hearth.stack.service': service.key,
+  };
+
+  const extra = service.extra || {};
+  const newC = await docker.createContainer({
+    Image: service.image,
+    name:  service.key,
+    Env:   envArr,
+    Labels: labels,
+    ExposedPorts: exposedPorts,
+    HostConfig: {
+      PortBindings: portBindings,
+      Binds: binds,
+      RestartPolicy: { Name: 'unless-stopped' },
+      Privileged: !!extra.privileged,
+      NetworkMode: extra.network || 'bridge',
+    },
+  });
+  await newC.start();
+  res.json({ ok: true, id: newC.id });
+}));
+
+// ---------------------------------------------------------------------------
 // Notifications (in-memory, per session reset)
 // ---------------------------------------------------------------------------
 const _notifs = [];

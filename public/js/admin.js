@@ -3314,7 +3314,200 @@ function storeInstall(image) {
   openQuickInstall(image, app);
 }
 
+// ── Stacks ──────────────────────────────────────────────────────────────────
+
+let _stacksData = [];
+let _stackModalId = null;
+
+async function loadStackGroups() {
+  try {
+    _stacksData = await api('GET', '/api/stacks');
+    renderStackGroups();
+  } catch (_) {}
+}
+
+function renderStackGroups() {
+  const box = document.getElementById('stack-groups');
+  const detected = _stacksData.filter(s => s.detected);
+  if (!detected.length) { box.innerHTML = ''; return; }
+
+  box.innerHTML = detected.map(stack => {
+    const badge = stackStatusBadge(stack);
+    const pills = stack.services.map(svc =>
+      `<span class="stack-pill ${svc.status}${svc.optional ? ' optional' : ''}" title="${esc(svc.name)}">${esc(svc.name)}</span>`
+    ).join('');
+    return `
+      <div class="stack-group" onclick="openStackModal('${esc(stack.id)}')">
+        <div class="stack-group-icon">${stack.icon}</div>
+        <div class="stack-group-info">
+          <div class="stack-group-name">${esc(stack.name)}</div>
+          <div class="stack-group-desc stack-pills" style="margin-top:6px">${pills}</div>
+        </div>
+        <div class="stack-group-right">
+          <span class="stack-status-badge ${badge.cls}">${badge.label}</span>
+          <span style="color:var(--text-faint);font-size:16px">›</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function stackStatusBadge(stack) {
+  const req = stack.services.filter(s => !s.optional);
+  const reqRunning = req.filter(s => s.status === 'running').length;
+  if (reqRunning === req.length) return { cls: 'ok', label: `${stack.runningCount}/${stack.totalCount} ✓` };
+  if (reqRunning > 0) return { cls: 'partial', label: `${stack.runningCount}/${stack.totalCount}` };
+  return { cls: 'missing', label: `${stack.runningCount}/${stack.totalCount}` };
+}
+
+function openStackModal(stackId) {
+  const stack = _stacksData.find(s => s.id === stackId);
+  if (!stack) return;
+  _stackModalId = stackId;
+
+  document.getElementById('stack-modal-title').innerHTML = `${stack.icon} ${esc(stack.name)}`;
+  document.getElementById('stack-modal-desc').textContent = stack.description;
+
+  // Path inputs
+  const pathsDiv = document.getElementById('stack-modal-paths');
+  pathsDiv.innerHTML = Object.entries(stack.paths || {}).map(([key, p]) => `
+    <div class="field" style="margin:0 0 10px">
+      <label style="font-size:12px;font-weight:600">${esc(p.label)}</label>
+      <div style="font-size:11px;color:var(--text-faint);margin-bottom:4px">${esc(p.description || '')}</div>
+      <input class="input" id="stack-path-${esc(key)}" value="${esc(p.default)}" placeholder="${esc(p.default)}">
+    </div>`).join('');
+
+  // Service rows
+  const svcsDiv = document.getElementById('stack-modal-services');
+  svcsDiv.innerHTML = stack.services.map(svc => {
+    const dotCls = svc.status === 'running' ? 'running' : svc.status === 'exited' ? 'stopped' : 'missing';
+    const statusText = svc.status === 'running' ? 'Läuft' : svc.status === 'exited' ? 'Gestoppt' : 'Nicht installiert';
+    const portBadge = svc.hostPort ? `<span class="port">:${svc.hostPort}</span>` : '';
+    let actionBtn = '';
+    if (svc.status === 'missing') {
+      actionBtn = `<button class="btn sm ghost" onclick="deployStackService('${esc(stack.id)}','${esc(svc.key)}')">Installieren</button>`;
+    } else if (svc.status === 'exited' && svc.containerId) {
+      actionBtn = `<button class="btn sm ghost" onclick="startStackContainer('${esc(svc.containerId)}')">Starten</button>`;
+    } else if (svc.status === 'running' && svc.hostPort) {
+      actionBtn = `<a class="btn sm ghost" href="http://${location.hostname}:${svc.hostPort}" target="_blank" rel="noopener">Öffnen ↗</a>`;
+    }
+    const optBadge = svc.optional ? '<span style="font-size:10px;color:var(--text-faint);margin-left:4px">(optional)</span>' : '';
+    return `
+      <div class="stack-svc-row">
+        <span class="stack-svc-dot ${dotCls}"></span>
+        <div class="stack-svc-info">
+          <div class="stack-svc-name">${esc(svc.name)}${optBadge}</div>
+          <div class="stack-svc-meta">${esc(svc.description)} · ${esc(svc.image)} ${portBadge}</div>
+        </div>
+        <span style="font-size:11px;color:var(--text-faint)">${statusText}</span>
+        ${actionBtn}
+      </div>`;
+  }).join('');
+
+  const hasMissing = stack.services.some(s => s.status === 'missing' && !s.optional);
+  document.getElementById('stack-deploy-missing-btn').style.display = hasMissing ? '' : 'none';
+  openModal('modal-stack');
+}
+
+function getStackPaths(stackId) {
+  const stack = _stacksData.find(s => s.id === stackId);
+  if (!stack) return {};
+  const paths = {};
+  Object.keys(stack.paths || {}).forEach(key => {
+    const el = document.getElementById(`stack-path-${key}`);
+    paths[key] = el ? el.value.trim() : (stack.paths[key]?.default || '');
+  });
+  return paths;
+}
+
+async function deployStackService(stackId, serviceKey) {
+  const paths = getStackPaths(stackId);
+  try {
+    toast(`Installiere ${serviceKey}…`, 'info');
+    await api('POST', `/api/stacks/${stackId}/services/${serviceKey}/deploy`, { paths });
+    toast(`${serviceKey} installiert`);
+    _stacksData = await api('GET', '/api/stacks');
+    renderStackGroups();
+    openStackModal(stackId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function startStackContainer(containerId) {
+  try {
+    await api('POST', `/api/containers/${containerId}/start`);
+    toast('Container gestartet');
+    _stacksData = await api('GET', '/api/stacks');
+    renderStackGroups();
+    openStackModal(_stackModalId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('stack-deploy-missing-btn').addEventListener('click', async () => {
+  if (!_stackModalId) return;
+  const stack = _stacksData.find(s => s.id === _stackModalId);
+  if (!stack) return;
+  const missing = stack.services.filter(s => s.status === 'missing' && !s.optional);
+  if (!missing.length) return;
+  const paths = getStackPaths(_stackModalId);
+  for (const svc of missing) {
+    try {
+      toast(`Installiere ${svc.name}…`, 'info');
+      await api('POST', `/api/stacks/${_stackModalId}/services/${svc.key}/deploy`, { paths });
+      toast(`${svc.name} installiert`);
+    } catch (e) { toast(`${svc.name}: ${e.message}`, 'error'); }
+  }
+  _stacksData = await api('GET', '/api/stacks');
+  renderStackGroups();
+  openStackModal(_stackModalId);
+});
+
+// Stacks-Sektion im Store
+const _origRenderStore = renderStore;
+renderStore = async function () {
+  await _origRenderStore();
+  // Prepend stacks section
+  const container = document.getElementById('store-categories');
+  if (document.getElementById('store-stacks-section') || !_stacksData.length) {
+    if (!_stacksData.length) {
+      try { _stacksData = await api('GET', '/api/stacks'); } catch (_) { return; }
+    }
+    if (document.getElementById('store-stacks-section')) return;
+  }
+  if (!_stacksData.length) {
+    try { _stacksData = await api('GET', '/api/stacks'); } catch (_) { return; }
+  }
+
+  const cards = _stacksData.map(stack => {
+    const svcChips = stack.services.map(svc =>
+      `<span class="stack-svc-chip${svc.optional ? ' optional' : ''}">${esc(svc.name)}</span>`
+    ).join('');
+    return `
+      <div class="stack-store-card" onclick="openStackModal('${esc(stack.id)}')">
+        <div class="stack-store-head">
+          <div class="stack-store-icon">${stack.icon}</div>
+          <div class="stack-store-title">${esc(stack.name)}</div>
+        </div>
+        <div class="stack-store-desc">${esc(stack.description)}</div>
+        <div class="stack-store-services">${svcChips}</div>
+      </div>`;
+  }).join('');
+
+  const section = document.createElement('div');
+  section.id = 'store-stacks-section';
+  section.innerHTML = `
+    <div class="store-category-title" style="margin-top:0">📦 Stacks</div>
+    <div class="stack-store-grid">${cards}</div>`;
+  container.insertBefore(section, container.firstChild);
+};
+
+// Stacks beim Öffnen des Container-Tabs laden
+document.querySelectorAll('[data-view]').forEach(btn => {
+  if (btn.dataset.view === 'containers') {
+    btn.addEventListener('click', () => loadStackGroups());
+  }
+});
+
 loadContainers();
+loadStackGroups();
 applyRefreshInterval(15);
 
 // Update-Check: beim Start und dann alle 30 Minuten
