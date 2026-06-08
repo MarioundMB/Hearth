@@ -46,7 +46,7 @@ document.querySelectorAll('.tab').forEach((t) => {
 document.getElementById('btn-community-nav').addEventListener('click', openCommunityHub);
 
 function openCommunityHub() {
-  document.getElementById('overlay-community').style.display = '';
+  document.getElementById('overlay-community').style.display = 'block';
   document.body.style.overflow = 'hidden';
   document.getElementById('btn-community-nav').classList.add('active');
   updateTabGlow(document.getElementById('btn-community-nav'));
@@ -2328,14 +2328,17 @@ function setUpdateRowState(hi) {
 }
 
 async function checkUpdatesManual() {
-  const btn = document.getElementById('btn-check-updates');
-  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
+  const btn  = document.getElementById('btn-check-updates');
+  const icon = document.getElementById('upd-check-icon');
+  if (btn)  { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
+  if (icon) { icon.innerHTML = hearthSpinner(18); }
   await checkUpdates(true);
   if (btn) {
     btn.disabled = false;
     btn.setAttribute('data-i18n', 'settings.checkUpdatesBtn');
     btn.textContent = t('settings.checkUpdatesBtn');
   }
+  // icon is restored by setUpdateRowState called inside checkUpdates
 }
 
 async function checkUpdates(force = false) {
@@ -2460,8 +2463,7 @@ function showUpdateProgress() {
         // Server ist wieder online → fertig
         clearInterval(fakeTimer);
         bar.style.width = '100%';
-        icon.style.animation = 'none';
-        icon.textContent = '✓';
+        icon.innerHTML = '<span style="font-size:18px;line-height:1;color:var(--ok)">✓</span>';
         title.childNodes[title.childNodes.length - 1].textContent = ' Fertig!';
         status.textContent = 'Seite wird neu geladen…';
         setTimeout(() => location.reload(), 1500);
