@@ -2479,6 +2479,7 @@ app.get('/api/community/themes', requireAuth, asyncHandler(async (req, res) => {
 app.get('/custom.css', (req, res) => {
   const theme = runtimeConfig.customTheme;
   res.setHeader('Content-Type', 'text/css');
+  res.setHeader('Cache-Control', 'no-store');
   if (!theme?.css) return res.send('');
   res.send(theme.css);
 });
@@ -3527,25 +3528,29 @@ const _VER_RE = /(src|href)="(\/(?:js|css)\/[^"]+\.(?:js|css))"/g;
 function injectVersion(html) {
   return html.replace(_VER_RE, (_, attr, url) => `${attr}="${url}?v=${VERSION}"`);
 }
+// Replace <link href="/custom.css"> with an inline <style> carrying the active
+// theme CSS so page reloads always show the correct theme — even behind a CDN.
+function _injectTheme(html) {
+  const css = runtimeConfig.customTheme?.css || '';
+  return html.replace(
+    /<link\s+rel="stylesheet"\s+href="\/custom\.css"[^>]*>/,
+    `<style id="custom-theme">${css}</style>`
+  );
+}
+function _serveHtml(html, res) {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.send(_injectTheme(injectVersion(html)));
+}
 for (const page of ['admin.html', 'index.html', 'login.html', 'setup.html']) {
   app.get('/' + page.replace('index.html', ''), (req, res, next) => {
     const file = path.join(_STATIC_DIR, page);
-    fs.readFile(file, 'utf8', (err, html) => {
-      if (err) return next();
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.send(injectVersion(html));
-    });
+    fs.readFile(file, 'utf8', (err, html) => { if (err) return next(); _serveHtml(html, res); });
   });
 }
 app.get('/admin', (req, res, next) => {
   const file = path.join(_STATIC_DIR, 'admin.html');
-  fs.readFile(file, 'utf8', (err, html) => {
-    if (err) return next();
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.send(injectVersion(html));
-  });
+  fs.readFile(file, 'utf8', (err, html) => { if (err) return next(); _serveHtml(html, res); });
 });
 
 app.use(express.static(_STATIC_DIR));
