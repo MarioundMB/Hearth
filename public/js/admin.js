@@ -831,7 +831,7 @@ async function loadFiles(p) {
   renderCrumbs();
   updateSidebarActive();
   const box = document.getElementById('files');
-  box.innerHTML = `<div class="empty" style="padding:24px 20px"><span style="opacity:.3;font-size:22px">⟳</span></div>`;
+  box.innerHTML = `<div class="empty" style="padding:24px 20px">${hearthSpinner(28)}</div>`;
   try {
     const data = await api('GET', '/api/files?path=' + encodeURIComponent(currentPath));
     if (!data.items.length) {
@@ -2329,7 +2329,7 @@ function setUpdateRowState(hi) {
 
 async function checkUpdatesManual() {
   const btn = document.getElementById('btn-check-updates');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
   await checkUpdates(true);
   if (btn) {
     btn.disabled = false;
@@ -2340,7 +2340,7 @@ async function checkUpdatesManual() {
 
 async function checkUpdates(force = false) {
   const badge = document.getElementById('topbar-updates');
-  if (badge) badge.textContent = '⟳';
+  if (badge) badge.innerHTML = hearthSpinner(14);
   try {
     const data = await api('GET', `/api/updates/check${force ? '?force=true' : ''}`);
     // Map aufbauen
@@ -2373,7 +2373,7 @@ async function checkUpdates(force = false) {
 async function updateContainer(id, name) {
   if (!confirm(t('update.confirm').replace('{name}', name))) return;
   const btn = document.querySelector(`[data-cid="${id}"] .update-dot`);
-  if (btn) btn.textContent = '⟳';
+  if (btn) btn.innerHTML = hearthSpinner(14);
   toast(t('update.pulling').replace('{name}', name), 'info');
   try {
     await api('POST', `/api/updates/container/${id}`);
@@ -2390,12 +2390,12 @@ async function updateAllContainers() {
   if (!confirm(`${pending.length} Container updaten?\n\n${pending.map(([, v]) => v.name).join(', ')}`)) return;
 
   const badge = document.getElementById('topbar-updates');
-  if (badge) { badge.textContent = '⟳'; badge.onclick = null; }
+  if (badge) { badge.innerHTML = hearthSpinner(14); badge.onclick = null; }
 
   let done = 0, failed = 0;
   for (const [id, info] of pending) {
     const dot = document.querySelector(`[data-cid="${id}"] .update-dot`);
-    if (dot) dot.textContent = '⟳';
+    if (dot) dot.innerHTML = hearthSpinner(12);
     try {
       await api('POST', `/api/updates/container/${id}`);
       _updateMap[id] = { hasUpdate: false };
@@ -2415,7 +2415,7 @@ async function updateAllContainers() {
 async function updateHearth() {
   if (!confirm(t('settings.updateConfirm'))) return;
   const btn = document.getElementById('btn-check-updates');
-  if (btn) { btn.disabled = true; btn.textContent = '⟳'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
   try {
     const data = await api('POST', '/api/updates/hearth');
     if (data.upToDate) {
@@ -2835,7 +2835,7 @@ async function prlRequestLE() {
   if (!_editingProxyId) return;
   const btn = document.getElementById('prl-le-btn');
   const status = document.getElementById('prl-cert-status');
-  btn.disabled = true; btn.textContent = '⟳ Requesting…';
+  btn.disabled = true; btn.innerHTML = `${hearthSpinner(14)} Requesting…`;
   status.textContent = 'Contacting Let\'s Encrypt… this may take up to 60s';
   status.style.color = 'var(--text-faint)';
   try {
@@ -3676,7 +3676,7 @@ async function loadCommunityTab(force = false) {
 
 async function loadCommunityStacks(force = false) {
   const grid = document.getElementById('community-stacks-grid');
-  grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Lädt…</span>';
+  grid.innerHTML = hearthLoading();
   try {
     const url = force ? '/api/community/stacks?refresh=1' : '/api/community/stacks';
     const stacks = await api('GET', url);
@@ -3728,7 +3728,7 @@ async function importCommunityStack(stackDef) {
 
 async function loadCommunityThemes(force = false) {
   const grid = document.getElementById('community-themes-grid');
-  grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Lädt…</span>';
+  grid.innerHTML = hearthLoading();
   try {
     const url = force ? '/api/community/themes?refresh=1' : '/api/community/themes';
     const themes = await api('GET', url);
@@ -3910,7 +3910,7 @@ document.querySelectorAll('[onclick*="modal-settings"], #open-settings, #btn-set
 
 async function loadChangelog(force = false) {
   const list = document.getElementById('changelog-list');
-  list.innerHTML = '<span style="font-size:12px;color:var(--text-faint);padding:8px 0">Lädt…</span>';
+  list.innerHTML = hearthLoading();
   try {
     const url = force ? '/api/changelog?refresh=1' : '/api/changelog';
     const releases = await api('GET', url);
