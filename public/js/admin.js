@@ -10,6 +10,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     document.querySelectorAll('.view').forEach((x) => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById('view-' + t.dataset.view).classList.add('active');
+    document.getElementById('btn-community-nav').classList.remove('active');
     if (t.dataset.view === 'store')    renderStore();
     if (t.dataset.view === 'images')   loadImages();
     if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
@@ -17,6 +18,15 @@ document.querySelectorAll('.tab').forEach((t) => {
     if (t.dataset.view === 'firewall') loadFirewall();
     if (t.dataset.view === 'vpn')      loadVpn();
   });
+});
+
+// ── Community Nav Button ─────────────────────────────────────────────────────
+document.getElementById('btn-community-nav').addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+  document.getElementById('btn-community-nav').classList.add('active');
+  document.getElementById('view-community').classList.add('active');
+  loadCommunityTab();
 });
 
 document.getElementById('logout').addEventListener('click', async () => {
@@ -3609,13 +3619,7 @@ document.querySelectorAll('[data-view]').forEach(btn => {
   }
 });
 
-// ── Tab-Handler für Community + Settings ─────────────────────────────────────
-
-document.querySelectorAll('[data-view]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.dataset.view === 'community') loadCommunityTab();
-  });
-});
+// (Community tab removed from tab row — navigation via #btn-community-nav in topbar)
 
 // ── Community Tab ────────────────────────────────────────────────────────────
 
@@ -3719,6 +3723,72 @@ document.getElementById('community-refresh-btn').addEventListener('click', () =>
   loadCommunityTab(true);
   loadCommunityStacks(true);
   loadCommunityThemes(true);
+});
+
+// ── Contribute Modal ──────────────────────────────────────────────────────────
+
+let _contribType = 'stack';
+
+function setContribType(type) {
+  _contribType = type;
+  document.getElementById('contrib-stack-form').style.display = type === 'stack' ? '' : 'none';
+  document.getElementById('contrib-theme-form').style.display = type === 'theme' ? '' : 'none';
+  document.getElementById('contrib-type-stack').className = type === 'stack' ? 'btn sm' : 'btn sm ghost';
+  document.getElementById('contrib-type-theme').className = type === 'theme' ? 'btn sm' : 'btn sm ghost';
+}
+
+document.getElementById('btn-contribute').addEventListener('click', () => {
+  _contribType = 'stack';
+  setContribType('stack');
+  const sel = document.getElementById('contrib-stack-select');
+  sel.innerHTML = '<option value="">— Eigenen Stack auswählen (optional) —</option>';
+  (runtimeConfig_customStacks || []).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.name;
+    sel.appendChild(opt);
+  });
+  ['contrib-stack-name','contrib-stack-desc','contrib-stack-json',
+   'contrib-theme-name','contrib-theme-desc','contrib-theme-author','contrib-theme-css'
+  ].forEach(id => { document.getElementById(id).value = ''; });
+  openModal('modal-contribute');
+});
+
+document.getElementById('contrib-stack-select').addEventListener('change', () => {
+  const id = document.getElementById('contrib-stack-select').value;
+  if (!id) return;
+  const stack = (runtimeConfig_customStacks || []).find(s => s.id === id);
+  if (!stack) return;
+  document.getElementById('contrib-stack-name').value = stack.name || '';
+  document.getElementById('contrib-stack-desc').value = stack.description || '';
+  document.getElementById('contrib-stack-json').value = JSON.stringify(stack, null, 2);
+});
+
+document.getElementById('btn-contrib-submit').addEventListener('click', () => {
+  if (_contribType === 'stack') {
+    const name = document.getElementById('contrib-stack-name').value.trim();
+    const desc = document.getElementById('contrib-stack-desc').value.trim();
+    const json = document.getElementById('contrib-stack-json').value.trim();
+    if (!name || !json) { toast('Bitte Name und JSON ausfüllen', 'error'); return; }
+    let parsed;
+    try { parsed = JSON.parse(json); } catch { toast('Ungültiges JSON', 'error'); return; }
+    const body = `## Community Stack Submission\n\n**Name:** ${name}\n**Description:** ${desc}\n\n\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\`\n\n---\n*Submitted via Hearth*`;
+    window.open(
+      `https://github.com/MarioundMB/Hearth/issues/new?title=${encodeURIComponent('[Community Stack] ' + name)}&body=${encodeURIComponent(body)}&labels=community-stack`,
+      '_blank'
+    );
+  } else {
+    const name   = document.getElementById('contrib-theme-name').value.trim();
+    const desc   = document.getElementById('contrib-theme-desc').value.trim();
+    const author = document.getElementById('contrib-theme-author').value.trim();
+    const css    = document.getElementById('contrib-theme-css').value.trim();
+    if (!name || !css) { toast('Bitte Name und CSS ausfüllen', 'error'); return; }
+    const body = `## Community Theme Submission\n\n**Name:** ${name}\n**Description:** ${desc}\n**Author:** ${author || 'anonymous'}\n\n\`\`\`css\n${css}\n\`\`\`\n\n---\n*Submitted via Hearth*`;
+    window.open(
+      `https://github.com/MarioundMB/Hearth/issues/new?title=${encodeURIComponent('[Community Theme] ' + name)}&body=${encodeURIComponent(body)}&labels=community-theme`,
+      '_blank'
+    );
+  }
 });
 
 // ── Theme Management (in Settings) ───────────────────────────────────────────
