@@ -2432,6 +2432,108 @@ app.post('/api/stacks/:presetId/services/:serviceKey/deploy', requireAuth, async
   res.json({ ok: true, id: newC.id });
 }));
 
+// ── Stack Export ─────────────────────────────────────────────────────────────
+
+app.get('/api/stacks/:id/export', requireAuth, (req, res) => {
+  const customStacks = runtimeConfig.customStacks || [];
+  const preset = [...STACK_PRESETS, ...customStacks].find(p => p.id === req.params.id);
+  if (!preset) return res.status(404).json({ error: 'Stack not found' });
+  const exportable = { ...preset };
+  delete exportable._custom;
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="${preset.id}.stack.json"`);
+  res.send(JSON.stringify(exportable, null, 2));
+});
+
+// ── Community Stacks & Themes (fetch + cache) ─────────────────────────────────
+
+const COMMUNITY_BASE = 'https://raw.githubusercontent.com/MarioundMB/Hearth/main/community';
+let _commStacksCache  = null, _commStacksAt  = 0;
+let _commThemesCache  = null, _commThemesAt  = 0;
+const COMMUNITY_TTL = 3600_000; // 1 hour
+
+app.get('/api/community/stacks', requireAuth, asyncHandler(async (req, res) => {
+  const now = Date.now();
+  if (!_commStacksCache || now - _commStacksAt > COMMUNITY_TTL || req.query.refresh) {
+    const r = await fetch(`${COMMUNITY_BASE}/stacks/index.json`);
+    if (!r.ok) throw new Error(`GitHub returned ${r.status}`);
+    _commStacksCache = (await r.json()).stacks || [];
+    _commStacksAt = now;
+  }
+  res.json(_commStacksCache);
+}));
+
+app.get('/api/community/themes', requireAuth, asyncHandler(async (req, res) => {
+  const now = Date.now();
+  if (!_commThemesCache || now - _commThemesAt > COMMUNITY_TTL || req.query.refresh) {
+    const r = await fetch(`${COMMUNITY_BASE}/themes/index.json`);
+    if (!r.ok) throw new Error(`GitHub returned ${r.status}`);
+    _commThemesCache = (await r.json()).themes || [];
+    _commThemesAt = now;
+  }
+  res.json(_commThemesCache);
+}));
+
+// ── Theme (Custom CSS) ────────────────────────────────────────────────────────
+
+app.get('/custom.css', (req, res) => {
+  const theme = runtimeConfig.customTheme;
+  res.setHeader('Content-Type', 'text/css');
+  if (!theme?.css) return res.send('');
+  res.send(theme.css);
+});
+
+app.get('/api/theme', requireAuth, (req, res) => {
+  const t = runtimeConfig.customTheme || null;
+  res.json(t ? { id: t.id, name: t.name, sourceUrl: t.sourceUrl || null } : null);
+});
+
+app.post('/api/theme', requireAuth, asyncHandler(async (req, res) => {
+  const { css, url, id, name } = req.body || {};
+  let finalCss = css || '';
+  let sourceUrl = null;
+  if (url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
+    const text = await r.text();
+    finalCss  = text;
+    sourceUrl = url;
+  }
+  if (!finalCss.trim()) return res.status(400).json({ error: 'No CSS provided' });
+  saveConfig({ customTheme: { id: id || 'custom', name: name || 'Custom Theme', css: finalCss, sourceUrl } });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/theme', requireAuth, (req, res) => {
+  saveConfig({ customTheme: null });
+  res.json({ ok: true });
+});
+
+// ── Changelog (GitHub Releases) ───────────────────────────────────────────────
+
+let _changelogCache = null, _changelogAt = 0;
+
+app.get('/api/changelog', requireAuth, asyncHandler(async (req, res) => {
+  const now = Date.now();
+  if (!_changelogCache || now - _changelogAt > COMMUNITY_TTL || req.query.refresh) {
+    const r = await fetch('https://api.github.com/repos/MarioundMB/Hearth/releases?per_page=8', {
+      headers: { 'User-Agent': 'Hearth-Panel', Accept: 'application/vnd.github+json' },
+    });
+    if (!r.ok) throw new Error(`GitHub API returned ${r.status}`);
+    const data = await r.json();
+    _changelogCache = data.map(rel => ({
+      tag:  rel.tag_name,
+      name: rel.name || rel.tag_name,
+      body: rel.body || '',
+      date: rel.published_at,
+      url:  rel.html_url,
+      prerelease: rel.prerelease,
+    }));
+    _changelogAt = now;
+  }
+  res.json(_changelogCache);
+}));
+
 // ---------------------------------------------------------------------------
 // Notifications (in-memory, per session reset)
 // ---------------------------------------------------------------------------

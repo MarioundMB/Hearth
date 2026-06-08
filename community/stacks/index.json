@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "stacks": [
+    {
+      "id": "nextcloud",
+      "name": "Nextcloud Suite",
+      "icon": "☁️",
+      "author": "community",
+      "description": "Vollständige Nextcloud-Installation mit MariaDB-Datenbank und Redis-Cache für optimale Performance.",
+      "tags": ["storage", "files", "cloud"],
+      "services": [
+        {
+          "key": "nextcloud",
+          "name": "Nextcloud",
+          "description": "Persönliche Cloud-Plattform",
+          "image": "nextcloud:latest",
+          "matchImages": ["nextcloud"],
+          "matchNames": ["nextcloud"],
+          "ports": [{ "host": "8181", "container": "80" }],
+          "volumes": [
+            { "host": "{config}/nextcloud", "container": "/var/www/html" },
+            { "host": "{data}", "container": "/var/www/html/data" }
+          ],
+          "env": [
+            { "key": "MYSQL_HOST", "value": "nextcloud-db" },
+            { "key": "MYSQL_DATABASE", "value": "nextcloud" },
+            { "key": "MYSQL_USER", "value": "nextcloud" },
+            { "key": "MYSQL_PASSWORD", "value": "changeme" },
+            { "key": "REDIS_HOST", "value": "nextcloud-redis" }
+          ]
+        },
+        {
+          "key": "nextcloud-db",
+          "name": "MariaDB",
+          "description": "Datenbank für Nextcloud",
+          "image": "mariadb:10.11",
+          "matchImages": ["mariadb"],
+          "matchNames": ["nextcloud-db", "nextcloud_db"],
+          "ports": [],
+          "volumes": [{ "host": "{config}/nextcloud-db", "container": "/var/lib/mysql" }],
+          "env": [
+            { "key": "MYSQL_ROOT_PASSWORD", "value": "changeme_root" },
+            { "key": "MYSQL_DATABASE", "value": "nextcloud" },
+            { "key": "MYSQL_USER", "value": "nextcloud" },
+            { "key": "MYSQL_PASSWORD", "value": "changeme" }
+          ]
+        },
+        {
+          "key": "nextcloud-redis",
+          "name": "Redis",
+          "description": "Cache für Nextcloud",
+          "image": "redis:alpine",
+          "matchImages": ["redis"],
+          "matchNames": ["nextcloud-redis", "nextcloud_redis"],
+          "ports": [],
+          "volumes": [],
+          "env": [],
+          "optional": true
+        }
+      ],
+      "paths": {
+        "config": { "label": "Konfigurationen", "default": "/opt/stacks/nextcloud", "description": "App-Configs und Datenbankdaten" },
+        "data":   { "label": "Datenspeicher",   "default": "/mnt/nextcloud-data",  "description": "Nutzer-Dateien und Uploads" }
+      }
+    },
+    {
+      "id": "gitea",
+      "name": "Gitea",
+      "icon": "🐙",
+      "author": "community",
+      "description": "Selbst gehosteter Git-Service – leichtgewichtige Alternative zu GitHub/GitLab mit Web-UI, Issues, Pull Requests und CI/CD.",
+      "tags": ["development", "git", "code"],
+      "services": [
+        {
+          "key": "gitea",
+          "name": "Gitea",
+          "description": "Selbst gehosteter Git-Dienst",
+          "image": "gitea/gitea:latest",
+          "matchImages": ["gitea/gitea"],
+          "matchNames": ["gitea"],
+          "ports": [
+            { "host": "3000", "container": "3000" },
+            { "host": "2222", "container": "22" }
+          ],
+          "volumes": [
+            { "host": "{config}/gitea", "container": "/data" }
+          ],
+          "env": [
+            { "key": "USER_UID", "value": "1000" },
+            { "key": "USER_GID", "value": "1000" },
+            { "key": "GITEA__database__DB_TYPE", "value": "sqlite3" }
+          ]
+        }
+      ],
+      "paths": {
+        "config": { "label": "Datenpfad", "default": "/opt/stacks/gitea", "description": "Repos, Config und SQLite-Datenbank" }
+      }
+    },
+    {
+      "id": "immich",
+      "name": "Immich",
+      "icon": "📸",
+      "author": "community",
+      "description": "Hochperformante selbst gehostete Fotoverwaltung – Google Photos Alternative mit KI-Gesichtserkennung, automatischen Alben und mobilem Backup.",
+      "tags": ["media", "photos", "ai"],
+      "services": [
+        {
+          "key": "immich-server",
+          "name": "Immich Server",
+          "description": "Haupt-API und Web-UI",
+          "image": "ghcr.io/immich-app/immich-server:release",
+          "matchImages": ["immich-app/immich-server"],
+          "matchNames": ["immich-server", "immich_server"],
+          "ports": [{ "host": "2283", "container": "3001" }],
+          "volumes": [
+            { "host": "{photos}", "container": "/usr/src/app/upload" }
+          ],
+          "env": [
+            { "key": "DB_HOSTNAME", "value": "immich-postgres" },
+            { "key": "DB_USERNAME", "value": "postgres" },
+            { "key": "DB_PASSWORD", "value": "postgres" },
+            { "key": "DB_DATABASE_NAME", "value": "immich" },
+            { "key": "REDIS_HOSTNAME", "value": "immich-redis" }
+          ]
+        },
+        {
+          "key": "immich-machine-learning",
+          "name": "Immich ML",
+          "description": "KI-Bildanalyse und Erkennung",
+          "image": "ghcr.io/immich-app/immich-machine-learning:release",
+          "matchImages": ["immich-app/immich-machine-learning"],
+          "matchNames": ["immich-machine-learning", "immich_machine_learning"],
+          "ports": [],
+          "volumes": [{ "host": "{config}/immich-ml-cache", "container": "/cache" }],
+          "env": [],
+          "optional": true
+        },
+        {
+          "key": "immich-postgres",
+          "name": "PostgreSQL",
+          "description": "Datenbank für Immich",
+          "image": "tensorchord/pgvecto-rs:pg14-v0.2.0",
+          "matchImages": ["pgvecto-rs", "postgres"],
+          "matchNames": ["immich-postgres", "immich_postgres"],
+          "ports": [],
+          "volumes": [{ "host": "{config}/immich-db", "container": "/var/lib/postgresql/data" }],
+          "env": [
+            { "key": "POSTGRES_PASSWORD", "value": "postgres" },
+            { "key": "POSTGRES_USER", "value": "postgres" },
+            { "key": "POSTGRES_DB", "value": "immich" }
+          ]
+        },
+        {
+          "key": "immich-redis",
+          "name": "Redis",
+          "description": "Cache für Immich",
+          "image": "redis:6.2-alpine",
+          "matchImages": ["redis"],
+          "matchNames": ["immich-redis", "immich_redis"],
+          "ports": [],
+          "volumes": [],
+          "env": [],
+          "optional": true
+        }
+      ],
+      "paths": {
+        "photos": { "label": "Foto-Bibliothek", "default": "/mnt/photos",         "description": "Upload- und Bibliotheks-Ordner" },
+        "config": { "label": "Konfigurationen", "default": "/opt/stacks/immich",  "description": "Datenbank und ML-Cache" }
+      }
+    },
+    {
+      "id": "paperless",
+      "name": "Paperless-ngx",
+      "icon": "📄",
+      "author": "community",
+      "description": "Digitales Dokumenten-Management-System – scannt, OCR-verarbeitet und verwaltet deine Dokumente vollautomatisch.",
+      "tags": ["documents", "ocr", "productivity"],
+      "services": [
+        {
+          "key": "paperless-webserver",
+          "name": "Paperless Web",
+          "description": "Weboberfläche und API",
+          "image": "ghcr.io/paperless-ngx/paperless-ngx:latest",
+          "matchImages": ["paperless-ngx/paperless-ngx"],
+          "matchNames": ["paperless", "paperless-webserver"],
+          "ports": [{ "host": "8000", "container": "8000" }],
+          "volumes": [
+            { "host": "{config}/paperless/data",   "container": "/usr/src/paperless/data" },
+            { "host": "{config}/paperless/media",  "container": "/usr/src/paperless/media" },
+            { "host": "{inbox}",                   "container": "/usr/src/paperless/consume" }
+          ],
+          "env": [
+            { "key": "PAPERLESS_REDIS", "value": "redis://paperless-redis:6379" },
+            { "key": "PAPERLESS_DBHOST", "value": "paperless-db" },
+            { "key": "PAPERLESS_OCR_LANGUAGE", "value": "deu+eng" },
+            { "key": "PAPERLESS_TIME_ZONE", "value": "Europe/Berlin" }
+          ]
+        },
+        {
+          "key": "paperless-db",
+          "name": "PostgreSQL",
+          "description": "Datenbank für Paperless",
+          "image": "postgres:15",
+          "matchImages": ["postgres"],
+          "matchNames": ["paperless-db", "paperless_db"],
+          "ports": [],
+          "volumes": [{ "host": "{config}/paperless-db", "container": "/var/lib/postgresql/data" }],
+          "env": [
+            { "key": "POSTGRES_DB", "value": "paperless" },
+            { "key": "POSTGRES_USER", "value": "paperless" },
+            { "key": "POSTGRES_PASSWORD", "value": "paperless" }
+          ]
+        },
+        {
+          "key": "paperless-redis",
+          "name": "Redis",
+          "description": "Broker für Paperless",
+          "image": "redis:7",
+          "matchImages": ["redis"],
+          "matchNames": ["paperless-redis"],
+          "ports": [],
+          "volumes": [],
+          "env": []
+        }
+      ],
+      "paths": {
+        "config": { "label": "Konfigurationen", "default": "/opt/stacks/paperless", "description": "Daten und Medien" },
+        "inbox":  { "label": "Eingangsordner",  "default": "/mnt/paperless-inbox",  "description": "Dokumente hier ablegen zum automatischen Import" }
+      }
+    }
+  ]
+}
