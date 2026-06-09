@@ -1038,6 +1038,9 @@ new MutationObserver(() => {
   }
 }).observe(document.getElementById('modal-settings'), { attributes: true, attributeFilter: ['class'] });
 
+// Branch-Wechsel → Update-Zeile auf "Jetzt prüfen" zurücksetzen
+document.getElementById('s-update-branch').addEventListener('change', () => setUpdateRowState(null));
+
 function portRow(host = '', container = '', proto = 'tcp') {
   const d = document.createElement('div');
   d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;margin-bottom:8px';
@@ -2376,10 +2379,8 @@ async function checkUpdatesManual() {
   if (btn)  { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
   if (icon) { icon.innerHTML = hearthSpinner(18); }
   await checkUpdates(true, branch);
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = t('settings.checkUpdatesBtn') || 'Jetzt prüfen';
-  }
+  if (btn) btn.disabled = false;
+  // setUpdateRowState (called inside checkUpdates) already restores the correct button state
 }
 
 async function checkUpdates(force = false, branch = null) {
