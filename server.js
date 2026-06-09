@@ -1679,10 +1679,11 @@ app.get('/api/settings', requireAuth, (req, res) => {
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
     version:     VERSION,
-    cfApiToken:     runtimeConfig.cfApiToken || '',
-    cfZoneId:       runtimeConfig.cfZoneId || '',
-    cfTunnelToken:  runtimeConfig.cfTunnelToken || '',
-    serverPublicIp: runtimeConfig.serverPublicIp || '',
+    cfApiToken:       runtimeConfig.cfApiToken || '',
+    cfZoneId:         runtimeConfig.cfZoneId || '',
+    cfTunnelToken:    runtimeConfig.cfTunnelToken || '',
+    serverPublicIp:   runtimeConfig.serverPublicIp || '',
+    autoUpdateLinux:  runtimeConfig.autoUpdateLinux ?? { enabled: false },
   });
 });
 
@@ -1730,6 +1731,10 @@ app.post(
     if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();
     if (cfTunnelToken !== undefined) updates.cfTunnelToken = (cfTunnelToken || '').trim();
     if (serverPublicIp !== undefined) updates.serverPublicIp = (serverPublicIp || '').trim();
+    const { autoUpdateLinux } = req.body || {};
+    if (autoUpdateLinux && typeof autoUpdateLinux === 'object') {
+      updates.autoUpdateLinux = { enabled: !!autoUpdateLinux.enabled };
+    }
 
     saveConfig(updates);
     if (updates.autoUpdate) scheduleNightlyUpdate();
@@ -2608,6 +2613,118 @@ app.get('/api/changelog', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Linux system updates
+// ---------------------------------------------------------------------------
+
+function _detectPackageManager() {
+  const checks = [
+    ['/host/usr/bin/apt-get', 'apt'],
+    ['/host/usr/bin/apt',     'apt'],
+    ['/host/usr/bin/dnf',     'dnf'],
+    ['/host/usr/bin/yum',     'yum'],
+    ['/host/usr/bin/pacman',  'pacman'],
+    ['/host/usr/bin/zypper',  'zypper'],
+  ];
+  for (const [p, name] of checks) if (fs.existsSync(p)) return name;
+  return null;
+}
+
+function _checkRebootRequired() {
+  return fs.existsSync('/host/var/run/reboot-required');
+}
+
+function _linuxCheckCmd(pm) {
+  switch (pm) {
+    case 'apt':    return "apt-get -qq update 2>/dev/null; C=$(apt-get -s upgrade 2>/dev/null | grep -c '^Inst' || echo 0); echo PENDING:$C";
+    case 'dnf':    return "dnf check-update -q 2>/dev/null; C=$(dnf list updates 2>/dev/null | grep -vc '^$' || echo 0); echo PENDING:$C";
+    case 'yum':    return "yum check-update -q 2>/dev/null; R=$?; [ $R -eq 100 ] && echo PENDING:many || echo PENDING:0";
+    case 'pacman': return "pacman -Qu 2>/dev/null | wc -l | awk '{print \"PENDING:\"$1}'";
+    case 'zypper': return "zypper lu 2>/dev/null | grep -c '|' | awk '{print \"PENDING:\"$1}' || echo PENDING:0";
+    default:       return 'echo PENDING:?';
+  }
+}
+
+function _linuxUpdateCmd(pm) {
+  switch (pm) {
+    case 'apt':    return 'DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y';
+    case 'dnf':    return 'dnf upgrade -y';
+    case 'yum':    return 'yum upgrade -y';
+    case 'pacman': return 'pacman -Syu --noconfirm';
+    case 'zypper': return 'zypper update -y';
+    default:       return null;
+  }
+}
+
+const _sysUpdateJobs = new Map();
+let _sysUpdateJobSeq = 1;
+
+function _runLinuxUpdateJob(job) {
+  const pm = _detectPackageManager();
+  if (!pm) {
+    job.output = ['No supported package manager found.\n'];
+    job.status = 'error'; job.done = true;
+    return;
+  }
+  const cmd = _linuxUpdateCmd(pm);
+  if (!cmd) {
+    job.output = [`Package manager '${pm}' not supported.\n`];
+    job.status = 'error'; job.done = true;
+    return;
+  }
+  const fullCmd = `nsenter -t 1 -m -u -n -i -- sh -c '${cmd.replace(/'/g, "'\\''")}'`;
+  const proc = spawn('docker', ['run', '--rm', '--privileged', '--pid=host', _hearthImage, 'sh', '-c', fullCmd]);
+  proc.stdout.on('data', d => job.output.push(d.toString()));
+  proc.stderr.on('data', d => job.output.push(d.toString()));
+  proc.on('close', code => {
+    job.rebootRequired = _checkRebootRequired();
+    job.status   = code === 0 ? 'done' : 'error';
+    job.exitCode = code;
+    job.done     = true;
+    if (job.isAuto) {
+      console.log(`[LINUX-UPDATE] Scheduled run done (exit ${code}).`);
+      if (job.rebootRequired) {
+        addNotif('linux-reboot', 'Neustart erforderlich', 'Ein Linux-Update erfordert einen Server-Neustart.', { section: 'updates' });
+      } else if (code === 0) {
+        addNotif('linux-update-done', 'Linux aktualisiert', 'Alle Systempakete wurden erfolgreich aktualisiert.');
+      }
+    }
+  });
+}
+
+app.get('/api/system-updates/check', requireAuth, asyncHandler(async (req, res) => {
+  const pm = _detectPackageManager();
+  const rebootRequired = _checkRebootRequired();
+  if (!pm) return res.json({ pkgMgr: null, pending: null, rebootRequired, error: 'Kein unterstützter Paketmanager' });
+  const nsCmd = `nsenter -t 1 -m -u -n -i -- sh -c '${_linuxCheckCmd(pm)}'`;
+  try {
+    const { stdout } = await _exec('docker', ['run', '--rm', '--privileged', '--pid=host', _hearthImage, 'sh', '-c', nsCmd]);
+    const m = stdout.match(/PENDING:(\w+)/);
+    const raw = m ? m[1] : '?';
+    const pending = /^\d+$/.test(raw) ? Number(raw) : raw;
+    res.json({ pkgMgr: pm, pending, rebootRequired });
+  } catch (e) {
+    res.json({ pkgMgr: pm, pending: '?', rebootRequired, error: e.message });
+  }
+}));
+
+app.post('/api/system-updates/install', requireAuth, asyncHandler(async (req, res) => {
+  const running = [..._sysUpdateJobs.values()].find(j => !j.done);
+  if (running) return res.json({ jobId: running.id, status: 'running' });
+  const jobId = String(_sysUpdateJobSeq++);
+  const job = { id: jobId, status: 'running', output: [], done: false, rebootRequired: false };
+  _sysUpdateJobs.set(jobId, job);
+  if (_sysUpdateJobs.size > 20) _sysUpdateJobs.delete([..._sysUpdateJobs.keys()][0]);
+  _runLinuxUpdateJob(job);
+  res.json({ jobId, status: 'started' });
+}));
+
+app.get('/api/system-updates/job/:id', requireAuth, (req, res) => {
+  const job = _sysUpdateJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job nicht gefunden' });
+  res.json({ status: job.status, output: job.output, done: job.done, rebootRequired: job.rebootRequired });
+});
+
+// ---------------------------------------------------------------------------
 // Notifications (in-memory, per session reset)
 // ---------------------------------------------------------------------------
 const _notifs = [];
@@ -3096,6 +3213,13 @@ function scheduleNightlyUpdate() {
         addNotif('error', 'Auto-update failed', e.message);
         console.error('[UPDATE] Auto-update failed:', e.message);
       });
+    if (runtimeConfig.autoUpdateLinux?.enabled) {
+      console.log('[LINUX-UPDATE] Running scheduled auto-update…');
+      const jobId = String(_sysUpdateJobSeq++);
+      const job = { id: jobId, status: 'running', output: [], done: false, rebootRequired: false, isAuto: true };
+      _sysUpdateJobs.set(jobId, job);
+      _runLinuxUpdateJob(job);
+    }
     scheduleNightlyUpdate();
   }, next - now);
   console.log(`[UPDATE] Next auto-update scheduled at ${next.toLocaleString()}`);
