@@ -82,20 +82,7 @@
         from { opacity: 0; transform: translateY(8px); }
         to   { opacity: 1; transform: translateY(0); }
       }
-      /* Tab accent glow behind the active pill */
-      .tab-glow-inner {
-        position: absolute;
-        top: 0; left: 0;
-        width: 280px;
-        height: 56px;
-        background: radial-gradient(
-          ellipse 80% 100% at 50% 60%,
-          rgba(196, 240, 66, 0.09),
-          transparent 70%
-        );
-        transition: transform .30s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
-        pointer-events: none;
-      }
+      .tab-glow-inner { display: none; }
       /* Store */
       .store-category { margin-bottom: 32px; }
       .store-cat-bar { display: none; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 0 0 12px; scrollbar-width: none; }
