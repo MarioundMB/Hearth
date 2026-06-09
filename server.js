@@ -3140,7 +3140,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
       '-v', `${repoMount}:/app/repo`,
       selfImage,
       'sh', '-c',
-      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -f --filter until=24h 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
+      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -af 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
     ], { detached: true, stdio: 'ignore' }).unref();
   }
 
@@ -4034,10 +4034,23 @@ adminHttpServer.listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
   scheduleNightlyUpdate();
-  // Remove any leftover internal update containers from previous runs
+  // Remove any leftover internal containers from previous runs (by name and by label)
   for (const name of ['hearth-git-clone', 'hearth-updater']) {
     _spawn('docker', ['rm', '-f', name], { stdio: 'ignore' }).unref();
   }
+  docker.listContainers({ all: true }).then(list => {
+    const selfHostname = process.env.HOSTNAME || '';
+    for (const c of list) {
+      if (c.Id.startsWith(selfHostname)) continue; // never remove ourselves
+      const l = c.Labels || {};
+      const hide = String(l['hearth.hide']).toLowerCase() === 'true';
+      const self = String(l['hearth.self']).toLowerCase() === 'true';
+      const isMain = (c.Names || []).some(n => /\/hearth$/.test(n));
+      if ((hide || self) && !isMain) {
+        docker.getContainer(c.Id).remove({ force: true }).catch(() => {});
+      }
+    }
+  }).catch(() => {});
 });
 
 // Guest server — safe to expose publicly (admin routes are blocked)
