@@ -2376,8 +2376,7 @@ async function checkUpdatesManual() {
   const btn  = document.getElementById('btn-check-updates');
   const icon = document.getElementById('upd-check-icon');
   const branch = document.getElementById('s-update-branch')?.value || null;
-  if (btn)  { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
-  if (icon) { icon.innerHTML = hearthSpinner(18); }
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
   await checkUpdates(true, branch);
   if (btn) btn.disabled = false;
   // setUpdateRowState (called inside checkUpdates) already restores the correct button state
