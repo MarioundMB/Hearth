@@ -3310,7 +3310,12 @@ app.get(
     res.json(
       containers
         .map(mapContainer)
-        .filter((c) => String(c.labels['hearth.self']).toLowerCase() !== 'true')
+        .filter((c) => {
+          const l = c.labels;
+          if (String(l['hearth.self']).toLowerCase() === 'true') return false;
+          if (String(l['hearth.hide']).toLowerCase() === 'true') return false;
+          return true;
+        })
         .map((c) => ({
           ...c,
           guestVisible: !guestHiddenSet.has(c.id) && !guestHiddenSet.has(c.name),
@@ -4029,6 +4034,10 @@ adminHttpServer.listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
   scheduleNightlyUpdate();
+  // Remove any leftover internal update containers from previous runs
+  for (const name of ['hearth-git-clone', 'hearth-updater']) {
+    _spawn('docker', ['rm', '-f', name], { stdio: 'ignore' }).unref();
+  }
 });
 
 // Guest server — safe to expose publicly (admin routes are blocked)
