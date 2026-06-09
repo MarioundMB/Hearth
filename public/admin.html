@@ -1046,6 +1046,7 @@
         border-bottom: 1px solid var(--border);
       }
       .s-group:last-child { border-bottom: none; }
+      .s-group + .s-cat-title { padding-top: 4px; }
       .s-group-title {
         font-family: var(--font-mono);
         font-size: 10px;
@@ -2186,7 +2187,7 @@
 
             <div class="s-nav-item" onclick="openSettingsCat('general')">
               <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
-              <div><div class="s-label">Allgemein</div><div class="s-sub">Server-Name, Sprache</div></div>
+              <div><div class="s-label">Allgemein</div><div class="s-sub">Server-Name · Sprache</div></div>
               <span class="s-chevron">›</span>
             </div>
 
@@ -2197,44 +2198,44 @@
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('guest')">
-              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-globe"/></svg></span>
-              <div><div class="s-label">Gäste-Ansicht</div><div class="s-sub">Öffentlich sichtbare Apps</div></div>
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-external"/></svg></span>
+              <div><div class="s-label">Gäste-Ansicht</div><div class="s-sub">Öffentlich zugängliche Apps</div></div>
               <span class="s-chevron">›</span>
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('behavior')">
-              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-refresh"/></svg></span>
-              <div><div class="s-label">Verhalten</div><div class="s-sub">Auto-Refresh</div></div>
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-clock"/></svg></span>
+              <div><div class="s-label">Verhalten</div><div class="s-sub">Auto-Refresh Intervall</div></div>
               <span class="s-chevron">›</span>
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('updates')">
               <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
-              <div><div class="s-label">Updates</div><div class="s-sub">Branch, Auto-Update, Prüfen</div></div>
+              <div><div class="s-label">Updates</div><div class="s-sub">Hearth · Linux · Auto-Update</div></div>
               <span class="s-chevron">›</span>
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('appearance')">
-              <span class="s-icon">🎨</span>
-              <div><div class="s-label">Erscheinungsbild</div><div class="s-sub" id="s-theme-overview-sub">Standard Theme</div></div>
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-layers"/></svg></span>
+              <div><div class="s-label">Erscheinungsbild</div><div class="s-sub" id="s-theme-overview-sub">Theme · Custom CSS</div></div>
               <span class="s-chevron">›</span>
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('security')">
-              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-shield"/></svg></span>
-              <div><div class="s-label">Sicherheit</div><div class="s-sub">Passwort, Benutzer</div></div>
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-lock"/></svg></span>
+              <div><div class="s-label">Sicherheit</div><div class="s-sub">Passwort · 2FA · WebAuthn</div></div>
               <span class="s-chevron">›</span>
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('news')">
-              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-info"/></svg></span>
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-book"/></svg></span>
               <div><div class="s-label">Neuigkeiten</div><div class="s-sub">Changelog</div></div>
               <span class="s-chevron">›</span>
             </div>
 
             <div class="s-nav-item" onclick="openSettingsCat('system')">
-              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
-              <div><div class="s-label">System</div><div class="s-sub" id="s-version-sub">Docker, Version</div></div>
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-settings"/></svg></span>
+              <div><div class="s-label">System</div><div class="s-sub" id="s-version-sub">Info · Neustart · Terminal</div></div>
               <span class="s-chevron">›</span>
             </div>
 
@@ -2258,7 +2259,7 @@
               </div>
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-proxy"/></svg></span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-info"/></svg></span>
                   <div>
                     <div class="s-label">Sprache</div>
                     <div class="s-sub">Interface-Sprache</div>
@@ -2341,7 +2342,7 @@
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-refresh"/></svg></span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-clock"/></svg></span>
                   <div>
                     <div class="s-label">Auto-Refresh Intervall</div>
                     <div class="s-sub">System-Info automatisch aktualisieren</div>
@@ -2366,7 +2367,7 @@
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-chevron-right"/></svg></span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-activity"/></svg></span>
                   <div>
                     <div class="s-label">Update-Branch</div>
                     <div class="s-sub">Branch der beim Aktualisieren geladen wird</div>
@@ -2407,11 +2408,11 @@
               </div>
             </div>
 
-            <div class="s-cat-title" style="margin-top:8px">Server-Hardware</div>
+            <div class="s-cat-title">Server-Hardware</div>
             <div class="s-group">
               <div class="s-row" id="linux-update-row">
                 <div class="s-row-l">
-                  <span class="s-icon" id="linux-upd-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
+                  <span class="s-icon" id="linux-upd-icon"><svg class="icon icon-md"><use href="#icon-package"/></svg></span>
                   <div>
                     <div class="s-label" id="linux-upd-label">Linux-Pakete</div>
                     <div class="s-sub" id="linux-upd-hint">Noch nicht geprüft</div>
@@ -2421,7 +2422,7 @@
               </div>
               <div class="s-row" id="linux-install-row" style="display:none">
                 <div class="s-row-l">
-                  <span class="s-icon">⬇</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-download"/></svg></span>
                   <div>
                     <div class="s-label">Updates installieren</div>
                     <div class="s-sub" id="linux-install-hint">Pakete aktualisieren</div>
@@ -2431,7 +2432,7 @@
               </div>
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-clock"/></svg></span>
                   <div>
                     <div class="s-label">Auto-Update (Linux)</div>
                     <div class="s-sub">Täglich zur gleichen Zeit wie Hearth</div>
@@ -2453,7 +2454,7 @@
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon">🎨</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-layers"/></svg></span>
                   <div>
                     <div class="s-label">Aktives Theme</div>
                     <div class="s-sub" id="theme-active-name">Standard (kein Custom Theme)</div>
@@ -2491,13 +2492,13 @@
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-shield"/></svg></span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-lock"/></svg></span>
                   <div>
-                    <div class="s-label">Users &amp; Credentials</div>
-                    <div class="s-sub">Passwort ändern, Benutzer verwalten</div>
+                    <div class="s-label">Benutzer &amp; Passwörter</div>
+                    <div class="s-sub">Passwort ändern · Benutzer verwalten</div>
                   </div>
                 </div>
-                <button class="btn sm ghost" onclick="openModal('modal-security')">Öffnen →</button>
+                <button class="btn sm ghost" style="flex-shrink:0" onclick="openModal('modal-security')">Öffnen</button>
               </div>
             </div>
           </div><!-- /#s-cat-security -->
@@ -2547,50 +2548,50 @@
                 <span class="s-badge" id="s-version">—</span>
               </div>
             </div>
-            <div class="s-cat-title" style="margin-top:8px">Hearth-Prozess</div>
+            <div class="s-cat-title">Hearth-Prozess</div>
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon">⟳</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-restart"/></svg></span>
                   <div>
                     <div class="s-label">Hearth neu starten</div>
                     <div class="s-sub">Node-Prozess neu starten</div>
                   </div>
                 </div>
-                <button class="btn ghost sm" id="s-restart" style="color:var(--danger);border-color:var(--danger);flex-shrink:0">Restart</button>
+                <button class="btn ghost sm" id="s-restart" style="color:var(--danger);border-color:var(--danger);flex-shrink:0">Neu starten</button>
               </div>
             </div>
-            <div class="s-cat-title" style="margin-top:8px">Server-Hardware</div>
+            <div class="s-cat-title">Server-Hardware</div>
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon">↺</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
                   <div>
                     <div class="s-label">Server neu starten</div>
-                    <div class="s-sub">Führt ein Hardware-Reboot durch</div>
+                    <div class="s-sub">Hardware-Neustart (Reboot)</div>
                   </div>
                 </div>
-                <button class="btn ghost sm" id="s-reboot" style="color:var(--warning);border-color:var(--warning);flex-shrink:0" onclick="systemReboot()">Reboot</button>
+                <button class="btn ghost sm" id="s-reboot" style="color:var(--warning);border-color:var(--warning);flex-shrink:0" onclick="systemReboot()">Neustart</button>
               </div>
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon">⏻</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-stop"/></svg></span>
                   <div>
                     <div class="s-label">Server herunterfahren</div>
-                    <div class="s-sub">Fährt den Server vollständig aus</div>
+                    <div class="s-sub">Server vollständig ausschalten</div>
                   </div>
                 </div>
-                <button class="btn ghost sm" id="s-shutdown" style="color:var(--danger);border-color:var(--danger);flex-shrink:0" onclick="systemShutdown()">Shutdown</button>
+                <button class="btn ghost sm" id="s-shutdown" style="color:var(--danger);border-color:var(--danger);flex-shrink:0" onclick="systemShutdown()">Ausschalten</button>
               </div>
             </div>
-            <div class="s-cat-title" style="margin-top:8px">Terminal</div>
+            <div class="s-cat-title">Terminal</div>
             <div class="s-group">
               <div class="s-row">
                 <div class="s-row-l">
-                  <span class="s-icon">&#xbb;</span>
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-log"/></svg></span>
                   <div>
                     <div class="s-label">Linux-Konsole</div>
-                    <div class="s-sub">Bash-Session im Server-Container</div>
+                    <div class="s-sub">Bash-Session auf dem Host-System</div>
                   </div>
                 </div>
                 <button class="btn ghost sm" style="flex-shrink:0" onclick="openTerminalLogin()">Öffnen</button>
