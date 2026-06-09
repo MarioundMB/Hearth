@@ -2945,7 +2945,7 @@ async function runHearthSelfUpdate() {
       '-v', `${repoMount}:/app/repo`,
       selfImage,
       'sh', '-c',
-      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1`,
+      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -f --filter until=24h 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
     ], { detached: true, stdio: 'ignore' }).unref();
   }
 
@@ -3334,6 +3334,12 @@ app.delete(
     res.json({ ok: true });
   })
 );
+
+// Images prune (dangling <none>:<none> images)
+app.post('/api/images/prune', requireAuth, asyncHandler(async (req, res) => {
+  const result = await docker.pruneImages({ filters: JSON.stringify({ dangling: ['true'] }) });
+  res.json({ ok: true, deleted: result.ImagesDeleted?.length || 0, freed: result.SpaceReclaimed || 0 });
+}));
 
 // ---------------------------------------------------------------------------
 // Dateimanager (Admin) – eingesperrt in FILES_ROOT

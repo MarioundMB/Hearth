@@ -638,6 +638,18 @@ document.getElementById('logs-live').addEventListener('change', (e) => {
 });
 
 // ---------- Images ----------
+async function pruneImages() {
+  if (!confirm('Ungenutzte Images (<none>:<none>) löschen? Das spart Speicherplatz.')) return;
+  const btn = document.getElementById('prune-images');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Räume auf…'; }
+  try {
+    const r = await api('POST', '/api/images/prune');
+    toast(`${r.deleted} Image(s) gelöscht · ${fmtBytes(r.freed)} freigegeben`);
+    loadImages();
+  } catch (e) { toast(e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '🧹 Aufräumen'; } }
+}
+
 async function loadImages() {
   const box = document.getElementById('images');
   try {
