@@ -638,6 +638,18 @@ document.getElementById('logs-live').addEventListener('change', (e) => {
 });
 
 // ---------- Images ----------
+async function pruneImages() {
+  if (!confirm('Ungenutzte Images (<none>:<none>) löschen? Das spart Speicherplatz.')) return;
+  const btn = document.getElementById('prune-images');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Räume auf…'; }
+  try {
+    const r = await api('POST', '/api/images/prune');
+    toast(`${r.deleted} Image(s) gelöscht · ${fmtBytes(r.freed)} freigegeben`);
+    loadImages();
+  } catch (e) { toast(e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '🧹 Aufräumen'; } }
+}
+
 async function loadImages() {
   const box = document.getElementById('images');
   try {
@@ -1026,6 +1038,9 @@ new MutationObserver(() => {
   }
 }).observe(document.getElementById('modal-settings'), { attributes: true, attributeFilter: ['class'] });
 
+// Branch-Wechsel → Update-Zeile auf "Jetzt prüfen" zurücksetzen
+document.getElementById('s-update-branch').addEventListener('change', () => setUpdateRowState(null));
+
 function portRow(host = '', container = '', proto = 'tcp') {
   const d = document.createElement('div');
   d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 80px auto;gap:8px;margin-bottom:8px';
@@ -1150,6 +1165,7 @@ document.getElementById('c-submit').addEventListener('click', async () => {
 let _currentRole = null;
 
 function openSettings() {
+  closeSettingsCat();
   openModal('modal-settings');
   loadSettings();
 }
@@ -1162,16 +1178,32 @@ document.getElementById('s-autoupdate-enabled').addEventListener('change', funct
   document.getElementById('s-autoupdate-time').style.display = this.checked ? 'flex' : 'none';
 });
 
+function openSettingsCat(cat) {
+  document.getElementById('s-overview').style.display = 'none';
+  document.querySelectorAll('.s-detail').forEach(el => el.style.display = 'none');
+  const panel = document.getElementById('s-cat-' + cat);
+  if (panel) panel.style.display = 'block';
+  if (cat === 'appearance') { loadThemeStatus(); loadSettingsThemePicker(); }
+  if (cat === 'news')       loadChangelog();
+}
+
+function closeSettingsCat() {
+  document.querySelectorAll('.s-detail').forEach(el => el.style.display = 'none');
+  document.getElementById('s-overview').style.display = 'block';
+}
+
 async function loadSettings() {
   try {
     const s = await api('GET', '/api/settings');
     applyLang(s.lang || 'en');
-    document.getElementById('s-servername').value       = s.serverName || '';
+    document.getElementById('s-servername').value       = s.hostname || s.serverName || '';
     document.getElementById('s-lang').value             = s.lang || 'en';
     document.getElementById('s-showoffline').checked    = !!s.showOfflineApps;
     document.getElementById('s-refresh').value          = String(s.refreshInterval ?? 15);
-    document.getElementById('s-port').textContent       = s.port;
-    document.getElementById('s-guest-port').textContent = s.guestPort;
+    document.getElementById('s-port').value       = s.configPort      || s.port;
+    document.getElementById('s-guest-port').value = s.configGuestPort || s.guestPort;
+    const portSub = document.getElementById('s-ports-sub');
+    if (portSub) portSub.textContent = `Admin :${s.port} · Gäste :${s.guestPort}`;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
     document.getElementById('s-filesroot').textContent  = s.filesRoot;
     document.getElementById('s-version').textContent    = `v${s.version}`;
@@ -1181,6 +1213,8 @@ async function loadSettings() {
     document.getElementById('s-autoupdate-hour').value   = au.hour   ?? 0;
     document.getElementById('s-autoupdate-minute').value = String(au.minute ?? 0).padStart(2, '0');
     document.getElementById('s-autoupdate-time').style.display = au.enabled ? 'flex' : 'none';
+    const al = s.autoUpdateLinux ?? { enabled: false };
+    document.getElementById('s-autoupdate-linux').checked = !!al.enabled;
 
     // Branch-Selector befüllen
     const branchSel = document.getElementById('s-update-branch');
@@ -1213,8 +1247,11 @@ document.getElementById('s-save').addEventListener('click', async () => {
   const btn = document.getElementById('s-save');
   btn.disabled = true;
   try {
-    const updateBranch = document.getElementById('s-update-branch').value || 'main';
-    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch });
+    const updateBranch    = document.getElementById('s-update-branch').value || 'main';
+    const configPort      = parseInt(document.getElementById('s-port').value, 10) || null;
+    const configGuestPort = parseInt(document.getElementById('s-guest-port').value, 10) || null;
+    const autoUpdateLinux = { enabled: document.getElementById('s-autoupdate-linux').checked };
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, autoUpdateLinux, updateBranch, configPort, configGuestPort });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);
@@ -1285,7 +1322,7 @@ function renderNotifications(list) {
       badge.style.display = unreadNow ? '' : 'none';
 
       const action = JSON.parse(item.dataset.action || '{}');
-      if (action.section === 'updates') { document.getElementById('notif-panel').style.display = 'none'; openSettings(); }
+      if (action.section === 'updates') { document.getElementById('notif-panel').style.display = 'none'; openSettings(); openSettingsCat('updates'); }
     });
   });
 }
@@ -2341,22 +2378,22 @@ function setUpdateRowState(hi) {
 async function checkUpdatesManual() {
   const btn  = document.getElementById('btn-check-updates');
   const icon = document.getElementById('upd-check-icon');
-  if (btn)  { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
-  if (icon) { icon.innerHTML = hearthSpinner(18); }
-  await checkUpdates(true);
-  if (btn) {
-    btn.disabled = false;
-    btn.setAttribute('data-i18n', 'settings.checkUpdatesBtn');
-    btn.textContent = t('settings.checkUpdatesBtn');
-  }
-  // icon is restored by setUpdateRowState called inside checkUpdates
+  const branch = document.getElementById('s-update-branch')?.value || null;
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
+  await checkUpdates(true, branch);
+  if (btn) btn.disabled = false;
+  // setUpdateRowState (called inside checkUpdates) already restores the correct button state
 }
 
-async function checkUpdates(force = false) {
+async function checkUpdates(force = false, branch = null) {
   const badge = document.getElementById('topbar-updates');
   if (badge) badge.innerHTML = hearthSpinner(14);
   try {
-    const data = await api('GET', `/api/updates/check${force ? '?force=true' : ''}`);
+    const params = new URLSearchParams();
+    if (force)  params.set('force', 'true');
+    if (branch) params.set('branch', branch);
+    const qs = params.toString();
+    const data = await api('GET', `/api/updates/check${qs ? '?' + qs : ''}`);
     // Map aufbauen
     _updateMap = {};
     let pending = 0;
@@ -4053,3 +4090,200 @@ document.getElementById('editor-save-btn').addEventListener('click', async () =>
     btn.textContent = 'Speichern';
   }
 });
+
+// ─── Linux System Updates ────────────────────────────────────────────────────
+
+async function checkLinuxUpdates() {
+  const btn   = document.getElementById('btn-linux-check');
+  const label = document.getElementById('linux-upd-label');
+  const hint  = document.getElementById('linux-upd-hint');
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
+  try {
+    const d = await api('GET', '/api/system-updates/check');
+    if (d.pkgMgr) {
+      if (label) label.textContent = `${t('settings.linuxPackages')} (${d.pkgMgr})`;
+      let hintText = '';
+      if (d.pending === 0 || d.pending === '0') {
+        hintText = t('settings.linuxAllGood');
+        const ir = document.getElementById('linux-install-row');
+        if (ir) ir.style.display = 'none';
+      } else {
+        const n = d.pending;
+        hintText = typeof n === 'number' ? `${n} ${t('settings.linuxUpdatesAvail')}` : t('settings.linuxUpdatesAvail');
+        const ir = document.getElementById('linux-install-row');
+        const ih = document.getElementById('linux-install-hint');
+        if (ir) ir.style.display = '';
+        if (ih) ih.textContent = typeof n === 'number' ? `${n} ${t('settings.linuxInstallLabel')}` : t('settings.linuxInstallLabel');
+      }
+      if (d.rebootRequired) hintText += ' · ' + t('settings.serverRebootLabel');
+      if (hint) hint.textContent = hintText;
+    } else {
+      if (hint) hint.textContent = d.error || t('settings.linuxNotChecked');
+    }
+  } catch (e) {
+    if (hint) hint.textContent = e.message || t('settings.linuxNotChecked');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = t('settings.linuxCheckBtn'); }
+  }
+}
+
+let _linuxUpdatePollTimer = null;
+
+async function installLinuxUpdates() {
+  if (!confirm(t('settings.linuxConfirmInstall'))) return;
+  const btn     = document.getElementById('btn-linux-install');
+  const logWrap = document.getElementById('linux-log-wrap');
+  const log     = document.getElementById('linux-log');
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
+  if (logWrap) logWrap.style.display = '';
+  if (log) log.textContent = t('settings.linuxStarting');
+
+  try {
+    const { jobId } = await api('POST', '/api/system-updates/install');
+
+    const poll = async () => {
+      try {
+        const job = await api('GET', `/api/system-updates/job/${jobId}`);
+        if (log) { log.textContent = job.output.join(''); log.scrollTop = log.scrollHeight; }
+        if (!job.done) {
+          _linuxUpdatePollTimer = setTimeout(poll, 1500);
+          return;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = job.status === 'done' ? '✓ ' + t('settings.linuxAllGood') : '⚠ Fehler'; }
+        if (job.rebootRequired) {
+          if (confirm(t('settings.linuxRebootRequired'))) systemReboot();
+        } else {
+          checkLinuxUpdates();
+        }
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = t('settings.linuxInstallBtn'); }
+        toast(e.message, 'error');
+      }
+    };
+    _linuxUpdatePollTimer = setTimeout(poll, 1500);
+  } catch (e) {
+    toast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = t('settings.linuxInstallBtn'); }
+  }
+}
+
+// ─── System: Reboot / Shutdown ────────────────────────────────────────────────
+
+async function systemReboot() {
+  if (!confirm(t('settings.rebootConfirm'))) return;
+  const btn = document.getElementById('s-reboot');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('POST', '/api/system/reboot');
+    toast(t('settings.serverRebootLabel') + '…', 'info');
+  } catch (_) {
+    toast(t('settings.serverRebootLabel'), 'info');
+  }
+}
+
+async function systemShutdown() {
+  if (!confirm(t('settings.shutdownConfirm'))) return;
+  const btn = document.getElementById('s-shutdown');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('POST', '/api/system/shutdown');
+    toast(t('settings.serverShutdownLabel') + '…', 'info');
+  } catch (_) {
+    toast(t('settings.serverShutdownLabel'), 'info');
+  }
+}
+
+// ─── Terminal ────────────────────────────────────────────────────────────────
+
+let _term = null, _termWs = null, _termFit = null;
+
+function openTerminalLogin() {
+  closeModal('modal-settings');
+  const el = document.getElementById('modal-terminal-login');
+  el.style.display = 'flex';
+  setTimeout(() => document.getElementById('terminal-username').focus(), 50);
+  document.getElementById('terminal-username').onkeydown = e => { if (e.key === 'Enter') connectTerminal(); };
+}
+
+function closeTerminalLogin() {
+  document.getElementById('modal-terminal-login').style.display = 'none';
+}
+
+async function connectTerminal() {
+  const usernameEl = document.getElementById('terminal-username');
+  const username = (usernameEl.value || 'root').trim();
+  if (!username) { usernameEl.focus(); return; }
+
+  closeTerminalLogin();
+
+  let token;
+  try {
+    const data = await api('POST', '/api/terminal/token', { username });
+    token = data.token;
+  } catch (e) {
+    toast(e.message || 'Terminal nicht verfügbar', 'error');
+    return;
+  }
+
+  // Show overlay
+  const overlay = document.getElementById('modal-terminal');
+  overlay.classList.add('open');
+  document.getElementById('term-title').textContent = username + '@hearth';
+
+  // Init xterm if not ready
+  if (!_term) {
+    _term = new Terminal({
+      theme: { background: '#0c0c0c', foreground: '#e0e0e0', cursor: '#39ff6d', selectionBackground: '#ffffff33' },
+      fontFamily: 'Menlo, "DejaVu Sans Mono", monospace',
+      fontSize: 14,
+      lineHeight: 1.3,
+      cursorBlink: true,
+      allowTransparency: true,
+      scrollback: 2000,
+    });
+    _termFit = new FitAddon.FitAddon();
+    _term.loadAddon(_termFit);
+    _term.open(document.getElementById('term-container'));
+    _termFit.fit();
+    window.addEventListener('resize', () => { if (_termFit) { _termFit.fit(); _sendTermResize(); } });
+  } else {
+    _term.reset();
+    _termFit.fit();
+  }
+
+  const cols = _term.cols || 80;
+  const rows = _term.rows || 24;
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${wsProto}://${location.host}/ws/terminal?token=${token}&cols=${cols}&rows=${rows}`;
+  _termWs = new WebSocket(wsUrl);
+
+  _termWs.onopen = () => { _sendTermResize(); };
+  _termWs.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'output') _term.write(msg.data);
+      if (msg.type === 'exit') { _term.write('\r\n\x1b[2m[Session beendet]\x1b[0m\r\n'); }
+    } catch (_) {}
+  };
+  _termWs.onclose = () => {};
+  _termWs.onerror = () => { toast('WebSocket-Fehler', 'error'); };
+
+  _term.onData(data => {
+    if (_termWs && _termWs.readyState === WebSocket.OPEN) {
+      _termWs.send(JSON.stringify({ type: 'input', data }));
+    }
+  });
+
+  _term.focus();
+}
+
+function _sendTermResize() {
+  if (_termWs && _termWs.readyState === WebSocket.OPEN && _term) {
+    _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
+  }
+}
+
+function closeTerminal() {
+  document.getElementById('modal-terminal').classList.remove('open');
+  if (_termWs) { _termWs.close(); _termWs = null; }
+}
