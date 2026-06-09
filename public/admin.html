@@ -9,16 +9,9 @@
     <link rel="stylesheet" href="/custom.css" />
     <script src="/js/i18n.js"></script>
     <style>
-      /* Unified glass surface — tabs + content share one panel */
-      .main-panel {
-        background: color-mix(in srgb, var(--panel) 55%, transparent);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        border-top: 1px solid var(--border);
-      }
       .tabs-wrap {
         position: relative;
-        border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+        border-top: 1px solid var(--border);
       }
       /* right-side scroll fade */
       .tabs-wrap::after {
@@ -26,7 +19,7 @@
         position: absolute;
         right: 0; top: 0; bottom: 0;
         width: 56px;
-        background: linear-gradient(to right, transparent, color-mix(in srgb, var(--panel) 55%, transparent));
+        background: linear-gradient(to right, transparent, var(--bg));
         pointer-events: none;
         z-index: 1;
       }
@@ -66,11 +59,14 @@
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, var(--border)),
                     0 2px 8px -2px rgba(0,0,0,0.35);
       }
-      .admin-layout { padding-top: 0; }
+      /* Glass content panel */
+      .admin-layout { padding-top: 10px; }
       .admin-main {
-        background: transparent;
-        border: none;
-        border-radius: 0;
+        background: color-mix(in srgb, var(--panel) 65%, transparent);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
         padding: 0 20px;
       }
       .view {
@@ -1594,15 +1590,6 @@
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
       </div>
-    </header>
-
-    <!-- Tab accent glow -->
-    <div style="position:fixed;top:var(--tab-glow-top,104px);left:0;right:0;height:0;overflow:visible;pointer-events:none;z-index:19" aria-hidden="true">
-      <div class="tab-glow-inner" id="tab-glow-inner"></div>
-    </div>
-
-    <!-- Unified glass panel: tabs + content share one surface -->
-    <div class="main-panel">
       <div class="tabs-wrap">
         <div class="wrap tabs" style="max-width:1440px">
           <div class="tab-indicator" id="tab-indicator"></div>
@@ -1615,6 +1602,12 @@
           <div class="tab" data-view="vpn">VPN</div>
         </div>
       </div>
+    </header>
+
+    <!-- Tab accent glow — position:fixed, top set by JS to sit right at the tab border -->
+    <div style="position:fixed;top:var(--tab-glow-top,104px);left:0;right:0;height:0;overflow:visible;pointer-events:none;z-index:19" aria-hidden="true">
+      <div class="tab-glow-inner" id="tab-glow-inner"></div>
+    </div>
 
     <div class="wrap" style="max-width:1440px">
       <div class="admin-layout">
@@ -1986,7 +1979,6 @@
 
       </div><!-- /.admin-layout -->
     </div>
-    </div><!-- /.main-panel -->
 
     <!-- Modals -->
     <div class="modal-backdrop" id="modal-create">
