@@ -28,7 +28,8 @@ Hearth is a lightweight, self-hosted Docker management panel — a clean, modern
 | 🌐 **Guest View** | Public page showing your running services — no login required |
 | 📦 **App Store** | 1-click install for 20+ popular self-hosted apps |
 | 📊 **Monitoring** | Live CPU, RAM, network, storage, temperatures |
-| 🔁 **Auto-Update** | Git-based self-update with progress indicator |
+| 🔁 **Self-Update** | Built-in updater with live log stream — see every step as it happens |
+| 🔔 **Notifications** | Update alerts and system events in the topbar |
 | 🌍 **9 Languages** | DE · EN · RO · FR · ES · IT · PL · NL · PT |
 
 ---
@@ -80,7 +81,7 @@ All settings are in `.env` (created by the installer):
 | `DATA_DIR` | `/srv/hearth-data` | File manager root directory |
 | `SESSION_SECRET` | — | Required — random string for secure sessions |
 
-Additional settings (server name, language, auto-refresh, Cloudflare, etc.) are available in the admin panel under **⚙ Settings**.
+Additional settings (server name, language, auto-refresh, Cloudflare, nightly auto-update, etc.) are available in the admin panel under **⚙ Settings**.
 
 ---
 
@@ -110,6 +111,24 @@ Manage UFW rules from the admin panel:
 
 ---
 
+## 🔁 Self-Update
+
+Click **Update** in ⚙ Settings to update Hearth in place. A live log modal shows each step:
+
+1. Branch validation — falls back to `main` automatically if the configured branch no longer exists
+2. `git fetch` + code reset to the latest commit
+3. Docker rebuild and container restart
+4. Page reloads automatically once the new version is live
+
+Build cache and dangling images are cleaned up automatically after each update.
+
+**Manual update** (e.g. when the panel itself is unreachable):
+```bash
+cd ~/hearth && git fetch origin && git reset --hard origin/main && docker compose up -d --build hearth
+```
+
+---
+
 ## 🏷️ Guest View Labels
 
 Control how containers appear on the public guest page:
@@ -121,7 +140,7 @@ Control how containers appear on the public guest page:
 | `hearth.port` | Which port is the web UI |
 | `hearth.scheme` | `http` (default) or `https` |
 | `hearth.url` | Override the auto-detected URL |
-| `hearth.hide=true` | Hide from guest view |
+| `hearth.hide=true` | Hide from guest **and** admin view |
 
 **Example:**
 ```yaml
@@ -167,16 +186,14 @@ hearth/
 
 ---
 
-## 🔄 Update / Stop
+## 🔄 Stop / Restart
 
 ```bash
-# Update
-curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
-
-# Or use the "Update" button in ⚙ Settings
-
 # Stop
 cd ~/hearth && docker compose down
+
+# Restart
+cd ~/hearth && docker compose up -d
 ```
 
 ---

@@ -28,7 +28,8 @@ Hearth ist ein leichtgewichtiges, selbst gehostetes Docker-Management-Panel — 
 | 🌐 **Gäste-Ansicht** | Öffentliche Seite mit laufenden Diensten — kein Login nötig |
 | 📦 **App-Store** | 1-Klick-Installation für 20+ beliebte Self-Hosted-Apps |
 | 📊 **Monitoring** | Live CPU, RAM, Netzwerk, Speicher, Temperaturen |
-| 🔁 **Auto-Update** | Git-basiertes Selbst-Update mit Fortschrittsanzeige |
+| 🔁 **Selbst-Update** | Eingebauter Updater mit Live-Log — jeder Schritt wird angezeigt |
+| 🔔 **Benachrichtigungen** | Update-Hinweise und Systemereignisse in der Topbar |
 | 🌍 **9 Sprachen** | DE · EN · RO · FR · ES · IT · PL · NL · PT |
 
 ---
@@ -80,7 +81,7 @@ Alle Einstellungen werden in `.env` gespeichert (vom Installer automatisch erste
 | `DATA_DIR` | `/srv/hearth-data` | Wurzelverzeichnis des Dateimanagers |
 | `SESSION_SECRET` | — | Erforderlich — zufälliger String für sichere Sessions |
 
-Weitere Einstellungen (Server-Name, Sprache, Auto-Refresh, Cloudflare usw.) sind im Admin-Panel unter **⚙ Einstellungen** verfügbar.
+Weitere Einstellungen (Server-Name, Sprache, Auto-Refresh, Cloudflare, nächtliches Auto-Update usw.) sind im Admin-Panel unter **⚙ Einstellungen** verfügbar.
 
 ---
 
@@ -110,6 +111,24 @@ UFW-Regeln direkt aus dem Admin-Panel verwalten:
 
 ---
 
+## 🔁 Selbst-Update
+
+Über **Update** in ⚙ Einstellungen aktualisiert sich Hearth selbst. Ein Live-Log-Modal zeigt dabei jeden Schritt:
+
+1. Branch-Validierung — wechselt automatisch zu `main` falls der konfigurierte Branch nicht mehr existiert
+2. `git fetch` + Code-Reset auf den neuesten Commit
+3. Docker-Rebuild und Container-Neustart
+4. Seite lädt automatisch neu sobald die neue Version läuft
+
+Build-Cache und veraltete Images werden nach jedem Update automatisch bereinigt.
+
+**Manuelles Update** (z.B. wenn das Panel selbst nicht erreichbar ist):
+```bash
+cd ~/hearth && git fetch origin && git reset --hard origin/main && docker compose up -d --build hearth
+```
+
+---
+
 ## 🏷️ Gäste-Ansicht Labels
 
 Steuern, wie Container auf der öffentlichen Gäste-Seite erscheinen:
@@ -121,7 +140,7 @@ Steuern, wie Container auf der öffentlichen Gäste-Seite erscheinen:
 | `hearth.port` | Welcher Port die Web-UI ist |
 | `hearth.scheme` | `http` (Standard) oder `https` |
 | `hearth.url` | Automatisch ermittelte URL überschreiben |
-| `hearth.hide=true` | Aus Gäste-Ansicht ausblenden |
+| `hearth.hide=true` | Aus Gäste- **und** Admin-Ansicht ausblenden |
 
 **Beispiel:**
 ```yaml
@@ -167,16 +186,14 @@ hearth/
 
 ---
 
-## 🔄 Update / Stop
+## 🔄 Stoppen / Neustarten
 
 ```bash
-# Aktualisieren
-curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
-
-# Oder den "Update"-Button in ⚙ Einstellungen verwenden
-
 # Stoppen
 cd ~/hearth && docker compose down
+
+# Neustarten
+cd ~/hearth && docker compose up -d
 ```
 
 ---
