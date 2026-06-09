@@ -2939,7 +2939,7 @@ app.get(
     // Hearth-Version + Commit-SHA gegen GitHub prüfen
     let hearthUpdate = null;
     try {
-      const _branch = (req.query.branch || runtimeConfig.updateBranch || 'main').trim().replace(/[^a-zA-Z0-9/_.-]/g, '');
+      const _branch = await resolveUpdateBranch((req.query.branch || runtimeConfig.updateBranch || 'main').trim().replace(/[^a-zA-Z0-9/_.-]/g, ''));
       const rawUrl = `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json?_=${Date.now()}`;
       const pkgRes = await fetch(rawUrl, { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) });
       if (pkgRes.ok) {
@@ -3081,8 +3081,26 @@ function _exec(cmd, args) {
   );
 }
 
+async function resolveUpdateBranch(branch) {
+  if (!branch || branch === 'main') return 'main';
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/MarioundMB/Hearth/branches/${encodeURIComponent(branch)}`,
+      { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(5000) }
+    );
+    if (res.status === 404) {
+      console.log(`[UPDATE] Branch '${branch}' not found on GitHub → falling back to main`);
+      if (runtimeConfig.updateBranch === branch) saveConfig({ updateBranch: 'main' });
+      return 'main';
+    }
+    return branch;
+  } catch (_) {
+    return branch; // network error — don't block, try with original branch
+  }
+}
+
 async function runHearthSelfUpdate() {
-  const branch      = (runtimeConfig.updateBranch || 'main').trim();
+  const branch      = await resolveUpdateBranch((runtimeConfig.updateBranch || 'main').trim());
   const GITHUB_REPO = 'https://github.com/MarioundMB/Hearth.git';
   const UPDATE_VOL  = 'hearth-update-src';
 
@@ -3127,7 +3145,7 @@ async function runHearthSelfUpdate() {
   if (hasVolume) {
     console.log('[UPDATE] Volume mounted — updating in-place');
     await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
-    await _exec('git', ['-C', _REPO, 'fetch', '--quiet']);
+    await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
     const remote = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
     const local  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
     if (local !== remote) {
@@ -3150,6 +3168,9 @@ async function runHearthSelfUpdate() {
     const p = _spawn('docker', ['volume', 'create', UPDATE_VOL], { stdio: 'ignore' });
     p.on('close', code => code === 0 ? resolve() : reject(new Error(`docker volume create fehlgeschlagen (code ${code})`)));
   });
+
+  // Clean up any leftover clone container from a previous failed run
+  _spawn('docker', ['rm', '-f', 'hearth-git-clone'], { stdio: 'ignore' });
 
   // Clone into named volume using selfImage (already local, has git)
   const cloneLog = await new Promise((resolve, reject) => {
