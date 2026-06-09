@@ -1013,6 +1013,32 @@
         max-height: 66vh;
         overflow-y: auto;
       }
+      /* Android-style settings nav */
+      .s-nav-item {
+        display: flex; align-items: center; gap: 14px;
+        padding: 14px 22px; cursor: pointer;
+        border-bottom: 1px solid var(--border);
+        transition: background .12s;
+      }
+      .s-nav-item:last-child { border-bottom: none; }
+      .s-nav-item:hover { background: rgba(255,255,255,0.04); }
+      .s-nav-item > div { flex: 1; min-width: 0; }
+      .s-chevron { color: var(--text-faint); font-size: 20px; flex-shrink: 0; margin-left: auto; }
+      .s-back-btn {
+        display: flex; align-items: center; gap: 6px;
+        width: 100%; padding: 11px 22px;
+        background: none; border: none;
+        border-bottom: 1px solid var(--border);
+        color: var(--accent); font-size: 13.5px; font-weight: 600;
+        cursor: pointer; text-align: left;
+        transition: background .12s;
+      }
+      .s-back-btn:hover { background: rgba(255,255,255,0.04); }
+      .s-cat-title {
+        font-family: var(--font-mono); font-size: 10px;
+        letter-spacing: .1em; text-transform: uppercase;
+        color: var(--text-faint); padding: 14px 22px 4px;
+      }
 
       /* Gruppen */
       .s-group {
@@ -2139,253 +2165,343 @@
 
         <div class="modal-body settings-body">
 
-          <!-- Allgemein -->
-          <div class="s-group">
-            <div class="s-group-title" data-i18n="settings.general">Allgemein</div>
+          <!-- ── Level 1: Übersicht ──────────────────────────────────── -->
+          <div id="s-overview">
 
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.serverName">Server-Name</div>
-                  <div class="s-sub" data-i18n="settings.serverNameHint">Wird in der Gäste-Ansicht angezeigt</div>
+            <div class="s-nav-item" onclick="openSettingsCat('general')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
+              <div><div class="s-label">Allgemein</div><div class="s-sub">Server-Name, Sprache</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('ports')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-wifi"/></svg></span>
+              <div><div class="s-label">Ports</div><div class="s-sub" id="s-ports-sub">Admin · Gäste-Ansicht</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('guest')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-globe"/></svg></span>
+              <div><div class="s-label">Gäste-Ansicht</div><div class="s-sub">Öffentlich sichtbare Apps</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('behavior')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-refresh"/></svg></span>
+              <div><div class="s-label">Verhalten</div><div class="s-sub">Auto-Refresh</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('updates')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
+              <div><div class="s-label">Updates</div><div class="s-sub">Branch, Auto-Update, Prüfen</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('appearance')">
+              <span class="s-icon">🎨</span>
+              <div><div class="s-label">Erscheinungsbild</div><div class="s-sub" id="s-theme-overview-sub">Standard Theme</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('security')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-shield"/></svg></span>
+              <div><div class="s-label">Sicherheit</div><div class="s-sub">Passwort, Benutzer</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('news')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-info"/></svg></span>
+              <div><div class="s-label">Neuigkeiten</div><div class="s-sub">Changelog</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+            <div class="s-nav-item" onclick="openSettingsCat('system')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
+              <div><div class="s-label">System</div><div class="s-sub" id="s-version-sub">Docker, Version</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
+          </div><!-- /#s-overview -->
+
+
+          <!-- ── Level 2: Allgemein ─────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-general" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Allgemein</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-server"/></svg></span>
+                  <div>
+                    <div class="s-label">Server-Name</div>
+                    <div class="s-sub">Wird in der Gäste-Ansicht angezeigt</div>
+                  </div>
+                </div>
+                <input class="input s-input" id="s-servername" placeholder="Hearth" />
+              </div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-proxy"/></svg></span>
+                  <div>
+                    <div class="s-label">Sprache</div>
+                    <div class="s-sub">Interface-Sprache</div>
+                  </div>
+                </div>
+                <select class="input s-select" id="s-lang">
+                  <option value="de">Deutsch</option>
+                  <option value="en">English</option>
+                  <option value="ro">Română</option>
+                  <option value="fr">Français</option>
+                  <option value="es">Español</option>
+                  <option value="it">Italiano</option>
+                  <option value="pl">Polski</option>
+                  <option value="nl">Nederlands</option>
+                  <option value="pt">Português</option>
+                </select>
+              </div>
+            </div>
+          </div><!-- /#s-cat-general -->
+
+
+          <!-- ── Level 2: Ports ────────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-ports" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Ports</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-wifi"/></svg></span>
+                  <div>
+                    <div class="s-label">Admin-Port (WebUI)</div>
+                    <div class="s-sub">Aktuell aktiv · Neustart erforderlich · ENV: PORT</div>
+                  </div>
+                </div>
+                <input class="input s-input" id="s-port" type="number" min="1" max="65535" style="width:90px;text-align:right" />
+              </div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-globe"/></svg></span>
+                  <div>
+                    <div class="s-label">Gäste-Ansicht Port</div>
+                    <div class="s-sub">Aktuell aktiv · Neustart erforderlich · ENV: GUEST_PORT</div>
+                  </div>
+                </div>
+                <input class="input s-input" id="s-guest-port" type="number" min="1" max="65535" style="width:90px;text-align:right" />
+              </div>
+            </div>
+            <div style="padding:8px 22px 14px;font-size:12px;color:var(--text-faint)">
+              ⚠ ENV-Variablen PORT/GUEST_PORT haben Vorrang gegenüber diesen Einstellungen.
+            </div>
+          </div><!-- /#s-cat-ports -->
+
+
+          <!-- ── Level 2: Gäste-Ansicht ─────────────────────────────── -->
+          <div class="s-detail" id="s-cat-guest" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Gäste-Ansicht</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-layers"/></svg></span>
+                  <div>
+                    <div class="s-label">Offline-Dienste anzeigen</div>
+                    <div class="s-sub">Gestoppte Container als inaktive Kacheln zeigen</div>
+                  </div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="s-showoffline">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+          </div><!-- /#s-cat-guest -->
+
+
+          <!-- ── Level 2: Verhalten ─────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-behavior" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Verhalten</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-refresh"/></svg></span>
+                  <div>
+                    <div class="s-label">Auto-Refresh Intervall</div>
+                    <div class="s-sub">System-Info automatisch aktualisieren</div>
+                  </div>
+                </div>
+                <select class="input s-select" id="s-refresh">
+                  <option value="0">Aus</option>
+                  <option value="10">10 Sekunden</option>
+                  <option value="15">15 Sekunden</option>
+                  <option value="30">30 Sekunden</option>
+                  <option value="60">60 Sekunden</option>
+                </select>
+              </div>
+            </div>
+          </div><!-- /#s-cat-behavior -->
+
+
+          <!-- ── Level 2: Updates ──────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-updates" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Updates</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-chevron-right"/></svg></span>
+                  <div>
+                    <div class="s-label">Update-Branch</div>
+                    <div class="s-sub">Branch der beim Aktualisieren geladen wird</div>
+                  </div>
+                </div>
+                <select class="input s-select" id="s-update-branch" style="min-width:160px">
+                  <option value="main">main</option>
+                </select>
+              </div>
+
+              <div class="s-row s-autoupdate-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
+                  <div>
+                    <div class="s-label">Auto-Update</div>
+                    <div class="s-sub">Automatisch aktualisieren zur geplanten Zeit</div>
+                  </div>
+                </div>
+                <label class="toggle"><input type="checkbox" id="s-autoupdate-enabled"><span class="toggle-track"></span></label>
+              </div>
+              <div class="s-autoupdate-time" id="s-autoupdate-time">
+                <span>Täglich um</span>
+                <input class="input" type="number" id="s-autoupdate-hour" min="0" max="23" placeholder="0">
+                <span>:</span>
+                <input class="input" type="number" id="s-autoupdate-minute" min="0" max="59" placeholder="00">
+                <span>(Serverzeit)</span>
+              </div>
+
+              <div class="s-row" id="hearth-update-row">
+                <div class="s-row-l">
+                  <span class="s-icon" id="upd-check-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
+                  <div>
+                    <div class="s-label" id="upd-check-label">Nach Updates suchen</div>
+                    <div class="s-sub" id="hearth-update-hint" style="display:none"></div>
+                  </div>
+                </div>
+                <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()">Jetzt prüfen</button>
+              </div>
+            </div>
+          </div><!-- /#s-cat-updates -->
+
+
+          <!-- ── Level 2: Erscheinungsbild ──────────────────────────── -->
+          <div class="s-detail" id="s-cat-appearance" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Erscheinungsbild</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon">🎨</span>
+                  <div>
+                    <div class="s-label">Aktives Theme</div>
+                    <div class="s-sub" id="theme-active-name">Standard (kein Custom Theme)</div>
+                  </div>
+                </div>
+                <button class="btn sm ghost" id="theme-reset-btn" style="display:none">Zurücksetzen</button>
+              </div>
+              <div style="padding:0 22px 6px">
+                <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-dim)">Community Themes</div>
+                <div id="theme-community-list" style="display:flex;flex-wrap:wrap;gap:8px">
+                  <span style="font-size:12px;color:var(--text-faint)">Lädt…</span>
                 </div>
               </div>
-              <input class="input s-input" id="s-servername" placeholder="Hearth" />
-            </div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-proxy"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.language">Sprache</div>
-                  <div class="s-sub" data-i18n="settings.languageHint">Interface-Sprache (weitere Sprachen folgen)</div>
+              <div style="padding:6px 22px 16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-size:12px;font-weight:600;color:var(--text-dim)">Eigenes CSS</div>
+                  <button class="btn sm ghost" style="font-size:11px;padding:2px 8px" id="theme-css-toggle">Anzeigen ▾</button>
                 </div>
-              </div>
-              <select class="input s-select" id="s-lang">
-                <option value="de">Deutsch</option>
-                <option value="en">English</option>
-                <option value="ro">Română</option>
-                <option value="fr">Français</option>
-                <option value="es">Español</option>
-                <option value="it">Italiano</option>
-                <option value="pl">Polski</option>
-                <option value="nl">Nederlands</option>
-                <option value="pt">Português</option>
-              </select>
-            </div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-wifi"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.port">WebUI Port</div>
-                  <div class="s-sub" data-i18n="settings.portHint">Änderbar über ENV-Variable PORT</div>
-                </div>
-              </div>
-              <span class="s-badge" id="s-port">—</span>
-            </div>
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-globe"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.guestPort">Gäste-Ansicht Port</div>
-                  <div class="s-sub" data-i18n="settings.guestPortHint">Änderbar über ENV-Variable GUEST_PORT</div>
-                </div>
-              </div>
-              <span class="s-badge" id="s-guest-port">—</span>
-            </div>
-          </div>
-
-          <!-- Gäste-Ansicht -->
-          <div class="s-group">
-            <div class="s-group-title" data-i18n="settings.guestView">Gäste-Ansicht</div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-layers"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.showOffline">Offline-Dienste anzeigen</div>
-                  <div class="s-sub" data-i18n="settings.showOfflineHint">Gestoppte Container als inaktive Kacheln zeigen</div>
-                </div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="s-showoffline">
-                <span class="toggle-track"></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Verhalten -->
-          <div class="s-group">
-            <div class="s-group-title" data-i18n="settings.behavior">Verhalten</div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-refresh"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.autoRefresh">Auto-Refresh Intervall</div>
-                  <div class="s-sub" data-i18n="settings.autoRefreshHint">System-Info im Admin-Bereich automatisch aktualisieren</div>
-                </div>
-              </div>
-              <select class="input s-select" id="s-refresh">
-                <option value="0" data-i18n="settings.refreshOff">Aus</option>
-                <option value="10" data-i18n="settings.refresh10">10 Sekunden</option>
-                <option value="15" data-i18n="settings.refresh15">15 Sekunden</option>
-                <option value="30" data-i18n="settings.refresh30">30 Sekunden</option>
-                <option value="60" data-i18n="settings.refresh60">60 Sekunden</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Security -->
-          <div class="s-group">
-            <div class="s-group-title" data-i18n="settings.security">Security</div>
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-shield"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.securityManage">Users &amp; Credentials</div>
-                  <div class="s-sub" data-i18n="settings.securityHint">Change password, username, manage users</div>
-                </div>
-              </div>
-              <button class="btn sm ghost" onclick="openModal('modal-security')" data-i18n="settings.openSecurity">Open →</button>
-            </div>
-          </div>
-
-          <!-- Erscheinungsbild / Theme -->
-          <div class="s-group">
-            <div class="s-group-title">Erscheinungsbild</div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon">🎨</span>
-                <div>
-                  <div class="s-label">Aktives Theme</div>
-                  <div class="s-sub" id="theme-active-name">Standard (kein Custom Theme)</div>
-                </div>
-              </div>
-              <button class="btn sm ghost" id="theme-reset-btn" style="display:none">Zurücksetzen</button>
-            </div>
-
-            <!-- Community-Theme-Auswahl -->
-            <div style="padding:0 22px 6px">
-              <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-dim)">Community Themes</div>
-              <div id="theme-community-list" style="display:flex;flex-wrap:wrap;gap:8px">
-                <span style="font-size:12px;color:var(--text-faint)">Lädt…</span>
-              </div>
-            </div>
-
-            <!-- Custom CSS -->
-            <div style="padding:6px 22px 16px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                <div style="font-size:12px;font-weight:600;color:var(--text-dim)">Eigenes CSS</div>
-                <button class="btn sm ghost" style="font-size:11px;padding:2px 8px" id="theme-css-toggle">Anzeigen ▾</button>
-              </div>
-              <div id="theme-css-area" style="display:none;flex-direction:column;gap:8px">
-                <textarea class="input" id="theme-css-input" rows="8" placeholder=":root { --accent: #ff6b35; }" style="font-family:monospace;font-size:12px;resize:vertical"></textarea>
-                <div style="display:flex;gap:8px">
-                  <input class="input" id="theme-url-input" placeholder="CSS-URL (optional, überschreibt obiges)" style="flex:1;font-size:12px">
-                  <button class="btn sm primary" id="theme-apply-btn">Anwenden</button>
+                <div id="theme-css-area" style="display:none;flex-direction:column;gap:8px">
+                  <textarea class="input" id="theme-css-input" rows="8" placeholder=":root { --accent: #ff6b35; }" style="font-family:monospace;font-size:12px;resize:vertical"></textarea>
+                  <div style="display:flex;gap:8px">
+                    <input class="input" id="theme-url-input" placeholder="CSS-URL (optional)" style="flex:1;font-size:12px">
+                    <button class="btn sm primary" id="theme-apply-btn">Anwenden</button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </div><!-- /#s-cat-appearance -->
 
-          <!-- Neuigkeiten / Changelog -->
-          <div class="s-group">
-            <div class="s-group-title" style="display:flex;align-items:center;gap:10px">
+
+          <!-- ── Level 2: Sicherheit ────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-security" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">Sicherheit</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-shield"/></svg></span>
+                  <div>
+                    <div class="s-label">Users &amp; Credentials</div>
+                    <div class="s-sub">Passwort ändern, Benutzer verwalten</div>
+                  </div>
+                </div>
+                <button class="btn sm ghost" onclick="openModal('modal-security')">Öffnen →</button>
+              </div>
+            </div>
+          </div><!-- /#s-cat-security -->
+
+
+          <!-- ── Level 2: Neuigkeiten ───────────────────────────────── -->
+          <div class="s-detail" id="s-cat-news" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title" style="display:flex;align-items:center;gap:10px">
               Neuigkeiten
               <button class="btn sm ghost" style="font-size:11px;padding:2px 8px;margin-left:auto" id="changelog-refresh-btn">⟳</button>
             </div>
             <div id="changelog-list" style="padding:0 22px 16px;display:flex;flex-direction:column;gap:0">
               <span style="font-size:12px;color:var(--text-faint);padding:8px 0">Lädt…</span>
             </div>
-          </div>
+          </div><!-- /#s-cat-news -->
 
-          <!-- System-Info -->
-          <div class="s-group">
-            <div class="s-group-title" data-i18n="settings.system">System</div>
 
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.dockerSocket">Docker Socket</div>
-                  <div class="s-sub mono" id="s-docker-socket">—</div>
+          <!-- ── Level 2: System ────────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-system" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ Zurück</button>
+            <div class="s-cat-title">System</div>
+            <div class="s-group">
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
+                  <div>
+                    <div class="s-label">Docker Socket</div>
+                    <div class="s-sub mono" id="s-docker-socket">—</div>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-folder"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.filesRoot">Dateimanager-Root</div>
-                  <div class="s-sub mono" id="s-filesroot">—</div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-folder"/></svg></span>
+                  <div>
+                    <div class="s-label">Dateimanager-Root</div>
+                    <div class="s-sub mono" id="s-filesroot">—</div>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-info"/></svg></span>
-                <div><div class="s-label" data-i18n="settings.version">Version</div></div>
-              </div>
-              <span class="s-badge" id="s-version">—</span>
-            </div>
-
-            <div class="s-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-chevron-right"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.updateBranch">Update-Branch</div>
-                  <div class="s-sub" data-i18n="settings.updateBranchHint">Branch der beim Aktualisieren geladen wird</div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-info"/></svg></span>
+                  <div><div class="s-label">Version</div></div>
                 </div>
+                <span class="s-badge" id="s-version">—</span>
               </div>
-              <select class="input s-select" id="s-update-branch" style="min-width:160px">
-                <option value="main">main</option>
-              </select>
             </div>
-
-            <!-- Auto-update config -->
-            <div class="s-row s-autoupdate-row">
-              <div class="s-row-l">
-                <span class="s-icon"><svg class="icon icon-md"><use href="#icon-rotate"/></svg></span>
-                <div>
-                  <div class="s-label" data-i18n="settings.autoUpdateLabel">Auto-Update</div>
-                  <div class="s-sub" data-i18n="settings.autoUpdateHint">Automatically pull &amp; rebuild at scheduled time</div>
-                </div>
-              </div>
-              <label class="toggle"><input type="checkbox" id="s-autoupdate-enabled"><span class="toggle-track"></span></label>
-            </div>
-            <div class="s-autoupdate-time" id="s-autoupdate-time">
-              <span data-i18n="settings.autoUpdateAt">Daily at</span>
-              <input class="input" type="number" id="s-autoupdate-hour" min="0" max="23" placeholder="0">
-              <span>:</span>
-              <input class="input" type="number" id="s-autoupdate-minute" min="0" max="59" placeholder="00">
-              <span data-i18n="settings.serverTime">(server time)</span>
-            </div>
-
-            <!-- Check / Update — eine Zeile, wechselt den Zustand -->
-            <div class="s-row" id="hearth-update-row">
-              <div class="s-row-l">
-                <span class="s-icon" id="upd-check-icon"><svg class="icon icon-md"><use href="#icon-search"/></svg></span>
-                <div>
-                  <div class="s-label" id="upd-check-label" data-i18n="settings.checkUpdates">Nach Updates suchen</div>
-                  <div class="s-sub" id="hearth-update-hint" style="display:none"></div>
-                </div>
-              </div>
-              <button class="btn sm ghost" id="btn-check-updates" onclick="checkUpdatesManual()" data-i18n="settings.checkUpdatesBtn">Jetzt prüfen</button>
-            </div>
-          </div>
+          </div><!-- /#s-cat-system -->
 
         </div>
 
         <div class="modal-foot" style="justify-content:flex-end;gap:8px">
-          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
-          <button class="btn ghost" id="s-restart" data-i18n="settings.restart" style="color:var(--danger);border-color:var(--danger)">⟳ Restart</button>
-          <button class="btn primary" id="s-save" data-i18n="settings.save">Save</button>
+          <button class="btn ghost" data-close>Cancel</button>
+          <button class="btn ghost" id="s-restart" style="color:var(--danger);border-color:var(--danger)">⟳ Restart</button>
+          <button class="btn primary" id="s-save">Save</button>
         </div>
       </div>
     </div>

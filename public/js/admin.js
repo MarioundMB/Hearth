@@ -1150,6 +1150,7 @@ document.getElementById('c-submit').addEventListener('click', async () => {
 let _currentRole = null;
 
 function openSettings() {
+  closeSettingsCat();
   openModal('modal-settings');
   loadSettings();
 }
@@ -1162,6 +1163,20 @@ document.getElementById('s-autoupdate-enabled').addEventListener('change', funct
   document.getElementById('s-autoupdate-time').style.display = this.checked ? 'flex' : 'none';
 });
 
+function openSettingsCat(cat) {
+  document.getElementById('s-overview').style.display = 'none';
+  document.querySelectorAll('.s-detail').forEach(el => el.style.display = 'none');
+  const panel = document.getElementById('s-cat-' + cat);
+  if (panel) panel.style.display = 'block';
+  if (cat === 'appearance') { loadThemeStatus(); loadSettingsThemePicker(); }
+  if (cat === 'news')       loadChangelog();
+}
+
+function closeSettingsCat() {
+  document.querySelectorAll('.s-detail').forEach(el => el.style.display = 'none');
+  document.getElementById('s-overview').style.display = 'block';
+}
+
 async function loadSettings() {
   try {
     const s = await api('GET', '/api/settings');
@@ -1170,8 +1185,10 @@ async function loadSettings() {
     document.getElementById('s-lang').value             = s.lang || 'en';
     document.getElementById('s-showoffline').checked    = !!s.showOfflineApps;
     document.getElementById('s-refresh').value          = String(s.refreshInterval ?? 15);
-    document.getElementById('s-port').textContent       = s.port;
-    document.getElementById('s-guest-port').textContent = s.guestPort;
+    document.getElementById('s-port').value       = s.configPort      || s.port;
+    document.getElementById('s-guest-port').value = s.configGuestPort || s.guestPort;
+    const portSub = document.getElementById('s-ports-sub');
+    if (portSub) portSub.textContent = `Admin :${s.port} · Gäste :${s.guestPort}`;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
     document.getElementById('s-filesroot').textContent  = s.filesRoot;
     document.getElementById('s-version').textContent    = `v${s.version}`;
@@ -1213,8 +1230,10 @@ document.getElementById('s-save').addEventListener('click', async () => {
   const btn = document.getElementById('s-save');
   btn.disabled = true;
   try {
-    const updateBranch = document.getElementById('s-update-branch').value || 'main';
-    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch });
+    const updateBranch    = document.getElementById('s-update-branch').value || 'main';
+    const configPort      = parseInt(document.getElementById('s-port').value, 10) || null;
+    const configGuestPort = parseInt(document.getElementById('s-guest-port').value, 10) || null;
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch, configPort, configGuestPort });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);
@@ -1285,7 +1304,7 @@ function renderNotifications(list) {
       badge.style.display = unreadNow ? '' : 'none';
 
       const action = JSON.parse(item.dataset.action || '{}');
-      if (action.section === 'updates') { document.getElementById('notif-panel').style.display = 'none'; openSettings(); }
+      if (action.section === 'updates') { document.getElementById('notif-panel').style.display = 'none'; openSettings(); openSettingsCat('updates'); }
     });
   });
 }
@@ -2341,22 +2360,25 @@ function setUpdateRowState(hi) {
 async function checkUpdatesManual() {
   const btn  = document.getElementById('btn-check-updates');
   const icon = document.getElementById('upd-check-icon');
+  const branch = document.getElementById('s-update-branch')?.value || null;
   if (btn)  { btn.disabled = true; btn.innerHTML = hearthSpinner(16); }
   if (icon) { icon.innerHTML = hearthSpinner(18); }
-  await checkUpdates(true);
+  await checkUpdates(true, branch);
   if (btn) {
     btn.disabled = false;
-    btn.setAttribute('data-i18n', 'settings.checkUpdatesBtn');
-    btn.textContent = t('settings.checkUpdatesBtn');
+    btn.textContent = t('settings.checkUpdatesBtn') || 'Jetzt prüfen';
   }
-  // icon is restored by setUpdateRowState called inside checkUpdates
 }
 
-async function checkUpdates(force = false) {
+async function checkUpdates(force = false, branch = null) {
   const badge = document.getElementById('topbar-updates');
   if (badge) badge.innerHTML = hearthSpinner(14);
   try {
-    const data = await api('GET', `/api/updates/check${force ? '?force=true' : ''}`);
+    const params = new URLSearchParams();
+    if (force)  params.set('force', 'true');
+    if (branch) params.set('branch', branch);
+    const qs = params.toString();
+    const data = await api('GET', `/api/updates/check${qs ? '?' + qs : ''}`);
     // Map aufbauen
     _updateMap = {};
     let pending = 0;

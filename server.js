@@ -46,15 +46,20 @@ const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 // ---------------------------------------------------------------------------
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
 // ---------------------------------------------------------------------------
-const PORT        = parseInt(process.env.PORT        || '4500', 10);
-// Separate public-facing port for the guest view only (no admin routes)
-const GUEST_PORT  = parseInt(process.env.GUEST_PORT  || '3000', 10);
-const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
-const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
 const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
+
+// Early config read so saved port values can override defaults before server binds
+let _earlyConfig = {};
+try { if (fs.existsSync(CONFIG_PATH)) _earlyConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (_) {}
+
+const PORT        = parseInt(process.env.PORT       || _earlyConfig.configPort      || '4500', 10);
+// Separate public-facing port for the guest view only (no admin routes)
+const GUEST_PORT  = parseInt(process.env.GUEST_PORT || _earlyConfig.configGuestPort || '3000', 10);
+const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
+const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
 const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
 const CERTS_DIR       = '/etc/nginx/hearth-certs';
 const AUTH_DIR        = '/etc/nginx/hearth-auth';
@@ -1643,6 +1648,8 @@ app.get('/api/settings', requireAuth, (req, res) => {
     updateBranch: runtimeConfig.updateBranch || 'main',
     port:        PORT,
     guestPort:   GUEST_PORT,
+    configPort:      runtimeConfig.configPort      || PORT,
+    configGuestPort: runtimeConfig.configGuestPort || GUEST_PORT,
     proxyPort:   PROXY_PORT,
     httpPort:    HTTP_PORT,
     dockerSocket: DOCKER_SOCKET,
@@ -1662,7 +1669,7 @@ app.post(
   asyncHandler(async (req, res) => {
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
-      cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp,
+      cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp, configPort, configGuestPort,
     } = req.body || {};
     const updates = {};
 
@@ -1680,6 +1687,14 @@ app.post(
     }
     if (updateBranch && typeof updateBranch === 'string') {
       updates.updateBranch = updateBranch.trim().replace(/[^a-zA-Z0-9/_.-]/g, '') || 'main';
+    }
+    if (configPort !== undefined) {
+      const p = parseInt(configPort, 10);
+      if (p >= 1 && p <= 65535) updates.configPort = p;
+    }
+    if (configGuestPort !== undefined) {
+      const p = parseInt(configGuestPort, 10);
+      if (p >= 1 && p <= 65535) updates.configGuestPort = p;
     }
     if (cfApiToken !== undefined) updates.cfApiToken = (cfApiToken || '').trim();
     if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();
@@ -2747,19 +2762,17 @@ app.get(
       })
     );
 
-    // Hearth-Version gegen GitHub prüfen
-    // raw.githubusercontent.com für package.json (kein Rate-Limit-Problem),
-    // GitHub Commits API nur für Commit-Message (optional, kein Fehler wenn nicht erreichbar)
+    // Hearth-Version + Commit-SHA gegen GitHub prüfen
     let hearthUpdate = null;
     try {
-      const _branch = (runtimeConfig.updateBranch || 'main').trim();
+      const _branch = (req.query.branch || runtimeConfig.updateBranch || 'main').trim().replace(/[^a-zA-Z0-9/_.-]/g, '');
       const rawUrl = `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json?_=${Date.now()}`;
       const pkgRes = await fetch(rawUrl, { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) });
       if (pkgRes.ok) {
         const pkg = await pkgRes.json();
         const remoteVersion = pkg.version || '0.0.0';
-        // Commit-Message optional via GitHub API (ignorieren wenn Rate-Limit)
         let message = '';
+        let remoteSha = null;
         try {
           const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
           const commitRes = await fetch(
@@ -2768,13 +2781,23 @@ app.get(
           );
           if (commitRes.ok) {
             const c = await commitRes.json();
-            message = c.commit?.message?.split('\n')[0] || '';
+            message  = c.commit?.message?.split('\n')[0] || '';
+            remoteSha = c.sha || null;
           }
         } catch (_) {}
+
+        // Lokale SHA: git rev-parse HEAD (falls Volume gemountet), sonst HEARTH_SHA-Env
+        let localSha = null;
+        if (fs.existsSync(path.join(_REPO, '.git'))) {
+          try { localSha = (await _exec('git', ['-C', _REPO, 'rev-parse', 'HEAD'])).stdout.trim(); } catch (_) {}
+        }
+        if (!localSha && HEARTH_SHA !== 'unknown') localSha = HEARTH_SHA;
+
+        const shasDiffer = remoteSha && localSha && localSha.slice(0, 7) !== remoteSha.slice(0, 7);
         hearthUpdate = {
           remoteVersion,
           localVersion: VERSION,
-          hasUpdate: remoteVersion !== VERSION,
+          hasUpdate: remoteVersion !== VERSION || !!shasDiffer,
           message,
         };
       }
