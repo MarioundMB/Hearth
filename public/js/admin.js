@@ -4087,3 +4087,124 @@ document.getElementById('editor-save-btn').addEventListener('click', async () =>
     btn.textContent = 'Speichern';
   }
 });
+
+// ─── System: Reboot / Shutdown ────────────────────────────────────────────────
+
+async function systemReboot() {
+  if (!confirm('Server wirklich neu starten? Die Verbindung wird unterbrochen.')) return;
+  const btn = document.getElementById('s-reboot');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('POST', '/api/system/reboot');
+    toast('Server wird neu gestartet…', 'info');
+  } catch (_) {
+    toast('Reboot-Befehl gesendet', 'info');
+  }
+}
+
+async function systemShutdown() {
+  if (!confirm('Server wirklich herunterfahren? Er ist danach nicht mehr erreichbar.')) return;
+  const btn = document.getElementById('s-shutdown');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('POST', '/api/system/shutdown');
+    toast('Server fährt herunter…', 'info');
+  } catch (_) {
+    toast('Shutdown-Befehl gesendet', 'info');
+  }
+}
+
+// ─── Terminal ────────────────────────────────────────────────────────────────
+
+let _term = null, _termWs = null, _termFit = null;
+
+function openTerminalLogin() {
+  closeModal('modal-settings');
+  const el = document.getElementById('modal-terminal-login');
+  el.style.display = 'flex';
+  setTimeout(() => document.getElementById('terminal-username').focus(), 50);
+  document.getElementById('terminal-username').onkeydown = e => { if (e.key === 'Enter') connectTerminal(); };
+}
+
+function closeTerminalLogin() {
+  document.getElementById('modal-terminal-login').style.display = 'none';
+}
+
+async function connectTerminal() {
+  const usernameEl = document.getElementById('terminal-username');
+  const username = (usernameEl.value || 'root').trim();
+  if (!username) { usernameEl.focus(); return; }
+
+  closeTerminalLogin();
+
+  let token;
+  try {
+    const data = await api('POST', '/api/terminal/token', { username });
+    token = data.token;
+  } catch (e) {
+    toast(e.message || 'Terminal nicht verfügbar', 'error');
+    return;
+  }
+
+  // Show overlay
+  const overlay = document.getElementById('modal-terminal');
+  overlay.classList.add('open');
+  document.getElementById('term-title').textContent = username + '@hearth';
+
+  // Init xterm if not ready
+  if (!_term) {
+    _term = new Terminal({
+      theme: { background: '#0c0c0c', foreground: '#e0e0e0', cursor: '#39ff6d', selectionBackground: '#ffffff33' },
+      fontFamily: 'Menlo, "DejaVu Sans Mono", monospace',
+      fontSize: 14,
+      lineHeight: 1.3,
+      cursorBlink: true,
+      allowTransparency: true,
+      scrollback: 2000,
+    });
+    _termFit = new FitAddon.FitAddon();
+    _term.loadAddon(_termFit);
+    _term.open(document.getElementById('term-container'));
+    _termFit.fit();
+    window.addEventListener('resize', () => { if (_termFit) { _termFit.fit(); _sendTermResize(); } });
+  } else {
+    _term.reset();
+    _termFit.fit();
+  }
+
+  const cols = _term.cols || 80;
+  const rows = _term.rows || 24;
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${wsProto}://${location.host}/ws/terminal?token=${token}&cols=${cols}&rows=${rows}`;
+  _termWs = new WebSocket(wsUrl);
+
+  _termWs.onopen = () => { _sendTermResize(); };
+  _termWs.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'output') _term.write(msg.data);
+      if (msg.type === 'exit') { _term.write('\r\n\x1b[2m[Session beendet]\x1b[0m\r\n'); }
+    } catch (_) {}
+  };
+  _termWs.onclose = () => {};
+  _termWs.onerror = () => { toast('WebSocket-Fehler', 'error'); };
+
+  _term.onData(data => {
+    if (_termWs && _termWs.readyState === WebSocket.OPEN) {
+      _termWs.send(JSON.stringify({ type: 'input', data }));
+    }
+  });
+
+  _term.focus();
+}
+
+function _sendTermResize() {
+  if (_termWs && _termWs.readyState === WebSocket.OPEN && _term) {
+    _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
+  }
+}
+
+function closeTerminal() {
+  document.getElementById('modal-terminal').classList.remove('open');
+  if (_termWs) { _termWs.close(); _termWs = null; }
+}

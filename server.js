@@ -32,11 +32,15 @@ const {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } = require('@simplewebauthn/server');
+const { WebSocketServer } = require('ws');
+let pty;
+try { pty = require('node-pty'); } catch (_) { pty = null; }
 
 // Modul-weite Zustandsvariablen (müssen vor jeder Nutzung deklariert sein)
 let _nginxProc  = null;
 let _cpuPrev    = null;
 let _netPrev    = null, _netPrevTs = 0;
+const _termTokens = new Map(); // one-time terminal auth tokens
 
 const { version: VERSION } = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
@@ -1710,6 +1714,34 @@ app.post(
 app.post('/api/system/restart', requireAuth, (req, res) => {
   res.json({ ok: true });
   setTimeout(() => process.exit(0), 400);
+});
+
+app.post('/api/system/reboot', requireAuth, asyncHandler(async (req, res) => {
+  res.json({ ok: true });
+  setTimeout(() => {
+    exec('docker run --rm --privileged --pid=host alpine sh -c "nsenter -t 1 -m -u -n -i -- reboot" 2>&1', () => {});
+  }, 500);
+}));
+
+app.post('/api/system/shutdown', requireAuth, asyncHandler(async (req, res) => {
+  res.json({ ok: true });
+  setTimeout(() => {
+    exec('docker run --rm --privileged --pid=host alpine sh -c "nsenter -t 1 -m -u -n -i -- halt -p" 2>&1', () => {});
+  }, 500);
+}));
+
+// Terminal: issue a one-time token the WebSocket handshake validates
+app.post('/api/terminal/token', requireAuth, (req, res) => {
+  if (!pty) return res.status(503).json({ error: 'Terminal nicht verfügbar (node-pty nicht geladen)' });
+  const { username } = req.body || {};
+  if (!username || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username)) {
+    return res.status(400).json({ error: 'Ungültiger Benutzername' });
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  _termTokens.set(token, { username, ts: Date.now() });
+  // Expire after 30 s
+  setTimeout(() => _termTokens.delete(token), 30000);
+  res.json({ token });
 });
 
 // ---------------------------------------------------------------------------
@@ -3694,7 +3726,64 @@ app.get('/login', (req, res) =>
 );
 
 // Admin server — keep this behind your firewall / VPN
-http.createServer(app).listen(PORT, () => {
+const adminHttpServer = http.createServer(app);
+
+// WebSocket terminal
+const wss = new WebSocketServer({ noServer: true });
+adminHttpServer.on('upgrade', (req, socket, head) => {
+  if (req.url && req.url.startsWith('/ws/terminal')) {
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+  } else {
+    socket.destroy();
+  }
+});
+
+wss.on('connection', (ws, req) => {
+  const url = new URL('http://x' + req.url);
+  const token = url.searchParams.get('token');
+  const info = _termTokens.get(token);
+  if (!info || Date.now() - info.ts > 30000) {
+    ws.close(4001, 'Invalid or expired token');
+    return;
+  }
+  _termTokens.delete(token);
+
+  if (!pty) {
+    ws.send(JSON.stringify({ type: 'output', data: '\r\nTerminal nicht verfügbar.\r\n' }));
+    ws.close();
+    return;
+  }
+
+  const ptyProc = pty.spawn('sh', ['-c', `su -l ${info.username}`], {
+    name: 'xterm-256color',
+    cols: parseInt(url.searchParams.get('cols') || '80', 10),
+    rows: parseInt(url.searchParams.get('rows') || '24', 10),
+    cwd: '/',
+    env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8' },
+  });
+
+  ptyProc.onData(data => {
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'output', data }));
+  });
+  ptyProc.onExit(() => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit' }));
+      ws.close();
+    }
+  });
+
+  ws.on('message', raw => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.type === 'input') ptyProc.write(msg.data);
+      if (msg.type === 'resize') ptyProc.resize(msg.cols || 80, msg.rows || 24);
+    } catch (_) {}
+  });
+
+  ws.on('close', () => { try { ptyProc.kill(); } catch (_) {} });
+});
+
+adminHttpServer.listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
   scheduleNightlyUpdate();
