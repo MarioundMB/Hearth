@@ -3081,7 +3081,7 @@ function _exec(cmd, args) {
   );
 }
 
-async function resolveUpdateBranch(branch) {
+async function resolveUpdateBranch(branch, emit = () => {}) {
   if (!branch || branch === 'main') return 'main';
   try {
     const res = await fetch(
@@ -3089,18 +3089,21 @@ async function resolveUpdateBranch(branch) {
       { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(5000) }
     );
     if (res.status === 404) {
-      console.log(`[UPDATE] Branch '${branch}' not found on GitHub → falling back to main`);
+      const msg = `Branch '${branch}' nicht gefunden → wechsle zu main`;
+      console.log(`[UPDATE] ${msg}`);
+      emit('log', msg);
       if (runtimeConfig.updateBranch === branch) saveConfig({ updateBranch: 'main' });
       return 'main';
     }
     return branch;
   } catch (_) {
-    return branch; // network error — don't block, try with original branch
+    return branch;
   }
 }
 
-async function runHearthSelfUpdate() {
-  const branch      = await resolveUpdateBranch((runtimeConfig.updateBranch || 'main').trim());
+async function runHearthSelfUpdate(emit = () => {}) {
+  emit('log', 'Branch wird geprüft…');
+  const branch      = await resolveUpdateBranch((runtimeConfig.updateBranch || 'main').trim(), emit);
   const GITHUB_REPO = 'https://github.com/MarioundMB/Hearth.git';
   const UPDATE_VOL  = 'hearth-update-src';
 
@@ -3144,17 +3147,25 @@ async function runHearthSelfUpdate() {
   // ── PATH A: bind-mount present — update in-place ──────────────────────────
   if (hasVolume) {
     console.log('[UPDATE] Volume mounted — updating in-place');
+    emit('log', 'Änderungen von GitHub laden…');
     await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
     await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
     const remote = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
     const local  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+    emit('log', `Lokal: ${local} → Remote: ${remote}`);
     if (local !== remote) {
+      emit('log', 'Code wird aktualisiert…');
       await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
       await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
     }
     const pkg = JSON.parse(fs.readFileSync(path.join(_REPO, 'package.json'), 'utf8'));
-    if (pkg.version === VERSION) return { upToDate: true, version: VERSION };
+    if (pkg.version === VERSION) {
+      emit('upToDate', VERSION);
+      return { upToDate: true, version: VERSION };
+    }
+    emit('log', `v${VERSION} → v${pkg.version}`);
     _updateCache = { ts: 0, data: null };
+    emit('restarting', pkg.version);
     spawnUpdater(repoHostPath);
     return { upToDate: false, version: pkg.version };
   }
@@ -3162,6 +3173,7 @@ async function runHearthSelfUpdate() {
   // ── PATH B: no bind-mount — clone via named volume + selfImage ────────────
   // Uses the already-local selfImage (has git). No external image pull needed.
   console.log('[UPDATE] No bind-mount — using named-volume fallback');
+  emit('log', 'Kein Volume-Mount — klone Repository…');
 
   // Ensure named volume exists
   await new Promise((resolve, reject) => {
@@ -3173,10 +3185,12 @@ async function runHearthSelfUpdate() {
   _spawn('docker', ['rm', '-f', 'hearth-git-clone'], { stdio: 'ignore' });
 
   // Clone into named volume using selfImage (already local, has git)
+  emit('log', `Klone Branch '${branch}' von GitHub…`);
   const cloneLog = await new Promise((resolve, reject) => {
     let out = '';
     const p = _spawn('docker', [
       'run', '--rm', '--name', 'hearth-git-clone',
+      '--label', 'hearth.hide=true',
       '-v', `${UPDATE_VOL}:/dst`,
       selfImage,
       'sh', '-c',
@@ -3190,20 +3204,28 @@ async function runHearthSelfUpdate() {
     );
   });
   console.log('[UPDATE] Clone:', cloneLog.slice(-120));
+  emit('log', 'Repository geklont');
 
   // Read version from cloned repo (use selfImage — already local)
   const pkgJson = await new Promise(resolve => {
     let out = '';
-    const p = _spawn('docker', ['run', '--rm', '-v', `${UPDATE_VOL}:/src`, selfImage, 'cat', '/src/package.json'], { stdio: 'pipe' });
+    const p = _spawn('docker', [
+      'run', '--rm', '--label', 'hearth.hide=true',
+      '-v', `${UPDATE_VOL}:/src`, selfImage, 'cat', '/src/package.json',
+    ], { stdio: 'pipe' });
     p.stdout?.on('data', d => { out += d; });
     p.on('close', () => resolve(out));
   }).catch(() => '{}');
 
   let newVersion = null;
   try { newVersion = JSON.parse(pkgJson).version; } catch (_) {}
-  if (newVersion && newVersion === VERSION) return { upToDate: true, version: newVersion };
+  if (newVersion && newVersion === VERSION) {
+    emit('upToDate', newVersion);
+    return { upToDate: true, version: newVersion };
+  }
+  emit('log', `v${VERSION} → v${newVersion}`);
   _updateCache = { ts: 0, data: null };
-
+  emit('restarting', newVersion);
   spawnUpdater(UPDATE_VOL);
   return { upToDate: false, version: newVersion };
 }
@@ -3259,6 +3281,22 @@ app.post(
     }
   })
 );
+
+// SSE streaming endpoint — runs update and streams progress to the client
+app.get('/api/updates/hearth/stream', requireAuth, (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const emit = (type, msg) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type, msg })}\n\n`);
+  };
+
+  runHearthSelfUpdate(emit)
+    .catch(e => emit('error', e.message))
+    .finally(() => { if (!res.writableEnded) res.end(); });
+});
 
 // ---------------------------------------------------------------------------
 // Container-Verwaltung (Admin)

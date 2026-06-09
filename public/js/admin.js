@@ -2465,21 +2465,8 @@ async function updateAllContainers() {
 
 async function updateHearth() {
   if (!confirm(t('settings.updateConfirm'))) return;
-  const btn = document.getElementById('btn-check-updates');
-  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
-  try {
-    const data = await api('POST', '/api/updates/hearth');
-    if (data.upToDate) {
-      toast(t('settings.alreadyUpToDate'));
-      setUpdateRowState(null);
-      return;
-    }
-    closeModal('modal-settings');
-    showUpdateProgress();
-  } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = t('settings.updateBtn'); }
-    showDockerError(e.message);
-  }
+  closeModal('modal-settings');
+  showUpdateProgress();
 }
 
 function showUpdateProgress() {
@@ -2487,48 +2474,84 @@ function showUpdateProgress() {
 
   const bar    = document.getElementById('upd-bar');
   const status = document.getElementById('upd-status');
+  const logEl  = document.getElementById('upd-log');
   const icon   = document.getElementById('upd-head-icon');
   const title  = document.getElementById('upd-head-title');
 
-  let fakePct     = 10;
-  let wentOffline = false;
+  let fakePct      = 5;
+  let isRestarting = false;
 
-  bar.style.width = '10%';
-  status.textContent = 'Änderungen werden geladen…';
+  bar.style.width = '5%';
+  status.textContent = 'Verbindung wird hergestellt…';
+  if (logEl) { logEl.textContent = ''; logEl.style.display = 'none'; }
 
-  // Balken kriecht langsam bis 75% während Docker baut
-  const fakeTimer = setInterval(() => {
-    if (fakePct < 75) {
-      fakePct += wentOffline ? 0.4 : 0.6;
-      bar.style.width = fakePct + '%';
+  const addLog = msg => {
+    if (!logEl) return;
+    logEl.style.display = 'block';
+    logEl.textContent += msg + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+
+  const es = new EventSource('/api/updates/hearth/stream');
+
+  es.onmessage = ({ data }) => {
+    const { type, msg } = JSON.parse(data);
+    if (type === 'log') {
+      addLog(msg);
+      status.textContent = msg;
+      if (fakePct < 65) { fakePct = Math.min(65, fakePct + 13); bar.style.width = fakePct + '%'; }
+    } else if (type === 'upToDate') {
+      es.close();
+      bar.style.width = '100%';
+      icon.innerHTML = '<span style="font-size:18px;line-height:1;color:var(--ok)">✓</span>';
+      title.childNodes[title.childNodes.length - 1].textContent = ' Bereits aktuell';
+      status.textContent = `v${msg} ist bereits die neueste Version.`;
+    } else if (type === 'restarting') {
+      isRestarting = true;
+      es.close();
+      fakePct = 72;
+      bar.style.width = '72%';
+      status.textContent = 'Docker-Build läuft…';
+      addLog('Docker-Build gestartet — Hearth startet neu…');
+      startPolling();
+    } else if (type === 'error') {
+      es.close();
+      status.textContent = `Fehler: ${msg}`;
+      addLog(`Fehler: ${msg}`);
+      bar.style.background = 'var(--danger)';
     }
-  }, 400);
+  };
 
-  async function poll() {
-    try {
-      await fetch('/api/public/apps', { signal: AbortSignal.timeout(2000) });
-      if (wentOffline) {
-        // Server ist wieder online → fertig
+  es.onerror = () => {
+    es.close();
+    if (isRestarting) return; // already handled
+    // SSE dropped unexpectedly — Hearth likely restarting mid-update
+    fakePct = Math.max(fakePct, 72);
+    bar.style.width = fakePct + '%';
+    status.textContent = 'Hearth startet neu…';
+    startPolling();
+  };
+
+  function startPolling() {
+    const fakeTimer = setInterval(() => {
+      if (fakePct < 92) { fakePct += 0.3; bar.style.width = fakePct + '%'; }
+    }, 500);
+
+    async function poll() {
+      try {
+        await fetch('/api/public/apps', { signal: AbortSignal.timeout(2000) });
         clearInterval(fakeTimer);
         bar.style.width = '100%';
         icon.innerHTML = '<span style="font-size:18px;line-height:1;color:var(--ok)">✓</span>';
         title.childNodes[title.childNodes.length - 1].textContent = ' Fertig!';
         status.textContent = 'Seite wird neu geladen…';
         setTimeout(() => location.reload(), 1500);
-        return;
-      }
-    } catch (_) {
-      if (!wentOffline) {
-        wentOffline = true;
-        fakePct = Math.max(fakePct, 60);
-        bar.style.width = fakePct + '%';
-        status.textContent = 'Docker baut neues Image…';
+      } catch (_) {
+        setTimeout(poll, 1500);
       }
     }
-    setTimeout(poll, 1500);
+    setTimeout(poll, 4000);
   }
-
-  setTimeout(poll, 4000);
 }
 
 // ---------- Reverse Proxy ----------
