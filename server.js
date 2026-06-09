@@ -32,11 +32,14 @@ const {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } = require('@simplewebauthn/server');
+const { WebSocketServer } = require('ws');
 
 // Modul-weite Zustandsvariablen (müssen vor jeder Nutzung deklariert sein)
 let _nginxProc  = null;
 let _cpuPrev    = null;
 let _netPrev    = null, _netPrevTs = 0;
+const _termTokens = new Map(); // one-time terminal auth tokens
+let _hearthImage = 'alpine:latest'; // filled at startup by self-inspect
 
 const { version: VERSION } = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
@@ -46,15 +49,20 @@ const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 // ---------------------------------------------------------------------------
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
 // ---------------------------------------------------------------------------
-const PORT        = parseInt(process.env.PORT        || '4500', 10);
-// Separate public-facing port for the guest view only (no admin routes)
-const GUEST_PORT  = parseInt(process.env.GUEST_PORT  || '3000', 10);
-const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
-const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
 const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
+
+// Early config read so saved port values can override defaults before server binds
+let _earlyConfig = {};
+try { if (fs.existsSync(CONFIG_PATH)) _earlyConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (_) {}
+
+const PORT        = parseInt(process.env.PORT       || _earlyConfig.configPort      || '4500', 10);
+// Separate public-facing port for the guest view only (no admin routes)
+const GUEST_PORT  = parseInt(process.env.GUEST_PORT || _earlyConfig.configGuestPort || '3000', 10);
+const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
+const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
 const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
 const CERTS_DIR       = '/etc/nginx/hearth-certs';
 const AUTH_DIR        = '/etc/nginx/hearth-auth';
@@ -157,6 +165,18 @@ startNginx();
 renewCertsIfNeeded().catch(() => {});
 
 const docker = new Docker({ socketPath: DOCKER_SOCKET });
+
+// Detect own Docker image at startup so the terminal uses the same image (has util-linux/nsenter)
+(async () => {
+  try {
+    const selfId = (process.env.HOSTNAME || '').trim();
+    if (selfId) {
+      const info = await docker.getContainer(selfId).inspect();
+      _hearthImage = info.Config.Image || 'alpine:latest';
+    }
+  } catch (_) {}
+})();
+
 const app = express();
 app.set('trust proxy', 1);
 
@@ -1632,9 +1652,17 @@ app.get('/api/lang', (req, res) => {
   res.json({ lang: runtimeConfig.lang || 'de' });
 });
 
+function _readHostHostname() {
+  try { return fs.readFileSync('/host/etc/hostname', 'utf8').trim(); } catch (_) {}
+  try { return fs.readFileSync('/etc/hostname', 'utf8').trim(); } catch (_) {}
+  return os.hostname();
+}
+
 app.get('/api/settings', requireAuth, (req, res) => {
+  const sysHostname = _readHostHostname();
   res.json({
     serverName: runtimeConfig.serverName,
+    hostname: sysHostname,
     adminUser:  runtimeConfig.adminUser,
     lang:       runtimeConfig.lang || 'en',
     showOfflineApps:  !!runtimeConfig.showOfflineApps,
@@ -1643,16 +1671,19 @@ app.get('/api/settings', requireAuth, (req, res) => {
     updateBranch: runtimeConfig.updateBranch || 'main',
     port:        PORT,
     guestPort:   GUEST_PORT,
+    configPort:      runtimeConfig.configPort      || PORT,
+    configGuestPort: runtimeConfig.configGuestPort || GUEST_PORT,
     proxyPort:   PROXY_PORT,
     httpPort:    HTTP_PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
     version:     VERSION,
-    cfApiToken:     runtimeConfig.cfApiToken || '',
-    cfZoneId:       runtimeConfig.cfZoneId || '',
-    cfTunnelToken:  runtimeConfig.cfTunnelToken || '',
-    serverPublicIp: runtimeConfig.serverPublicIp || '',
+    cfApiToken:       runtimeConfig.cfApiToken || '',
+    cfZoneId:         runtimeConfig.cfZoneId || '',
+    cfTunnelToken:    runtimeConfig.cfTunnelToken || '',
+    serverPublicIp:   runtimeConfig.serverPublicIp || '',
+    autoUpdateLinux:  runtimeConfig.autoUpdateLinux ?? { enabled: false },
   });
 });
 
@@ -1662,11 +1693,18 @@ app.post(
   asyncHandler(async (req, res) => {
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
-      cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp,
+      cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp, configPort, configGuestPort,
     } = req.body || {};
     const updates = {};
 
-    if (serverName !== undefined) updates.serverName = (serverName || '').trim() || 'Hearth';
+    if (serverName !== undefined) {
+      const cleanName = (serverName || '').trim().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 63) || 'hearth';
+      updates.serverName = cleanName;
+      // Apply to host system asynchronously
+      const cmd = `docker run --rm --privileged --pid=host ${_hearthImage} ` +
+        `sh -c "nsenter -t 1 -m -u -n -i -- sh -c 'printf %s ${cleanName} > /etc/hostname && hostname ${cleanName}'" 2>&1`;
+      exec(cmd, err => { if (err) console.warn('[hostname] change failed:', err.message); });
+    }
     if (lang !== undefined) updates.lang = lang;
     if (showOfflineApps !== undefined) updates.showOfflineApps = !!showOfflineApps;
     if (refreshInterval !== undefined) updates.refreshInterval = Number(refreshInterval) || 0;
@@ -1681,10 +1719,22 @@ app.post(
     if (updateBranch && typeof updateBranch === 'string') {
       updates.updateBranch = updateBranch.trim().replace(/[^a-zA-Z0-9/_.-]/g, '') || 'main';
     }
+    if (configPort !== undefined) {
+      const p = parseInt(configPort, 10);
+      if (p >= 1 && p <= 65535) updates.configPort = p;
+    }
+    if (configGuestPort !== undefined) {
+      const p = parseInt(configGuestPort, 10);
+      if (p >= 1 && p <= 65535) updates.configGuestPort = p;
+    }
     if (cfApiToken !== undefined) updates.cfApiToken = (cfApiToken || '').trim();
     if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();
     if (cfTunnelToken !== undefined) updates.cfTunnelToken = (cfTunnelToken || '').trim();
     if (serverPublicIp !== undefined) updates.serverPublicIp = (serverPublicIp || '').trim();
+    const { autoUpdateLinux } = req.body || {};
+    if (autoUpdateLinux && typeof autoUpdateLinux === 'object') {
+      updates.autoUpdateLinux = { enabled: !!autoUpdateLinux.enabled };
+    }
 
     saveConfig(updates);
     if (updates.autoUpdate) scheduleNightlyUpdate();
@@ -1695,6 +1745,33 @@ app.post(
 app.post('/api/system/restart', requireAuth, (req, res) => {
   res.json({ ok: true });
   setTimeout(() => process.exit(0), 400);
+});
+
+app.post('/api/system/reboot', requireAuth, asyncHandler(async (req, res) => {
+  res.json({ ok: true });
+  setTimeout(() => {
+    exec('docker run --rm --privileged --pid=host alpine sh -c "nsenter -t 1 -m -u -n -i -- reboot" 2>&1', () => {});
+  }, 500);
+}));
+
+app.post('/api/system/shutdown', requireAuth, asyncHandler(async (req, res) => {
+  res.json({ ok: true });
+  setTimeout(() => {
+    exec('docker run --rm --privileged --pid=host alpine sh -c "nsenter -t 1 -m -u -n -i -- halt -p" 2>&1', () => {});
+  }, 500);
+}));
+
+// Terminal: issue a one-time token the WebSocket handshake validates
+app.post('/api/terminal/token', requireAuth, (req, res) => {
+  const { username } = req.body || {};
+  if (!username || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username)) {
+    return res.status(400).json({ error: 'Ungültiger Benutzername' });
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  _termTokens.set(token, { username, ts: Date.now() });
+  // Expire after 30 s
+  setTimeout(() => _termTokens.delete(token), 30000);
+  res.json({ token });
 });
 
 // ---------------------------------------------------------------------------
@@ -2536,6 +2613,118 @@ app.get('/api/changelog', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Linux system updates
+// ---------------------------------------------------------------------------
+
+function _detectPackageManager() {
+  const checks = [
+    ['/host/usr/bin/apt-get', 'apt'],
+    ['/host/usr/bin/apt',     'apt'],
+    ['/host/usr/bin/dnf',     'dnf'],
+    ['/host/usr/bin/yum',     'yum'],
+    ['/host/usr/bin/pacman',  'pacman'],
+    ['/host/usr/bin/zypper',  'zypper'],
+  ];
+  for (const [p, name] of checks) if (fs.existsSync(p)) return name;
+  return null;
+}
+
+function _checkRebootRequired() {
+  return fs.existsSync('/host/var/run/reboot-required');
+}
+
+function _linuxCheckCmd(pm) {
+  switch (pm) {
+    case 'apt':    return "apt-get -qq update 2>/dev/null; C=$(apt-get -s upgrade 2>/dev/null | grep -c '^Inst' || echo 0); echo PENDING:$C";
+    case 'dnf':    return "dnf check-update -q 2>/dev/null; C=$(dnf list updates 2>/dev/null | grep -vc '^$' || echo 0); echo PENDING:$C";
+    case 'yum':    return "yum check-update -q 2>/dev/null; R=$?; [ $R -eq 100 ] && echo PENDING:many || echo PENDING:0";
+    case 'pacman': return "pacman -Qu 2>/dev/null | wc -l | awk '{print \"PENDING:\"$1}'";
+    case 'zypper': return "zypper lu 2>/dev/null | grep -c '|' | awk '{print \"PENDING:\"$1}' || echo PENDING:0";
+    default:       return 'echo PENDING:?';
+  }
+}
+
+function _linuxUpdateCmd(pm) {
+  switch (pm) {
+    case 'apt':    return 'DEBIAN_FRONTEND=noninteractive apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y';
+    case 'dnf':    return 'dnf upgrade -y';
+    case 'yum':    return 'yum upgrade -y';
+    case 'pacman': return 'pacman -Syu --noconfirm';
+    case 'zypper': return 'zypper update -y';
+    default:       return null;
+  }
+}
+
+const _sysUpdateJobs = new Map();
+let _sysUpdateJobSeq = 1;
+
+function _runLinuxUpdateJob(job) {
+  const pm = _detectPackageManager();
+  if (!pm) {
+    job.output = ['No supported package manager found.\n'];
+    job.status = 'error'; job.done = true;
+    return;
+  }
+  const cmd = _linuxUpdateCmd(pm);
+  if (!cmd) {
+    job.output = [`Package manager '${pm}' not supported.\n`];
+    job.status = 'error'; job.done = true;
+    return;
+  }
+  const fullCmd = `nsenter -t 1 -m -u -n -i -- sh -c '${cmd.replace(/'/g, "'\\''")}'`;
+  const proc = spawn('docker', ['run', '--rm', '--privileged', '--pid=host', _hearthImage, 'sh', '-c', fullCmd]);
+  proc.stdout.on('data', d => job.output.push(d.toString()));
+  proc.stderr.on('data', d => job.output.push(d.toString()));
+  proc.on('close', code => {
+    job.rebootRequired = _checkRebootRequired();
+    job.status   = code === 0 ? 'done' : 'error';
+    job.exitCode = code;
+    job.done     = true;
+    if (job.isAuto) {
+      console.log(`[LINUX-UPDATE] Scheduled run done (exit ${code}).`);
+      if (job.rebootRequired) {
+        addNotif('linux-reboot', 'Neustart erforderlich', 'Ein Linux-Update erfordert einen Server-Neustart.', { section: 'updates' });
+      } else if (code === 0) {
+        addNotif('linux-update-done', 'Linux aktualisiert', 'Alle Systempakete wurden erfolgreich aktualisiert.');
+      }
+    }
+  });
+}
+
+app.get('/api/system-updates/check', requireAuth, asyncHandler(async (req, res) => {
+  const pm = _detectPackageManager();
+  const rebootRequired = _checkRebootRequired();
+  if (!pm) return res.json({ pkgMgr: null, pending: null, rebootRequired, error: 'Kein unterstützter Paketmanager' });
+  const nsCmd = `nsenter -t 1 -m -u -n -i -- sh -c '${_linuxCheckCmd(pm)}'`;
+  try {
+    const { stdout } = await _exec('docker', ['run', '--rm', '--privileged', '--pid=host', _hearthImage, 'sh', '-c', nsCmd]);
+    const m = stdout.match(/PENDING:(\w+)/);
+    const raw = m ? m[1] : '?';
+    const pending = /^\d+$/.test(raw) ? Number(raw) : raw;
+    res.json({ pkgMgr: pm, pending, rebootRequired });
+  } catch (e) {
+    res.json({ pkgMgr: pm, pending: '?', rebootRequired, error: e.message });
+  }
+}));
+
+app.post('/api/system-updates/install', requireAuth, asyncHandler(async (req, res) => {
+  const running = [..._sysUpdateJobs.values()].find(j => !j.done);
+  if (running) return res.json({ jobId: running.id, status: 'running' });
+  const jobId = String(_sysUpdateJobSeq++);
+  const job = { id: jobId, status: 'running', output: [], done: false, rebootRequired: false };
+  _sysUpdateJobs.set(jobId, job);
+  if (_sysUpdateJobs.size > 20) _sysUpdateJobs.delete([..._sysUpdateJobs.keys()][0]);
+  _runLinuxUpdateJob(job);
+  res.json({ jobId, status: 'started' });
+}));
+
+app.get('/api/system-updates/job/:id', requireAuth, (req, res) => {
+  const job = _sysUpdateJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job nicht gefunden' });
+  res.json({ status: job.status, output: job.output, done: job.done, rebootRequired: job.rebootRequired });
+});
+
+// ---------------------------------------------------------------------------
 // Notifications (in-memory, per session reset)
 // ---------------------------------------------------------------------------
 const _notifs = [];
@@ -2747,19 +2936,17 @@ app.get(
       })
     );
 
-    // Hearth-Version gegen GitHub prüfen
-    // raw.githubusercontent.com für package.json (kein Rate-Limit-Problem),
-    // GitHub Commits API nur für Commit-Message (optional, kein Fehler wenn nicht erreichbar)
+    // Hearth-Version + Commit-SHA gegen GitHub prüfen
     let hearthUpdate = null;
     try {
-      const _branch = (runtimeConfig.updateBranch || 'main').trim();
+      const _branch = (req.query.branch || runtimeConfig.updateBranch || 'main').trim().replace(/[^a-zA-Z0-9/_.-]/g, '');
       const rawUrl = `https://raw.githubusercontent.com/MarioundMB/Hearth/${_branch}/package.json?_=${Date.now()}`;
       const pkgRes = await fetch(rawUrl, { headers: { 'User-Agent': 'Hearth-Panel' }, signal: AbortSignal.timeout(6000) });
       if (pkgRes.ok) {
         const pkg = await pkgRes.json();
         const remoteVersion = pkg.version || '0.0.0';
-        // Commit-Message optional via GitHub API (ignorieren wenn Rate-Limit)
         let message = '';
+        let remoteSha = null;
         try {
           const ghHeaders = { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' };
           const commitRes = await fetch(
@@ -2768,13 +2955,23 @@ app.get(
           );
           if (commitRes.ok) {
             const c = await commitRes.json();
-            message = c.commit?.message?.split('\n')[0] || '';
+            message  = c.commit?.message?.split('\n')[0] || '';
+            remoteSha = c.sha || null;
           }
         } catch (_) {}
+
+        // Lokale SHA: git rev-parse HEAD (falls Volume gemountet), sonst HEARTH_SHA-Env
+        let localSha = null;
+        if (fs.existsSync(path.join(_REPO, '.git'))) {
+          try { localSha = (await _exec('git', ['-C', _REPO, 'rev-parse', 'HEAD'])).stdout.trim(); } catch (_) {}
+        }
+        if (!localSha && HEARTH_SHA !== 'unknown') localSha = HEARTH_SHA;
+
+        const shasDiffer = remoteSha && localSha && localSha.slice(0, 7) !== remoteSha.slice(0, 7);
         hearthUpdate = {
           remoteVersion,
           localVersion: VERSION,
-          hasUpdate: remoteVersion !== VERSION,
+          hasUpdate: remoteVersion !== VERSION || !!shasDiffer,
           message,
         };
       }
@@ -2922,7 +3119,7 @@ async function runHearthSelfUpdate() {
       '-v', `${repoMount}:/app/repo`,
       selfImage,
       'sh', '-c',
-      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1`,
+      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -f --filter until=24h 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
     ], { detached: true, stdio: 'ignore' }).unref();
   }
 
@@ -3016,6 +3213,13 @@ function scheduleNightlyUpdate() {
         addNotif('error', 'Auto-update failed', e.message);
         console.error('[UPDATE] Auto-update failed:', e.message);
       });
+    if (runtimeConfig.autoUpdateLinux?.enabled) {
+      console.log('[LINUX-UPDATE] Running scheduled auto-update…');
+      const jobId = String(_sysUpdateJobSeq++);
+      const job = { id: jobId, status: 'running', output: [], done: false, rebootRequired: false, isAuto: true };
+      _sysUpdateJobs.set(jobId, job);
+      _runLinuxUpdateJob(job);
+    }
     scheduleNightlyUpdate();
   }, next - now);
   console.log(`[UPDATE] Next auto-update scheduled at ${next.toLocaleString()}`);
@@ -3311,6 +3515,12 @@ app.delete(
     res.json({ ok: true });
   })
 );
+
+// Images prune (dangling <none>:<none> images)
+app.post('/api/images/prune', requireAuth, asyncHandler(async (req, res) => {
+  const result = await docker.pruneImages({ filters: JSON.stringify({ dangling: ['true'] }) });
+  res.json({ ok: true, deleted: result.ImagesDeleted?.length || 0, freed: result.SpaceReclaimed || 0 });
+}));
 
 // ---------------------------------------------------------------------------
 // Dateimanager (Admin) – eingesperrt in FILES_ROOT
@@ -3665,7 +3875,98 @@ app.get('/login', (req, res) =>
 );
 
 // Admin server — keep this behind your firewall / VPN
-http.createServer(app).listen(PORT, () => {
+const adminHttpServer = http.createServer(app);
+
+// WebSocket terminal
+const wss = new WebSocketServer({ noServer: true });
+adminHttpServer.on('upgrade', (req, socket, head) => {
+  if (req.url && req.url.startsWith('/ws/terminal')) {
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+  } else {
+    socket.destroy();
+  }
+});
+
+wss.on('connection', async (ws, req) => {
+  const url = new URL('http://x' + req.url);
+  const token = url.searchParams.get('token');
+  const info = _termTokens.get(token);
+  if (!info || Date.now() - info.ts > 30000) {
+    ws.close(4001, 'Invalid or expired token');
+    return;
+  }
+  _termTokens.delete(token);
+
+  const cols = Math.max(10, Math.min(500, parseInt(url.searchParams.get('cols') || '80', 10)));
+  const rows = Math.max(5,  Math.min(200, parseInt(url.searchParams.get('rows') || '24', 10)));
+
+  let container, containerStream;
+  try {
+    // Spin up a privileged container using the same Hearth image (has nsenter/util-linux).
+    // nsenter -t 1 with --pid=host enters the HOST's namespaces → real host shell.
+    container = await docker.createContainer({
+      Image: _hearthImage,
+      Cmd: ['nsenter', '-t', '1', '-m', '-u', '-n', '-i', '-p', '--', 'su', '-l', info.username],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: true,
+      OpenStdin: true,
+      StdinOnce: false,
+      HostConfig: {
+        Privileged: true,
+        PidMode: 'host',
+        NetworkMode: 'host',
+        AutoRemove: true,
+      },
+    });
+
+    containerStream = await new Promise((resolve, reject) => {
+      container.attach(
+        { stream: true, stdin: true, stdout: true, stderr: true, hijack: true },
+        (err, s) => (err ? reject(err) : resolve(s))
+      );
+    });
+
+    await container.start();
+    await container.resize({ w: cols, h: rows }).catch(() => {});
+
+  } catch (err) {
+    console.error('[terminal] container start error:', err.message);
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'output', data: `\r\n\x1b[31mFehler: ${err.message}\x1b[0m\r\n` }));
+      ws.close();
+    }
+    return;
+  }
+
+  containerStream.on('data', chunk => {
+    if (ws.readyState === ws.OPEN)
+      ws.send(JSON.stringify({ type: 'output', data: chunk.toString('utf8') }));
+  });
+  containerStream.on('end', () => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit' }));
+      ws.close();
+    }
+  });
+
+  ws.on('message', raw => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === 'input' && containerStream) containerStream.write(msg.data);
+      if (msg.type === 'resize' && container)
+        container.resize({ w: msg.cols || 80, h: msg.rows || 24 }).catch(() => {});
+    } catch (_) {}
+  });
+
+  ws.on('close', () => {
+    try { containerStream?.end(); } catch (_) {}
+    if (container) container.kill().catch(() => {});
+  });
+});
+
+adminHttpServer.listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
   scheduleNightlyUpdate();
