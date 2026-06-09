@@ -1196,7 +1196,7 @@ async function loadSettings() {
   try {
     const s = await api('GET', '/api/settings');
     applyLang(s.lang || 'en');
-    document.getElementById('s-servername').value       = s.serverName || '';
+    document.getElementById('s-servername').value       = s.hostname || s.serverName || '';
     document.getElementById('s-lang').value             = s.lang || 'en';
     document.getElementById('s-showoffline').checked    = !!s.showOfflineApps;
     document.getElementById('s-refresh').value          = String(s.refreshInterval ?? 15);

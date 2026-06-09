@@ -1652,9 +1652,17 @@ app.get('/api/lang', (req, res) => {
   res.json({ lang: runtimeConfig.lang || 'de' });
 });
 
+function _readHostHostname() {
+  try { return fs.readFileSync('/host/etc/hostname', 'utf8').trim(); } catch (_) {}
+  try { return fs.readFileSync('/etc/hostname', 'utf8').trim(); } catch (_) {}
+  return os.hostname();
+}
+
 app.get('/api/settings', requireAuth, (req, res) => {
+  const sysHostname = _readHostHostname();
   res.json({
     serverName: runtimeConfig.serverName,
+    hostname: sysHostname,
     adminUser:  runtimeConfig.adminUser,
     lang:       runtimeConfig.lang || 'en',
     showOfflineApps:  !!runtimeConfig.showOfflineApps,
@@ -1688,7 +1696,14 @@ app.post(
     } = req.body || {};
     const updates = {};
 
-    if (serverName !== undefined) updates.serverName = (serverName || '').trim() || 'Hearth';
+    if (serverName !== undefined) {
+      const cleanName = (serverName || '').trim().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 63) || 'hearth';
+      updates.serverName = cleanName;
+      // Apply to host system asynchronously
+      const cmd = `docker run --rm --privileged --pid=host ${_hearthImage} ` +
+        `sh -c "nsenter -t 1 -m -u -n -i -- sh -c 'printf %s ${cleanName} > /etc/hostname && hostname ${cleanName}'" 2>&1`;
+      exec(cmd, err => { if (err) console.warn('[hostname] change failed:', err.message); });
+    }
     if (lang !== undefined) updates.lang = lang;
     if (showOfflineApps !== undefined) updates.showOfflineApps = !!showOfflineApps;
     if (refreshInterval !== undefined) updates.refreshInterval = Number(refreshInterval) || 0;
