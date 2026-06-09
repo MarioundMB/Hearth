@@ -1213,6 +1213,8 @@ async function loadSettings() {
     document.getElementById('s-autoupdate-hour').value   = au.hour   ?? 0;
     document.getElementById('s-autoupdate-minute').value = String(au.minute ?? 0).padStart(2, '0');
     document.getElementById('s-autoupdate-time').style.display = au.enabled ? 'flex' : 'none';
+    const al = s.autoUpdateLinux ?? { enabled: false };
+    document.getElementById('s-autoupdate-linux').checked = !!al.enabled;
 
     // Branch-Selector befüllen
     const branchSel = document.getElementById('s-update-branch');
@@ -1248,7 +1250,8 @@ document.getElementById('s-save').addEventListener('click', async () => {
     const updateBranch    = document.getElementById('s-update-branch').value || 'main';
     const configPort      = parseInt(document.getElementById('s-port').value, 10) || null;
     const configGuestPort = parseInt(document.getElementById('s-guest-port').value, 10) || null;
-    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch, configPort, configGuestPort });
+    const autoUpdateLinux = { enabled: document.getElementById('s-autoupdate-linux').checked };
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, autoUpdateLinux, updateBranch, configPort, configGuestPort });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);
@@ -4087,6 +4090,82 @@ document.getElementById('editor-save-btn').addEventListener('click', async () =>
     btn.textContent = 'Speichern';
   }
 });
+
+// ─── Linux System Updates ────────────────────────────────────────────────────
+
+async function checkLinuxUpdates() {
+  const btn   = document.getElementById('btn-linux-check');
+  const label = document.getElementById('linux-upd-label');
+  const hint  = document.getElementById('linux-upd-hint');
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
+  try {
+    const d = await api('GET', '/api/system-updates/check');
+    if (d.pkgMgr) {
+      if (label) label.textContent = `Linux-Pakete (${d.pkgMgr})`;
+      let hintText = '';
+      if (d.pending === 0 || d.pending === '0') {
+        hintText = 'Alles aktuell ✓';
+        const ir = document.getElementById('linux-install-row');
+        if (ir) ir.style.display = 'none';
+      } else {
+        const n = d.pending;
+        hintText = typeof n === 'number' ? `${n} Paket${n !== 1 ? 'e' : ''} verfügbar` : 'Updates verfügbar';
+        const ir = document.getElementById('linux-install-row');
+        const ih = document.getElementById('linux-install-hint');
+        if (ir) ir.style.display = '';
+        if (ih) ih.textContent = typeof n === 'number' ? `${n} Paket${n !== 1 ? 'e' : ''} aktualisieren` : 'Pakete aktualisieren';
+      }
+      if (d.rebootRequired) hintText += ' · Neustart ausstehend';
+      if (hint) hint.textContent = hintText;
+    } else {
+      if (hint) hint.textContent = d.error || 'Kein unterstützter Paketmanager';
+    }
+  } catch (e) {
+    if (hint) hint.textContent = e.message || 'Fehler beim Prüfen';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Prüfen'; }
+  }
+}
+
+let _linuxUpdatePollTimer = null;
+
+async function installLinuxUpdates() {
+  if (!confirm('Linux-System jetzt aktualisieren? Das kann mehrere Minuten dauern.')) return;
+  const btn     = document.getElementById('btn-linux-install');
+  const logWrap = document.getElementById('linux-log-wrap');
+  const log     = document.getElementById('linux-log');
+  if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
+  if (logWrap) logWrap.style.display = '';
+  if (log) log.textContent = 'Starte Update…\n';
+
+  try {
+    const { jobId } = await api('POST', '/api/system-updates/install');
+
+    const poll = async () => {
+      try {
+        const job = await api('GET', `/api/system-updates/job/${jobId}`);
+        if (log) { log.textContent = job.output.join(''); log.scrollTop = log.scrollHeight; }
+        if (!job.done) {
+          _linuxUpdatePollTimer = setTimeout(poll, 1500);
+          return;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = job.status === 'done' ? '✓ Fertig' : '⚠ Fehler'; }
+        if (job.rebootRequired) {
+          if (confirm('Ein Neustart ist erforderlich. Jetzt neu starten?')) systemReboot();
+        } else {
+          checkLinuxUpdates();
+        }
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Installieren'; }
+        toast(e.message, 'error');
+      }
+    };
+    _linuxUpdatePollTimer = setTimeout(poll, 1500);
+  } catch (e) {
+    toast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Installieren'; }
+  }
+}
 
 // ─── System: Reboot / Shutdown ────────────────────────────────────────────────
 
