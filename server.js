@@ -3136,6 +3136,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
       'run', '--rm', '--name', 'hearth-updater',
       '--label', 'hearth.self=true',
       '--label', 'hearth.hide=true',
+      '--label', 'hearth.ephemeral=true',
       '-v', '/var/run/docker.sock:/var/run/docker.sock',
       '-v', `${repoMount}:/app/repo`,
       selfImage,
@@ -3191,6 +3192,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
     const p = _spawn('docker', [
       'run', '--rm', '--name', 'hearth-git-clone',
       '--label', 'hearth.hide=true',
+      '--label', 'hearth.ephemeral=true',
       '-v', `${UPDATE_VOL}:/dst`,
       selfImage,
       'sh', '-c',
@@ -3210,7 +3212,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
   const pkgJson = await new Promise(resolve => {
     let out = '';
     const p = _spawn('docker', [
-      'run', '--rm', '--label', 'hearth.hide=true',
+      'run', '--rm', '--label', 'hearth.hide=true', '--label', 'hearth.ephemeral=true',
       '-v', `${UPDATE_VOL}:/src`, selfImage, 'cat', '/src/package.json',
     ], { stdio: 'pipe' });
     p.stdout?.on('data', d => { out += d; });
@@ -4034,19 +4036,12 @@ adminHttpServer.listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
   scheduleNightlyUpdate();
-  // Remove any leftover internal containers from previous runs (by name and by label)
-  for (const name of ['hearth-git-clone', 'hearth-updater']) {
-    _spawn('docker', ['rm', '-f', name], { stdio: 'ignore' }).unref();
-  }
+  // Remove leftover ephemeral update containers from previous runs
   docker.listContainers({ all: true }).then(list => {
-    const selfHostname = process.env.HOSTNAME || '';
     for (const c of list) {
-      if (c.Id.startsWith(selfHostname)) continue; // never remove ourselves
-      const l = c.Labels || {};
-      const hide = String(l['hearth.hide']).toLowerCase() === 'true';
-      const self = String(l['hearth.self']).toLowerCase() === 'true';
-      const isMain = (c.Names || []).some(n => /\/hearth$/.test(n));
-      if ((hide || self) && !isMain) {
+      const ephemeral = String((c.Labels || {})['hearth.ephemeral']).toLowerCase() === 'true';
+      const knownName = (c.Names || []).some(n => ['hearth-git-clone', 'hearth-updater'].includes(n.replace(/^\//, '')));
+      if (ephemeral || knownName) {
         docker.getContainer(c.Id).remove({ force: true }).catch(() => {});
       }
     }
