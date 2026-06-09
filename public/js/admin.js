@@ -4101,42 +4101,42 @@ async function checkLinuxUpdates() {
   try {
     const d = await api('GET', '/api/system-updates/check');
     if (d.pkgMgr) {
-      if (label) label.textContent = `Linux-Pakete (${d.pkgMgr})`;
+      if (label) label.textContent = `${t('settings.linuxPackages')} (${d.pkgMgr})`;
       let hintText = '';
       if (d.pending === 0 || d.pending === '0') {
-        hintText = 'Alles aktuell ✓';
+        hintText = t('settings.linuxAllGood');
         const ir = document.getElementById('linux-install-row');
         if (ir) ir.style.display = 'none';
       } else {
         const n = d.pending;
-        hintText = typeof n === 'number' ? `${n} Paket${n !== 1 ? 'e' : ''} verfügbar` : 'Updates verfügbar';
+        hintText = typeof n === 'number' ? `${n} ${t('settings.linuxUpdatesAvail')}` : t('settings.linuxUpdatesAvail');
         const ir = document.getElementById('linux-install-row');
         const ih = document.getElementById('linux-install-hint');
         if (ir) ir.style.display = '';
-        if (ih) ih.textContent = typeof n === 'number' ? `${n} Paket${n !== 1 ? 'e' : ''} aktualisieren` : 'Pakete aktualisieren';
+        if (ih) ih.textContent = typeof n === 'number' ? `${n} ${t('settings.linuxInstallLabel')}` : t('settings.linuxInstallLabel');
       }
-      if (d.rebootRequired) hintText += ' · Neustart ausstehend';
+      if (d.rebootRequired) hintText += ' · ' + t('settings.serverRebootLabel');
       if (hint) hint.textContent = hintText;
     } else {
-      if (hint) hint.textContent = d.error || 'Kein unterstützter Paketmanager';
+      if (hint) hint.textContent = d.error || t('settings.linuxNotChecked');
     }
   } catch (e) {
-    if (hint) hint.textContent = e.message || 'Fehler beim Prüfen';
+    if (hint) hint.textContent = e.message || t('settings.linuxNotChecked');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Prüfen'; }
+    if (btn) { btn.disabled = false; btn.textContent = t('settings.linuxCheckBtn'); }
   }
 }
 
 let _linuxUpdatePollTimer = null;
 
 async function installLinuxUpdates() {
-  if (!confirm('Linux-System jetzt aktualisieren? Das kann mehrere Minuten dauern.')) return;
+  if (!confirm(t('settings.linuxConfirmInstall'))) return;
   const btn     = document.getElementById('btn-linux-install');
   const logWrap = document.getElementById('linux-log-wrap');
   const log     = document.getElementById('linux-log');
   if (btn) { btn.disabled = true; btn.innerHTML = hearthSpinner(14); }
   if (logWrap) logWrap.style.display = '';
-  if (log) log.textContent = 'Starte Update…\n';
+  if (log) log.textContent = t('settings.linuxStarting');
 
   try {
     const { jobId } = await api('POST', '/api/system-updates/install');
@@ -4149,47 +4149,47 @@ async function installLinuxUpdates() {
           _linuxUpdatePollTimer = setTimeout(poll, 1500);
           return;
         }
-        if (btn) { btn.disabled = false; btn.textContent = job.status === 'done' ? '✓ Fertig' : '⚠ Fehler'; }
+        if (btn) { btn.disabled = false; btn.textContent = job.status === 'done' ? '✓ ' + t('settings.linuxAllGood') : '⚠ Fehler'; }
         if (job.rebootRequired) {
-          if (confirm('Ein Neustart ist erforderlich. Jetzt neu starten?')) systemReboot();
+          if (confirm(t('settings.linuxRebootRequired'))) systemReboot();
         } else {
           checkLinuxUpdates();
         }
       } catch (e) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Installieren'; }
+        if (btn) { btn.disabled = false; btn.textContent = t('settings.linuxInstallBtn'); }
         toast(e.message, 'error');
       }
     };
     _linuxUpdatePollTimer = setTimeout(poll, 1500);
   } catch (e) {
     toast(e.message, 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'Installieren'; }
+    if (btn) { btn.disabled = false; btn.textContent = t('settings.linuxInstallBtn'); }
   }
 }
 
 // ─── System: Reboot / Shutdown ────────────────────────────────────────────────
 
 async function systemReboot() {
-  if (!confirm('Server wirklich neu starten? Die Verbindung wird unterbrochen.')) return;
+  if (!confirm(t('settings.rebootConfirm'))) return;
   const btn = document.getElementById('s-reboot');
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
   try {
     await api('POST', '/api/system/reboot');
-    toast('Server wird neu gestartet…', 'info');
+    toast(t('settings.serverRebootLabel') + '…', 'info');
   } catch (_) {
-    toast('Reboot-Befehl gesendet', 'info');
+    toast(t('settings.serverRebootLabel'), 'info');
   }
 }
 
 async function systemShutdown() {
-  if (!confirm('Server wirklich herunterfahren? Er ist danach nicht mehr erreichbar.')) return;
+  if (!confirm(t('settings.shutdownConfirm'))) return;
   const btn = document.getElementById('s-shutdown');
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
   try {
     await api('POST', '/api/system/shutdown');
-    toast('Server fährt herunter…', 'info');
+    toast(t('settings.serverShutdownLabel') + '…', 'info');
   } catch (_) {
-    toast('Shutdown-Befehl gesendet', 'info');
+    toast(t('settings.serverShutdownLabel'), 'info');
   }
 }
 
