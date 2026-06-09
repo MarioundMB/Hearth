@@ -33,14 +33,13 @@ const {
   verifyAuthenticationResponse,
 } = require('@simplewebauthn/server');
 const { WebSocketServer } = require('ws');
-let pty;
-try { pty = require('node-pty'); } catch (_) { pty = null; }
 
 // Modul-weite Zustandsvariablen (müssen vor jeder Nutzung deklariert sein)
 let _nginxProc  = null;
 let _cpuPrev    = null;
 let _netPrev    = null, _netPrevTs = 0;
 const _termTokens = new Map(); // one-time terminal auth tokens
+let _hearthImage = 'alpine:latest'; // filled at startup by self-inspect
 
 const { version: VERSION } = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')
@@ -166,6 +165,18 @@ startNginx();
 renewCertsIfNeeded().catch(() => {});
 
 const docker = new Docker({ socketPath: DOCKER_SOCKET });
+
+// Detect own Docker image at startup so the terminal uses the same image (has util-linux/nsenter)
+(async () => {
+  try {
+    const selfId = (process.env.HOSTNAME || '').trim();
+    if (selfId) {
+      const info = await docker.getContainer(selfId).inspect();
+      _hearthImage = info.Config.Image || 'alpine:latest';
+    }
+  } catch (_) {}
+})();
+
 const app = express();
 app.set('trust proxy', 1);
 
@@ -1732,7 +1743,6 @@ app.post('/api/system/shutdown', requireAuth, asyncHandler(async (req, res) => {
 
 // Terminal: issue a one-time token the WebSocket handshake validates
 app.post('/api/terminal/token', requireAuth, (req, res) => {
-  if (!pty) return res.status(503).json({ error: 'Terminal nicht verfügbar (node-pty nicht geladen)' });
   const { username } = req.body || {};
   if (!username || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username)) {
     return res.status(400).json({ error: 'Ungültiger Benutzername' });
@@ -3738,7 +3748,7 @@ adminHttpServer.on('upgrade', (req, socket, head) => {
   }
 });
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   const url = new URL('http://x' + req.url);
   const token = url.searchParams.get('token');
   const info = _termTokens.get(token);
@@ -3748,24 +3758,54 @@ wss.on('connection', (ws, req) => {
   }
   _termTokens.delete(token);
 
-  if (!pty) {
-    ws.send(JSON.stringify({ type: 'output', data: '\r\nTerminal nicht verfügbar.\r\n' }));
-    ws.close();
+  const cols = Math.max(10, Math.min(500, parseInt(url.searchParams.get('cols') || '80', 10)));
+  const rows = Math.max(5,  Math.min(200, parseInt(url.searchParams.get('rows') || '24', 10)));
+
+  let container, containerStream;
+  try {
+    // Spin up a privileged container using the same Hearth image (has nsenter/util-linux).
+    // nsenter -t 1 with --pid=host enters the HOST's namespaces → real host shell.
+    container = await docker.createContainer({
+      Image: _hearthImage,
+      Cmd: ['nsenter', '-t', '1', '-m', '-u', '-n', '-i', '-p', '--', 'su', '-l', info.username],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: true,
+      OpenStdin: true,
+      StdinOnce: false,
+      HostConfig: {
+        Privileged: true,
+        PidMode: 'host',
+        NetworkMode: 'host',
+        AutoRemove: true,
+      },
+    });
+
+    containerStream = await new Promise((resolve, reject) => {
+      container.attach(
+        { stream: true, stdin: true, stdout: true, stderr: true, hijack: true },
+        (err, s) => (err ? reject(err) : resolve(s))
+      );
+    });
+
+    await container.start();
+    await container.resize({ w: cols, h: rows }).catch(() => {});
+
+  } catch (err) {
+    console.error('[terminal] container start error:', err.message);
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'output', data: `\r\n\x1b[31mFehler: ${err.message}\x1b[0m\r\n` }));
+      ws.close();
+    }
     return;
   }
 
-  const ptyProc = pty.spawn('sh', ['-c', `su -l ${info.username}`], {
-    name: 'xterm-256color',
-    cols: parseInt(url.searchParams.get('cols') || '80', 10),
-    rows: parseInt(url.searchParams.get('rows') || '24', 10),
-    cwd: '/',
-    env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8' },
+  containerStream.on('data', chunk => {
+    if (ws.readyState === ws.OPEN)
+      ws.send(JSON.stringify({ type: 'output', data: chunk.toString('utf8') }));
   });
-
-  ptyProc.onData(data => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'output', data }));
-  });
-  ptyProc.onExit(() => {
+  containerStream.on('end', () => {
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'exit' }));
       ws.close();
@@ -3774,13 +3814,17 @@ wss.on('connection', (ws, req) => {
 
   ws.on('message', raw => {
     try {
-      const msg = JSON.parse(raw);
-      if (msg.type === 'input') ptyProc.write(msg.data);
-      if (msg.type === 'resize') ptyProc.resize(msg.cols || 80, msg.rows || 24);
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === 'input' && containerStream) containerStream.write(msg.data);
+      if (msg.type === 'resize' && container)
+        container.resize({ w: msg.cols || 80, h: msg.rows || 24 }).catch(() => {});
     } catch (_) {}
   });
 
-  ws.on('close', () => { try { ptyProc.kill(); } catch (_) {} });
+  ws.on('close', () => {
+    try { containerStream?.end(); } catch (_) {}
+    if (container) container.kill().catch(() => {});
+  });
 });
 
 adminHttpServer.listen(PORT, () => {
