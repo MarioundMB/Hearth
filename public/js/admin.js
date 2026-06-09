@@ -23,24 +23,15 @@ function initTabGlowPosition() {
 }
 
 // ---------- Tabs ----------
-const _allTabs = Array.from(document.querySelectorAll('.tab'));
-_allTabs.forEach((t) => {
+document.querySelectorAll('.tab').forEach((t) => {
   t.addEventListener('click', () => {
-    const oldActive = document.querySelector('.tab.active');
-    const oldIdx = oldActive ? _allTabs.indexOf(oldActive) : -1;
-    const newIdx = _allTabs.indexOf(t);
-    const slideClass = newIdx >= oldIdx ? 'slide-right' : 'slide-left';
-
-    _allTabs.forEach((x) => x.classList.remove('active'));
-    document.querySelectorAll('.view').forEach((x) => {
-      x.classList.remove('active', 'slide-right', 'slide-left');
-    });
+    document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
+    document.querySelectorAll('.view').forEach((x) => x.classList.remove('active'));
     t.classList.add('active');
-    const viewEl = document.getElementById('view-' + t.dataset.view);
-    if (viewEl) viewEl.classList.add('active', slideClass);
-
+    document.getElementById('view-' + t.dataset.view).classList.add('active');
     document.getElementById('btn-community-nav').classList.remove('active');
     closeCommunityHub();
+    updateTabGlow(t);
     if (t.dataset.view === 'store')    renderStore();
     if (t.dataset.view === 'images')   loadImages();
     if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
@@ -57,6 +48,7 @@ function openCommunityHub() {
   document.getElementById('overlay-community').style.display = 'block';
   document.body.style.overflow = 'hidden';
   document.getElementById('btn-community-nav').classList.add('active');
+  updateTabGlow(document.getElementById('btn-community-nav'));
   loadCommunityTab();
 }
 
@@ -72,10 +64,11 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Init: scroll active tab into view
+// Init: position glow line + center on active tab
 requestAnimationFrame(() => {
+  initTabGlowPosition();
   const activeTab = document.querySelector('.tab.active');
-  if (activeTab) activeTab.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
+  if (activeTab) updateTabGlow(activeTab);
 });
 
 document.getElementById('logout').addEventListener('click', async () => {
