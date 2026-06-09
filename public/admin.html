@@ -9,9 +9,19 @@
     <link rel="stylesheet" href="/custom.css" />
     <script src="/js/i18n.js"></script>
     <style>
+      /* Unified card: tabs + content share one glass surface */
+      .tabs-content-panel {
+        background: color-mix(in srgb, var(--panel) 60%, transparent);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin: 10px 0 24px;
+        overflow: hidden;
+      }
       .tabs-wrap {
         position: relative;
-        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
       }
       /* right-side scroll fade */
       .tabs-wrap::after {
@@ -19,7 +29,7 @@
         position: absolute;
         right: 0; top: 0; bottom: 0;
         width: 56px;
-        background: linear-gradient(to right, transparent, var(--bg));
+        background: linear-gradient(to right, transparent, var(--panel));
         pointer-events: none;
         z-index: 1;
       }
@@ -59,14 +69,11 @@
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, var(--border)),
                     0 2px 8px -2px rgba(0,0,0,0.35);
       }
-      /* Glass content panel */
-      .admin-layout { padding-top: 10px; }
+      .admin-layout { padding-top: 0; }
       .admin-main {
-        background: color-mix(in srgb, var(--panel) 65%, transparent);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
+        background: transparent;
+        border: none;
+        border-radius: 0;
         padding: 0 20px;
       }
       .view {
@@ -74,28 +81,18 @@
         padding-top: 22px;
         padding-bottom: 28px;
       }
-      .view.active {
-        display: block;
-        animation: viewFadeIn .24s cubic-bezier(.4,0,.2,1);
+      .view.active { display: block; }
+      .view.slide-right { animation: slideFromRight .22s cubic-bezier(.4,0,.2,1); }
+      .view.slide-left  { animation: slideFromLeft  .22s cubic-bezier(.4,0,.2,1); }
+      @keyframes slideFromRight {
+        from { opacity: 0; transform: translateX(30px); }
+        to   { opacity: 1; transform: translateX(0); }
       }
-      @keyframes viewFadeIn {
-        from { opacity: 0; transform: translateY(8px); }
-        to   { opacity: 1; transform: translateY(0); }
+      @keyframes slideFromLeft {
+        from { opacity: 0; transform: translateX(-30px); }
+        to   { opacity: 1; transform: translateX(0); }
       }
-      /* Tab accent glow behind the active pill */
-      .tab-glow-inner {
-        position: absolute;
-        top: 0; left: 0;
-        width: 280px;
-        height: 56px;
-        background: radial-gradient(
-          ellipse 80% 100% at 50% 60%,
-          rgba(196, 240, 66, 0.09),
-          transparent 70%
-        );
-        transition: transform .30s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease;
-        pointer-events: none;
-      }
+      .tab-glow-inner { display: none; }
       /* Store */
       .store-category { margin-bottom: 32px; }
       .store-cat-bar { display: none; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 0 0 12px; scrollbar-width: none; }
@@ -1590,27 +1587,25 @@
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
         <button class="btn sm" id="logout" data-i18n="nav.logout">Abmelden</button>
       </div>
-      <div class="tabs-wrap">
-        <div class="wrap tabs" style="max-width:1440px">
-          <div class="tab-indicator" id="tab-indicator"></div>
-          <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
-          <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
-          <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
-          <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
-          <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
-          <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
-          <div class="tab" data-view="vpn">VPN</div>
-        </div>
-      </div>
     </header>
 
-    <!-- Tab accent glow — position:fixed, top set by JS to sit right at the tab border -->
-    <div style="position:fixed;top:var(--tab-glow-top,104px);left:0;right:0;height:0;overflow:visible;pointer-events:none;z-index:19" aria-hidden="true">
-      <div class="tab-glow-inner" id="tab-glow-inner"></div>
-    </div>
-
     <div class="wrap" style="max-width:1440px">
-      <div class="admin-layout">
+      <div class="tabs-content-panel">
+
+        <div class="tabs-wrap">
+          <div class="tabs" style="padding:8px 20px">
+            <div class="tab-indicator" id="tab-indicator"></div>
+            <div class="tab active" data-view="containers" data-i18n="tab.containers">Container</div>
+            <div class="tab" data-view="store" data-i18n="tab.store">Store</div>
+            <div class="tab" data-view="images" data-i18n="tab.images">Images</div>
+            <div class="tab" data-view="files" data-i18n="tab.files">Dateimanager</div>
+            <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
+            <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
+            <div class="tab" data-view="vpn">VPN</div>
+          </div>
+        </div>
+
+        <div class="admin-layout">
 
         <!-- ── Hauptbereich ───────────────────────────────────── -->
         <div class="admin-main">
@@ -1978,6 +1973,7 @@
         </aside><!-- /.monitor-panel -->
 
       </div><!-- /.admin-layout -->
+      </div><!-- /.tabs-content-panel -->
     </div>
 
     <!-- Modals -->
