@@ -1183,8 +1183,9 @@ function openSettingsCat(cat) {
   document.querySelectorAll('.s-detail').forEach(el => el.style.display = 'none');
   const panel = document.getElementById('s-cat-' + cat);
   if (panel) panel.style.display = 'block';
-  if (cat === 'appearance') { loadThemeStatus(); loadSettingsThemePicker(); }
-  if (cat === 'news')       loadChangelog();
+  if (cat === 'appearance')    { loadThemeStatus(); loadSettingsThemePicker(); }
+  if (cat === 'news')          loadChangelog();
+  if (cat === 'notifications') loadNotifSettings();
 }
 
 function closeSettingsCat() {
@@ -1271,8 +1272,11 @@ function toggleNotifPanel() {
 }
 
 document.addEventListener('click', (e) => {
-  const wrap = document.getElementById('notif-wrap');
-  if (wrap && !wrap.contains(e.target)) document.getElementById('notif-panel').style.display = 'none';
+  const wrap    = document.getElementById('notif-wrap');
+  const overlay = document.getElementById('notif-archive-overlay');
+  if (wrap && !wrap.contains(e.target) && overlay && overlay.style.display === 'none') {
+    document.getElementById('notif-panel').style.display = 'none';
+  }
 });
 
 async function loadNotifications() {
@@ -1285,9 +1289,9 @@ async function loadNotifications() {
 function renderNotifications(list) {
   const badge = document.getElementById('notif-badge');
   const el    = document.getElementById('notif-list');
-  const unread = list.filter(n => !n.read).length;
-  badge.textContent   = unread;
-  badge.style.display = unread ? '' : 'none';
+
+  badge.textContent   = list.length;
+  badge.style.display = list.length ? '' : 'none';
 
   if (!list.length) {
     el.innerHTML = `<div class="notif-empty">${t('notif.empty')}</div>`;
@@ -1300,7 +1304,7 @@ function renderNotifications(list) {
            onclick="event.stopPropagation();_notifAction(${esc(JSON.stringify(n.action))})">${esc(n.action.label)}</button>`
       : '';
     return `
-      <div class="notif-item ${n.read ? '' : 'unread'}" data-id="${n.id}" data-action='${JSON.stringify(n.action || {})}'>
+      <div class="notif-item unread" data-id="${n.id}" data-action='${JSON.stringify(n.action || {})}'>
         <div class="notif-item-icon">${icons[n.type] || 'ℹ️'}</div>
         <div class="notif-item-body">
           <div class="notif-item-title">${esc(n.title)}</div>
@@ -1313,29 +1317,103 @@ function renderNotifications(list) {
 
   el.querySelectorAll('.notif-item').forEach(item => {
     item.addEventListener('click', () => {
-      const id = Number(item.dataset.id);
-      api('POST', `/api/notifications/${id}/read`).catch(() => {});
-      item.classList.remove('unread');
-      const unreadNow = el.querySelectorAll('.unread').length;
-      const badge = document.getElementById('notif-badge');
-      badge.textContent = unreadNow;
-      badge.style.display = unreadNow ? '' : 'none';
-
+      const id     = Number(item.dataset.id);
       const action = JSON.parse(item.dataset.action || '{}');
-      if (action.section === 'updates') { document.getElementById('notif-panel').style.display = 'none'; openSettings(); openSettingsCat('updates'); }
+      api('POST', `/api/notifications/${id}/read`).catch(() => {});
+      item.style.transition = 'opacity 0.18s, max-height 0.2s';
+      item.style.opacity = '0';
+      item.style.overflow = 'hidden';
+      item.style.maxHeight = item.offsetHeight + 'px';
+      requestAnimationFrame(() => { item.style.maxHeight = '0'; item.style.padding = '0'; });
+      setTimeout(() => {
+        item.remove();
+        const remaining = el.querySelectorAll('.notif-item').length;
+        const badge = document.getElementById('notif-badge');
+        badge.textContent = remaining;
+        badge.style.display = remaining ? '' : 'none';
+        if (!remaining) el.innerHTML = `<div class="notif-empty">${t('notif.empty')}</div>`;
+      }, 220);
+
+      if (action.section === 'updates') {
+        document.getElementById('notif-panel').style.display = 'none';
+        openSettings(); openSettingsCat('updates');
+      }
     });
   });
 }
 
 async function markAllRead() {
   await api('POST', '/api/notifications/read-all').catch(() => {});
-  document.getElementById('notif-badge').style.display = 'none';
-  document.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+  const el = document.getElementById('notif-list');
+  el.innerHTML = `<div class="notif-empty">${t('notif.empty')}</div>`;
+  const badge = document.getElementById('notif-badge');
+  badge.style.display = 'none';
 }
 
 function _notifAction(action) {
   document.getElementById('notif-panel').style.display = 'none';
   if (action.section === 'updates') updateHearth();
+}
+
+// Archive overlay
+async function openNotifArchive() {
+  document.getElementById('notif-panel').style.display = 'none';
+  const overlay = document.getElementById('notif-archive-overlay');
+  overlay.style.display = 'flex';
+  const listEl = document.getElementById('notif-archive-list');
+  listEl.innerHTML = `<div class="notif-archive-empty">${t('notif.archiveLoading')}</div>`;
+  try {
+    const data  = await api('GET', '/api/notifications/archive?limit=200');
+    const items = data.items || [];
+    if (!items.length) {
+      listEl.innerHTML = `<div class="notif-archive-empty">${t('notif.archiveEmpty')}</div>`;
+      return;
+    }
+    const icons = { update: '🔼', 'update-done': '✅', error: '⚠️', info: 'ℹ️' };
+    listEl.innerHTML = items.map(n => `
+      <div class="notif-item" style="cursor:default">
+        <div class="notif-item-icon">${icons[n.type] || 'ℹ️'}</div>
+        <div class="notif-item-body">
+          <div class="notif-item-title">${esc(n.title)}</div>
+          <div class="notif-item-msg">${esc(n.body)}</div>
+          <div class="notif-item-time">${new Date(n.ts).toLocaleString()}</div>
+        </div>
+      </div>`).join('');
+  } catch (_) {
+    listEl.innerHTML = `<div class="notif-archive-empty">${t('notif.archiveError')}</div>`;
+  }
+}
+
+function closeNotifArchive(e) {
+  if (e && e.target !== document.getElementById('notif-archive-overlay')) return;
+  document.getElementById('notif-archive-overlay').style.display = 'none';
+}
+
+// Settings: load archive stats
+async function loadNotifSettings() {
+  try {
+    const data  = await api('GET', '/api/notifications/archive?limit=0');
+    const count = data.total ?? 0;
+    const el    = document.getElementById('s-notif-archive-count');
+    if (el) el.textContent = `${count} ${t('settings.notif.archivedItems')}`;
+    const maxEl = document.getElementById('s-notif-max');
+    const cfg   = await api('GET', '/api/settings');
+    if (maxEl && cfg.notifArchiveMax) maxEl.value = cfg.notifArchiveMax;
+  } catch (_) {}
+}
+
+async function clearNotifArchive() {
+  if (!confirm(t('settings.notif.clearConfirm'))) return;
+  await api('DELETE', '/api/notifications/archive').catch(() => {});
+  toast(t('settings.notif.clearDone'), 'ok');
+  loadNotifSettings();
+}
+
+async function saveNotifMax() {
+  const val = parseInt(document.getElementById('s-notif-max')?.value, 10);
+  if (!val || val < 50) { toast(t('settings.notif.maxError'), 'error'); return; }
+  await api('POST', '/api/notifications/archive/max', { max: val });
+  toast(t('settings.save') + ' ✓', 'ok');
 }
 
 // Poll for notifications every 30s
