@@ -176,6 +176,29 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
       _hearthImage = info.Config.Image || 'alpine:latest';
     }
   } catch (_) {}
+
+  // Auto-install mdadm on the host if missing (needed for Software-RAID feature)
+  try {
+    const { stdout: which } = await raidExec('ls /usr/sbin/mdadm /sbin/mdadm 2>/dev/null | head -1 || echo missing');
+    if (!which || which.includes('missing') || !which.includes('/')) {
+      const { stdout: pmPath } = await raidExec(
+        'which apt-get 2>/dev/null || which dnf 2>/dev/null || which yum 2>/dev/null || which pacman 2>/dev/null || echo ""'
+      );
+      let cmd = '';
+      if      (pmPath.includes('apt-get')) cmd = 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mdadm 2>&1';
+      else if (pmPath.includes('dnf'))     cmd = 'dnf install -y -q mdadm 2>&1';
+      else if (pmPath.includes('yum'))     cmd = 'yum install -y -q mdadm 2>&1';
+      else if (pmPath.includes('pacman'))  cmd = 'pacman -Sy --noconfirm mdadm 2>&1';
+      if (cmd) {
+        console.log('[RAID] mdadm not found — installing on host…');
+        const res = await raidExec(cmd);
+        if (res.ok) console.log('[RAID] mdadm installed successfully.');
+        else        console.warn('[RAID] mdadm install failed:', res.stderr || res.stdout);
+      }
+    }
+  } catch (e) {
+    console.warn('[RAID] mdadm startup check skipped:', e.message);
+  }
 })();
 
 const app = express();
@@ -2725,6 +2748,195 @@ app.get('/api/system-updates/job/:id', requireAuth, (req, res) => {
   if (!job) return res.status(404).json({ error: 'Job nicht gefunden' });
   res.json({ status: job.status, output: job.output, done: job.done, rebootRequired: job.rebootRequired });
 });
+
+// ---------------------------------------------------------------------------
+// Software-RAID (mdadm) — Host-Zugriff via nsenter + privileged container
+// ---------------------------------------------------------------------------
+
+function raidExec(cmd) {
+  return new Promise(resolve => {
+    const nsCmd = `nsenter -t 1 -m -u -n -i -- sh -c '${cmd.replace(/'/g, "'\\''")}'`;
+    require('child_process').execFile(
+      'docker',
+      ['run', '--rm', '--privileged', '--pid=host', _hearthImage, 'sh', '-c', nsCmd],
+      { timeout: 60_000 },
+      (err, stdout, stderr) => resolve({
+        stdout: (stdout || '').trim(),
+        stderr: (stderr || '').trim(),
+        ok:     !err
+      })
+    );
+  });
+}
+
+// Allow only /dev/sdX, /dev/nvmeXnYpZ, /dev/vdX, /dev/xvdX etc.
+function _validDev(d) {
+  return /^\/dev\/[a-z][a-z0-9]+$/.test(String(d)) ? String(d) : null;
+}
+// Allow md0 … md127
+function _validMd(name) {
+  const n = String(name).replace(/^\/dev\//, '');
+  return /^md\d{1,3}$/.test(n) ? `/dev/${n}` : null;
+}
+
+function _parseMdstat(text) {
+  const arrays = [];
+  if (!text) return arrays;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(md\d+)\s*:\s*(\S+(?:\s+\(auto-read-only\))?)\s+(raid\d+|linear|multipath|faulty)\s+(.*)/);
+    if (!m) continue;
+    const name     = m[1];
+    const activity = m[2].includes('active') ? 'active' : 'inactive';
+    const levelRaw = m[3];
+    const devStr   = m[4];
+    const devices  = (devStr.match(/[a-z]+\d*(?:p\d+)?\[\d+\](\(F\)|\(S\))?/g) || [])
+                       .map(s => s.replace(/\[\d+\](\(.\))?$/, ''));
+
+    let blocks = 0, statusStr = '', syncProgress = null;
+    const infoLine = lines[i + 1] || '';
+    const blkM = infoLine.match(/(\d+) blocks/);
+    if (blkM) blocks = parseInt(blkM[1]);
+    const stM = infoLine.match(/\[([U_]+)\]/);
+    if (stM) statusStr = stM[1];
+
+    const syncLine = lines[i + 2] || '';
+    const syncM = syncLine.match(/[=>]+.*?(\d+\.\d+)%.*?finish=([0-9.]+)min/);
+    if (syncM) syncProgress = { percent: parseFloat(syncM[1]), finish: syncM[2] };
+
+    const activeCount = (statusStr.match(/U/g) || []).length;
+    arrays.push({
+      name, activity, levelRaw,
+      level: 'RAID ' + levelRaw.replace('raid', ''),
+      devices,
+      blocks,
+      statusStr,
+      degraded: !!statusStr && activeCount < devices.length,
+      rebuilding: !!syncProgress,
+      syncProgress
+    });
+  }
+  return arrays;
+}
+
+function _parseMdDetail(text) {
+  if (!text) return null;
+  const get = key => {
+    const m = text.match(new RegExp(`^\\s*${key}\\s*:\\s*(.+)`, 'm'));
+    return m ? m[1].trim() : null;
+  };
+  const diskLines = text.split('\n').filter(l => /\/dev\//.test(l) && /active|faulty|spare|sync/.test(l));
+  return {
+    state:          get('State'),
+    activeDevices:  get('Active Devices'),
+    workingDevices: get('Working Devices'),
+    failedDevices:  get('Failed Devices'),
+    spareDevices:   get('Spare Devices'),
+    arraySize:      get('Array Size'),
+    raidDevices:    get('Raid Devices'),
+    uuid:           get('UUID'),
+    disks: diskLines.map(l => {
+      const parts = l.trim().split(/\s+/);
+      const devPath = (l.match(/\/dev\/\S+/) || [])[0];
+      return devPath ? { number: parts[0], raidDevice: parts[3], state: parts.slice(4, -1).join(' '), path: devPath } : null;
+    }).filter(Boolean)
+  };
+}
+
+app.get('/api/raid/available', requireAuth, asyncHandler(async (req, res) => {
+  const { stdout } = await raidExec('ls /usr/sbin/mdadm /sbin/mdadm 2>/dev/null | head -1 || echo missing');
+  res.json({ available: stdout.includes('/') });
+}));
+
+app.get('/api/raid/status', requireAuth, asyncHandler(async (req, res) => {
+  const { stdout: mdstat } = await raidExec('cat /proc/mdstat 2>/dev/null || echo ""');
+  const arrays = _parseMdstat(mdstat);
+  for (const arr of arrays) {
+    const { stdout } = await raidExec(`mdadm --detail /dev/${arr.name} 2>/dev/null || echo ""`);
+    arr.detail = _parseMdDetail(stdout);
+  }
+  res.json({ arrays });
+}));
+
+app.get('/api/raid/disks', requireAuth, asyncHandler(async (req, res) => {
+  const { stdout } = await raidExec('lsblk -J -b -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL 2>/dev/null || echo "{}"');
+  let disks = [];
+  try {
+    const parsed = JSON.parse(stdout || '{}');
+    disks = (parsed.blockdevices || []).filter(d => d.type === 'disk');
+  } catch (_) {}
+  res.json({ disks });
+}));
+
+app.post('/api/raid/create', requireAuth, asyncHandler(async (req, res) => {
+  const { level, devices, mddev } = req.body;
+  const validLevels = ['0', '1', '4', '5', '6', '10'];
+  if (!validLevels.includes(String(level))) return res.status(400).json({ error: 'Ungültiger RAID-Level' });
+  if (!Array.isArray(devices) || devices.length < 2) return res.status(400).json({ error: 'Mindestens 2 Geräte erforderlich' });
+
+  const mdPath = _validMd(mddev || 'md0');
+  if (!mdPath) return res.status(400).json({ error: 'Ungültiger Array-Name' });
+
+  const cleanDevs = devices.map(_validDev).filter(Boolean);
+  if (cleanDevs.length !== devices.length) return res.status(400).json({ error: 'Ungültige Gerätenamen' });
+
+  const minDisks = { '0': 2, '1': 2, '4': 3, '5': 3, '6': 4, '10': 4 };
+  if (cleanDevs.length < (minDisks[level] || 2))
+    return res.status(400).json({ error: `RAID ${level} benötigt mindestens ${minDisks[level]} Geräte` });
+
+  const cmd = `mdadm --create ${mdPath} --level=${level} --raid-devices=${cleanDevs.length} --force ${cleanDevs.join(' ')} --run 2>&1`;
+  const result = await raidExec(cmd);
+
+  if (result.ok || /started|created/.test(result.stdout)) {
+    await raidExec('mdadm --detail --scan 2>/dev/null | tee -a /etc/mdadm/mdadm.conf >/dev/null 2>&1 || true');
+    res.json({ ok: true, output: result.stdout });
+  } else {
+    res.status(500).json({ error: result.stderr || result.stdout || 'Unbekannter Fehler' });
+  }
+}));
+
+app.post('/api/raid/array/:dev/stop', requireAuth, asyncHandler(async (req, res) => {
+  const path = _validMd(req.params.dev);
+  if (!path) return res.status(400).json({ error: 'Ungültiger Array-Name' });
+  const { stdout, stderr, ok } = await raidExec(`mdadm --stop ${path} 2>&1`);
+  res.json({ ok, output: stdout || stderr });
+}));
+
+app.post('/api/raid/array/:dev/add-disk', requireAuth, asyncHandler(async (req, res) => {
+  const path = _validMd(req.params.dev);
+  const disk = _validDev(req.body.disk);
+  if (!path || !disk) return res.status(400).json({ error: 'Ungültige Parameter' });
+  const { stdout, stderr, ok } = await raidExec(`mdadm ${path} --add ${disk} 2>&1`);
+  res.json({ ok, output: stdout || stderr });
+}));
+
+app.post('/api/raid/array/:dev/fail-disk', requireAuth, asyncHandler(async (req, res) => {
+  const path = _validMd(req.params.dev);
+  const disk = _validDev(req.body.disk);
+  if (!path || !disk) return res.status(400).json({ error: 'Ungültige Parameter' });
+  const { stdout, stderr, ok } = await raidExec(`mdadm ${path} --fail ${disk} 2>&1`);
+  res.json({ ok, output: stdout || stderr });
+}));
+
+app.post('/api/raid/array/:dev/remove-disk', requireAuth, asyncHandler(async (req, res) => {
+  const path = _validMd(req.params.dev);
+  const disk = _validDev(req.body.disk);
+  if (!path || !disk) return res.status(400).json({ error: 'Ungültige Parameter' });
+  const { stdout, stderr, ok } = await raidExec(`mdadm ${path} --remove ${disk} 2>&1`);
+  res.json({ ok, output: stdout || stderr });
+}));
+
+app.delete('/api/raid/array/:dev', requireAuth, asyncHandler(async (req, res) => {
+  const path = _validMd(req.params.dev);
+  if (!path) return res.status(400).json({ error: 'Ungültiger Array-Name' });
+  const { stdout: detail } = await raidExec(`mdadm --detail ${path} 2>/dev/null || echo ""`);
+  const diskPaths = (detail.match(/\/dev\/[a-z][a-z0-9]+/g) || []).filter(d => !d.startsWith('/dev/md'));
+  await raidExec(`mdadm --stop ${path} 2>&1`);
+  for (const d of [...new Set(diskPaths)]) {
+    await raidExec(`mdadm --zero-superblock ${d} 2>/dev/null || true`);
+  }
+  res.json({ ok: true });
+}));
 
 // ---------------------------------------------------------------------------
 // Notifications — active (in-memory) + persistent archive (file-based)

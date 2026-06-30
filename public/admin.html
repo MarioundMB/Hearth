@@ -2287,6 +2287,12 @@
               <span class="s-chevron">›</span>
             </div>
 
+            <div class="s-nav-item" onclick="openSettingsCat('storage')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-hdd"/></svg></span>
+              <div><div class="s-label" data-i18n="settings.storage">Speicher</div><div class="s-sub" data-i18n="settings.nav.storageSub">Software-RAID · mdadm</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
             <div class="s-nav-item" onclick="openSettingsCat('news')">
               <span class="s-icon"><svg class="icon icon-md"><use href="#icon-book"/></svg></span>
               <div><div class="s-label" data-i18n="settings.news">Neuigkeiten</div><div class="s-sub" data-i18n="settings.nav.newsSub">Changelog</div></div>
@@ -2705,6 +2711,77 @@
               </div>
             </div>
           </div><!-- /#s-cat-notifications -->
+
+          <!-- ── Level 2: Speicher (RAID) ─────────────────────────────── -->
+          <div class="s-detail" id="s-cat-storage" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()" data-i18n="settings.back">‹ Zurück</button>
+            <div class="s-cat-title" data-i18n="settings.storage">Speicher</div>
+
+            <!-- mdadm nicht verfügbar -->
+            <div id="raid-unavailable" style="display:none">
+              <div class="s-group">
+                <div style="padding:20px 14px;text-align:center">
+                  <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">mdadm nicht installiert</div>
+                  <div style="font-size:11px;color:var(--text-faint)">Installiere mdadm auf dem Host-System:<br><code style="font-family:monospace;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">sudo apt install mdadm</code></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Hauptbereich -->
+            <div id="raid-main">
+
+              <!-- Header-Leiste -->
+              <div class="s-group" style="padding:0">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px">
+                  <span style="font-size:11px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em">Software-RAID Arrays</span>
+                  <button class="btn primary" style="font-size:11px;padding:4px 10px" onclick="raidToggleCreate()">+ RAID erstellen</button>
+                </div>
+              </div>
+
+              <!-- Erstellen-Formular (eingeklappt) -->
+              <div id="raid-create-form" style="display:none">
+                <div class="s-group">
+                  <div style="padding:14px">
+                    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px">Neues RAID-Array erstellen</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+                      <div>
+                        <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px">RAID-Level</label>
+                        <select class="input s-select" id="raid-level" style="width:100%;max-width:100%">
+                          <option value="0">RAID 0 — Striping</option>
+                          <option value="1" selected>RAID 1 — Mirror</option>
+                          <option value="5">RAID 5 — Parity (min. 3)</option>
+                          <option value="6">RAID 6 — Doppel-Parity (min. 4)</option>
+                          <option value="10">RAID 10 — Mirror+Stripe (min. 4)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px">Array-Name</label>
+                        <select class="input s-select" id="raid-mddev" style="width:100%;max-width:100%">
+                          <option>md0</option><option>md1</option><option>md2</option>
+                          <option>md3</option><option>md4</option><option>md5</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style="margin-bottom:10px">
+                      <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:6px">Geräte auswählen</label>
+                      <div id="raid-disk-list" style="font-size:11px;color:var(--text-faint)">Lade Festplatten…</div>
+                    </div>
+                    <div style="background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;padding:8px 10px;font-size:11px;color:rgba(255,130,130,.9);margin-bottom:12px">
+                      ⚠ Alle Daten auf den gewählten Geräten werden <strong>unwiderruflich gelöscht!</strong>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                      <button class="btn primary" style="flex:1;font-size:12px" onclick="raidCreate()">Array erstellen</button>
+                      <button class="btn ghost" style="font-size:12px" onclick="raidToggleCreate()">Abbrechen</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Array-Liste (dynamisch befüllt) -->
+              <div id="raid-arrays"></div>
+
+            </div><!-- /#raid-main -->
+          </div><!-- /#s-cat-storage -->
 
         </div>
 

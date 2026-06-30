@@ -1186,6 +1186,7 @@ function openSettingsCat(cat) {
   if (cat === 'appearance')    { loadThemeStatus(); loadSettingsThemePicker(); }
   if (cat === 'news')          loadChangelog();
   if (cat === 'notifications') loadNotifSettings();
+  if (cat === 'storage')       loadRaidStatus();
 }
 
 function closeSettingsCat() {
@@ -4387,4 +4388,216 @@ function _sendTermResize() {
 function closeTerminal() {
   document.getElementById('modal-terminal').classList.remove('open');
   if (_termWs) { _termWs.close(); _termWs = null; }
+}
+
+// ─── Software-RAID ────────────────────────────────────────────────────────────
+
+async function loadRaidStatus() {
+  const avail = await api('GET', '/api/raid/available').catch(() => ({ available: false }));
+  document.getElementById('raid-unavailable').style.display = avail.available ? 'none' : '';
+  document.getElementById('raid-main').style.display        = avail.available ? ''    : 'none';
+  if (!avail.available) return;
+  const data = await api('GET', '/api/raid/status').catch(() => ({ arrays: [] }));
+  _renderRaidArrays(data.arrays || []);
+}
+
+function _raidStateColor(arr) {
+  if (arr.rebuilding)           return 'var(--warn)';
+  if (arr.degraded)             return '#f66';
+  if (arr.activity === 'inactive') return 'var(--text-faint)';
+  return 'var(--accent)';
+}
+function _raidStateLabel(arr) {
+  if (arr.rebuilding)              return 'wird wiederhergestellt';
+  if (arr.degraded)                return 'degradiert';
+  if (arr.activity === 'inactive') return 'inaktiv';
+  return 'aktiv';
+}
+
+function _renderRaidArrays(arrays) {
+  const el = document.getElementById('raid-arrays');
+  if (!arrays.length) {
+    el.innerHTML = `<div class="s-group"><div style="padding:20px 14px;text-align:center;color:var(--text-faint);font-size:12px">Keine RAID-Arrays vorhanden.<br><span style="font-size:11px">Erstelle dein erstes Array mit „+ RAID erstellen".</span></div></div>`;
+    return;
+  }
+
+  el.innerHTML = arrays.map(arr => {
+    const stateColor = _raidStateColor(arr);
+    const stateLabel = _raidStateLabel(arr);
+    const sizeGb     = arr.blocks ? (arr.blocks * 1024 / 1e9).toFixed(1) : '?';
+    const devTags    = arr.devices.map(d =>
+      `<span style="background:rgba(255,255,255,.07);border-radius:4px;padding:2px 7px;font-size:10px;font-family:monospace">${d}</span>`
+    ).join(' ');
+
+    let syncBar = '';
+    if (arr.syncProgress) {
+      const pct = arr.syncProgress.percent.toFixed(1);
+      syncBar = `
+        <div style="margin-top:8px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-faint);margin-bottom:3px">
+            <span>Wiederherstellung läuft…</span><span>${pct}% · noch ${arr.syncProgress.finish} min</span>
+          </div>
+          <div style="height:3px;background:rgba(255,255,255,.1);border-radius:2px">
+            <div style="height:100%;width:${pct}%;background:var(--warn);border-radius:2px;transition:width .4s"></div>
+          </div>
+        </div>`;
+    }
+
+    const diskDetail = (arr.detail?.disks || []).map(d => {
+      const isFaulty = d.state.includes('faulty');
+      const isSpare  = d.state.includes('spare');
+      const dotColor = isFaulty ? '#f66' : isSpare ? 'var(--warn)' : 'var(--accent)';
+      const faultBtn = !isFaulty && !isSpare
+        ? `<button class="btn ghost" style="font-size:10px;padding:2px 7px;line-height:1.4" onclick="raidFailDisk('${arr.name}','${d.path}')">Fault</button>` : '';
+      const removeBtn = isFaulty
+        ? `<button class="btn ghost" style="font-size:10px;padding:2px 7px;line-height:1.4" onclick="raidRemoveDisk('${arr.name}','${d.path}')">Entfernen</button>` : '';
+      return `
+        <div style="display:flex;align-items:center;gap:8px;font-size:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+          <span style="color:${dotColor}">●</span>
+          <span style="font-family:monospace;flex:1">${d.path}</span>
+          <span style="color:var(--text-faint)">${d.state}</span>
+          ${faultBtn}${removeBtn}
+        </div>`;
+    }).join('');
+
+    return `
+    <div class="s-group" style="margin-bottom:0;border-radius:0;border-top:1px solid rgba(255,255,255,.06)">
+      <div style="padding:12px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text)">/dev/${arr.name}</span>
+            <span style="background:rgba(255,255,255,.08);border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;color:var(--text-muted)">${arr.level}</span>
+            <span style="font-size:10px;font-weight:600;color:${stateColor}">${stateLabel}</span>
+          </div>
+          <div style="display:flex;gap:5px">
+            <button class="btn ghost" style="font-size:10px;padding:3px 8px" onclick="raidAddDiskShow('${arr.name}')">+ Disk</button>
+            <button class="btn ghost" style="font-size:10px;padding:3px 8px" onclick="raidStop('${arr.name}')">Stoppen</button>
+            <button class="btn ghost" style="font-size:10px;padding:3px 8px;color:#f88;border-color:rgba(255,80,80,.3)" onclick="raidDestroy('${arr.name}')">Löschen</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px">${devTags}</div>
+        <div style="font-size:10px;color:var(--text-faint)">${sizeGb} GB · [${arr.statusStr}]</div>
+        ${syncBar}
+        ${diskDetail ? `<div style="margin-top:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:6px">${diskDetail}</div>` : ''}
+        <div id="raid-add-disk-${arr.name}" style="display:none;margin-top:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Festplatte hinzufügen</div>
+          <div style="display:flex;gap:8px">
+            <select class="s-select" id="raid-add-dev-${arr.name}" style="flex:1"></select>
+            <button class="btn primary" style="font-size:11px;padding:4px 10px" onclick="raidAddDisk('${arr.name}')">Hinzufügen</button>
+            <button class="btn ghost" style="font-size:11px;padding:4px 8px" onclick="document.getElementById('raid-add-disk-${arr.name}').style.display='none'">✕</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function raidToggleCreate() {
+  const form = document.getElementById('raid-create-form');
+  const showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : '';
+  if (!showing) await _raidLoadCreateDisks();
+}
+
+async function _raidLoadCreateDisks() {
+  const listEl = document.getElementById('raid-disk-list');
+  listEl.innerHTML = '<span style="color:var(--text-faint)">Lade Festplatten…</span>';
+  const data  = await api('GET', '/api/raid/disks').catch(() => ({ disks: [] }));
+  const disks = data.disks || [];
+  if (!disks.length) {
+    listEl.innerHTML = '<span style="color:var(--text-faint)">Keine Festplatten gefunden.</span>';
+    return;
+  }
+  listEl.innerHTML = disks.map(d => {
+    const gb    = d.size ? (parseInt(d.size) / 1e9).toFixed(1) : '?';
+    const inUse = !!d.mountpoint;
+    const path  = `/dev/${d.name}`;
+    return `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:${inUse ? 'default' : 'pointer'};${inUse ? 'opacity:.45' : ''}">
+      <input type="checkbox" class="raid-disk-cb" value="${path}" ${inUse ? 'disabled title="Gerät ist eingehängt"' : ''}>
+      <span style="font-family:monospace;font-size:11px">${path}</span>
+      <span style="font-size:10px;color:var(--text-faint)">${gb} GB${d.model ? ' · ' + d.model.trim() : ''}${inUse ? ' · in Verwendung' : ''}</span>
+    </label>`;
+  }).join('');
+}
+
+async function raidCreate() {
+  const level   = document.getElementById('raid-level').value;
+  const mddev   = document.getElementById('raid-mddev').value;
+  const devices = [...document.querySelectorAll('.raid-disk-cb:checked')].map(cb => cb.value);
+  const minDisks = { '0': 2, '1': 2, '4': 3, '5': 3, '6': 4, '10': 4 };
+  if (devices.length < (minDisks[level] || 2)) {
+    toast(`RAID ${level} benötigt mindestens ${minDisks[level] || 2} Geräte.`, 'error'); return;
+  }
+  const btn = document.querySelector('#raid-create-form .btn.primary');
+  btn.disabled = true; btn.textContent = 'Erstelle Array…';
+  try {
+    await api('POST', '/api/raid/create', { level, mddev, devices });
+    toast('/dev/' + mddev + ' erfolgreich erstellt.');
+    raidToggleCreate();
+    await loadRaidStatus();
+  } catch (e) {
+    toast('Fehler: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Array erstellen';
+  }
+}
+
+async function raidStop(name) {
+  if (!confirm(`/dev/${name} stoppen?\nDas Array wird deaktiviert, Daten bleiben erhalten.`)) return;
+  try {
+    await api('POST', `/api/raid/array/${name}/stop`);
+    toast(`/dev/${name} gestoppt.`);
+    loadRaidStatus();
+  } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function raidDestroy(name) {
+  if (!confirm(`RAID-Array /dev/${name} wirklich unwiderruflich löschen?\n\nAlle Daten gehen verloren!`)) return;
+  try {
+    await api('DELETE', `/api/raid/array/${name}`);
+    toast(`/dev/${name} gelöscht.`);
+    loadRaidStatus();
+  } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function raidAddDiskShow(name) {
+  const panel   = document.getElementById(`raid-add-disk-${name}`);
+  const showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : '';
+  if (!showing) {
+    const data = await api('GET', '/api/raid/disks').catch(() => ({ disks: [] }));
+    const sel  = document.getElementById(`raid-add-dev-${name}`);
+    sel.innerHTML = (data.disks || []).filter(d => !d.mountpoint)
+      .map(d => `<option value="/dev/${d.name}">/dev/${d.name} · ${(parseInt(d.size||0)/1e9).toFixed(1)} GB</option>`)
+      .join('') || '<option disabled>Keine freien Geräte</option>';
+  }
+}
+
+async function raidAddDisk(name) {
+  const disk = document.getElementById(`raid-add-dev-${name}`).value;
+  if (!disk) return;
+  try {
+    await api('POST', `/api/raid/array/${name}/add-disk`, { disk });
+    toast(`${disk} zu /dev/${name} hinzugefügt.`);
+    document.getElementById(`raid-add-disk-${name}`).style.display = 'none';
+    loadRaidStatus();
+  } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function raidFailDisk(name, disk) {
+  if (!confirm(`${disk} als fehlerhaft markieren?\nDas Array kann danach mit einer Ersatzfestplatte wiederhergestellt werden.`)) return;
+  try {
+    await api('POST', `/api/raid/array/${name}/fail-disk`, { disk });
+    toast(`${disk} als fehlerhaft markiert.`);
+    loadRaidStatus();
+  } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function raidRemoveDisk(name, disk) {
+  if (!confirm(`${disk} aus /dev/${name} entfernen?`)) return;
+  try {
+    await api('POST', `/api/raid/array/${name}/remove-disk`, { disk });
+    toast(`${disk} entfernt.`);
+    loadRaidStatus();
+  } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
