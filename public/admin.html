@@ -981,11 +981,46 @@
         padding: 2px 4px; border-radius: 99px; pointer-events: none;
       }
       .notif-panel {
-        position: absolute; top: calc(100% + 8px); right: 0; z-index: 200;
-        width: 340px; background: var(--panel); border: 1px solid var(--border);
-        border-radius: var(--radius); box-shadow: var(--shadow);
+        position: absolute; top: calc(100% + 8px); right: 0; z-index: 9999;
+        width: 340px;
+        background: #1f2421;
+        border: 1px solid var(--border-bright);
+        border-radius: var(--radius); box-shadow: 0 20px 60px -10px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04);
+        display: flex; flex-direction: column; overflow: hidden;
+        isolation: isolate;
+      }
+      .notif-list-wrap { max-height: 340px; overflow-y: auto; }
+      .notif-footer {
+        display: flex; align-items: center; justify-content: center;
+        padding: 10px 14px; border-top: 1px solid var(--border);
+        font-size: 12px; color: var(--accent); cursor: pointer;
+        font-weight: 600; gap: 5px;
+        transition: background 0.12s;
+      }
+      .notif-footer:hover { background: rgba(196,240,66,0.05); }
+      /* Archive overlay */
+      .notif-archive-overlay {
+        position: fixed; inset: 0; z-index: 10000;
+        background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+        display: flex; align-items: flex-start; justify-content: flex-end;
+        padding: 68px 16px 0;
+      }
+      .notif-archive-panel {
+        width: 380px; max-height: calc(100vh - 84px);
+        background: #1f2421; border: 1px solid var(--border-bright);
+        border-radius: var(--radius);
+        box-shadow: 0 20px 60px -10px rgba(0,0,0,0.8);
         display: flex; flex-direction: column; overflow: hidden;
       }
+      .notif-archive-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+        font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim);
+      }
+      .notif-archive-list { overflow-y: auto; flex: 1; }
+      .notif-archive-list .notif-item { cursor: default; }
+      .notif-archive-list .notif-item:hover { background: transparent; }
+      .notif-archive-empty { padding: 32px; text-align: center; color: var(--text-faint); font-size: 13px; }
       .notif-head {
         display: flex; align-items: center; justify-content: space-between;
         padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
@@ -1612,7 +1647,25 @@
               <span data-i18n="notif.title">Notifications</span>
               <button class="btn ghost sm" onclick="markAllRead()" data-i18n="notif.markAllRead">Mark all read</button>
             </div>
-            <div id="notif-list"><div class="notif-empty" data-i18n="notif.empty">No notifications</div></div>
+            <div class="notif-list-wrap">
+              <div id="notif-list"><div class="notif-empty" data-i18n="notif.empty">No notifications</div></div>
+            </div>
+            <div class="notif-footer" onclick="openNotifArchive()">
+              <span data-i18n="notif.showAll">Alle Benachrichtigungen anzeigen</span>
+              <span>›</span>
+            </div>
+          </div>
+          <!-- Archive overlay -->
+          <div class="notif-archive-overlay" id="notif-archive-overlay" style="display:none" onclick="closeNotifArchive(event)">
+            <div class="notif-archive-panel" onclick="event.stopPropagation()">
+              <div class="notif-archive-head">
+                <span data-i18n="notif.archiveTitle">Archiv</span>
+                <button class="btn ghost sm" onclick="closeNotifArchive()" style="font-size:18px;line-height:1;padding:2px 8px">×</button>
+              </div>
+              <div class="notif-archive-list" id="notif-archive-list">
+                <div class="notif-archive-empty" data-i18n="notif.archiveEmpty">Noch keine archivierten Benachrichtigungen</div>
+              </div>
+            </div>
           </div>
         </div>
         <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
@@ -2228,6 +2281,12 @@
               <span class="s-chevron">›</span>
             </div>
 
+            <div class="s-nav-item" onclick="openSettingsCat('notifications')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-bell"/></svg></span>
+              <div><div class="s-label" data-i18n="settings.notifications">Benachrichtigungen</div><div class="s-sub" id="s-notif-overview-sub" data-i18n="settings.nav.notificationsSub">Archiv · Limits · Externe Dienste</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
             <div class="s-nav-item" onclick="openSettingsCat('news')">
               <span class="s-icon"><svg class="icon icon-md"><use href="#icon-book"/></svg></span>
               <div><div class="s-label" data-i18n="settings.news">Neuigkeiten</div><div class="s-sub" data-i18n="settings.nav.newsSub">Changelog</div></div>
@@ -2599,6 +2658,53 @@
               </div>
             </div>
           </div><!-- /#s-cat-system -->
+
+          <!-- ── Notifications ──────────────────────────────────── -->
+          <div class="s-detail" id="s-cat-notifications" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()">‹ <span data-i18n="settings.back">Zurück</span></button>
+            <div class="s-cat-title" data-i18n="settings.notifications">Benachrichtigungen</div>
+
+            <div class="s-group">
+              <div class="s-cat-title" style="padding-top:4px" data-i18n="settings.notif.archiveSection">Archiv</div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-log"/></svg></span>
+                  <div>
+                    <div class="s-label" data-i18n="settings.notif.archiveLabel">Archivierte Benachrichtigungen</div>
+                    <div class="s-sub" id="s-notif-archive-count">Wird geladen…</div>
+                  </div>
+                </div>
+                <button class="btn ghost sm" style="color:var(--danger);border-color:var(--danger);flex-shrink:0" onclick="clearNotifArchive()" data-i18n="settings.notif.clearArchive">Archiv leeren</button>
+              </div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-log"/></svg></span>
+                  <div>
+                    <div class="s-label" data-i18n="settings.notif.maxLabel">Archiv-Limit</div>
+                    <div class="s-sub" data-i18n="settings.notif.maxSub">Maximale Anzahl gespeicherter Einträge</div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                  <input type="number" id="s-notif-max" min="50" max="2000" step="50" style="width:80px;text-align:center" value="500">
+                  <button class="btn sm primary" onclick="saveNotifMax()" data-i18n="settings.save">Speichern</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="s-group">
+              <div class="s-cat-title" style="padding-top:4px" data-i18n="settings.notif.futureSection">Externe Benachrichtigungen</div>
+              <div class="s-row" style="opacity:0.5;pointer-events:none">
+                <div class="s-row-l">
+                  <span class="s-icon">📱</span>
+                  <div>
+                    <div class="s-label" data-i18n="settings.notif.pushLabel">Push / Webhook</div>
+                    <div class="s-sub" data-i18n="settings.notif.pushSub">Telegram · Webhook · NTFY (demnächst)</div>
+                  </div>
+                </div>
+                <span class="notif-badge" style="position:static;display:inline-block;background:var(--text-faint);font-size:10px" data-i18n="settings.notif.soon">Bald</span>
+              </div>
+            </div>
+          </div><!-- /#s-cat-notifications -->
 
         </div>
 

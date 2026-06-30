@@ -52,7 +52,8 @@ const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
-const CONFIG_PATH   = process.env.CONFIG_PATH   || path.join(FILES_ROOT, 'hearth.config.json');
+const CONFIG_PATH        = process.env.CONFIG_PATH        || path.join(FILES_ROOT, 'hearth.config.json');
+const NOTIF_ARCHIVE_PATH = process.env.NOTIF_ARCHIVE_PATH || path.join(FILES_ROOT, 'hearth.notifications.json');
 
 // Early config read so saved port values can override defaults before server binds
 let _earlyConfig = {};
@@ -1684,6 +1685,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
     cfTunnelToken:    runtimeConfig.cfTunnelToken || '',
     serverPublicIp:   runtimeConfig.serverPublicIp || '',
     autoUpdateLinux:  runtimeConfig.autoUpdateLinux ?? { enabled: false },
+    notifArchiveMax:  runtimeConfig.notifArchiveMax  || 500,
   });
 });
 
@@ -2725,30 +2727,82 @@ app.get('/api/system-updates/job/:id', requireAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Notifications (in-memory, per session reset)
+// Notifications — active (in-memory) + persistent archive (file-based)
 // ---------------------------------------------------------------------------
 const _notifs = [];
-let   _notifSeq = 1;
+let   _notifSeq    = 1;
+let   _notifArchive = [];
+
+function _loadNotifArchive() {
+  try {
+    if (fs.existsSync(NOTIF_ARCHIVE_PATH)) {
+      _notifArchive = JSON.parse(fs.readFileSync(NOTIF_ARCHIVE_PATH, 'utf8'));
+    }
+  } catch (_) { _notifArchive = []; }
+}
+
+function _saveNotifArchive() {
+  const max = runtimeConfig.notifArchiveMax || 500;
+  if (_notifArchive.length > max) _notifArchive = _notifArchive.slice(0, max);
+  try { fs.writeFileSync(NOTIF_ARCHIVE_PATH, JSON.stringify(_notifArchive), 'utf8'); } catch (_) {}
+}
+
+function _archiveNotif(n) {
+  _notifArchive.unshift({ id: n.id, type: n.type, title: n.title, body: n.body, ts: n.ts });
+  _saveNotifArchive();
+}
+
+_loadNotifArchive();
 
 function addNotif(type, title, body, action = null) {
   if (type === 'update') {
     const idx = _notifs.findIndex(n => n.type === 'update');
     if (idx >= 0) _notifs.splice(idx, 1);
   }
-  _notifs.unshift({ id: _notifSeq++, type, title, body, action, ts: Date.now(), read: false });
-  if (_notifs.length > 50) _notifs.pop();
+  _notifs.unshift({ id: _notifSeq++, type, title, body, action, ts: Date.now() });
+  if (_notifs.length > 30) _notifs.pop();
 }
 
+// Only unread (active) notifications
 app.get('/api/notifications', requireAuth, (req, res) => res.json(_notifs));
 
-app.post('/api/notifications/read-all', requireAuth, (req, res) => {
-  _notifs.forEach(n => (n.read = true));
+// Mark single notification as read → move to archive
+app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
+  const idx = _notifs.findIndex(n => n.id === Number(req.params.id));
+  if (idx >= 0) {
+    _archiveNotif(_notifs[idx]);
+    _notifs.splice(idx, 1);
+  }
   res.json({ ok: true });
 });
 
-app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
-  const n = _notifs.find(n => n.id === Number(req.params.id));
-  if (n) n.read = true;
+// Mark all as read → move all to archive
+app.post('/api/notifications/read-all', requireAuth, (req, res) => {
+  const copy = [..._notifs];
+  _notifs.length = 0;
+  copy.forEach(n => _notifArchive.unshift({ id: n.id, type: n.type, title: n.title, body: n.body, ts: n.ts }));
+  _saveNotifArchive();
+  res.json({ ok: true });
+});
+
+// Archive endpoints
+app.get('/api/notifications/archive', requireAuth, (req, res) => {
+  const limit  = Math.min(parseInt(req.query.limit || '200', 10), 1000);
+  const offset = parseInt(req.query.offset || '0', 10);
+  res.json({ items: _notifArchive.slice(offset, offset + limit), total: _notifArchive.length });
+});
+
+app.delete('/api/notifications/archive', requireAuth, (req, res) => {
+  _notifArchive = [];
+  _saveNotifArchive();
+  res.json({ ok: true });
+});
+
+app.post('/api/notifications/archive/max', requireAuth, (req, res) => {
+  const max = parseInt(req.body?.max, 10);
+  if (!max || max < 50) return res.status(400).json({ error: 'min 50' });
+  saveConfig({ notifArchiveMax: max });
+  _saveNotifArchive();
   res.json({ ok: true });
 });
 
