@@ -2544,6 +2544,10 @@ async function updateAllContainers() {
 
 async function updateHearth() {
   if (!confirm(t('settings.updateConfirm'))) return;
+  const selectedBranch = document.getElementById('s-update-branch')?.value;
+  if (selectedBranch) {
+    await api('POST', '/api/settings', { updateBranch: selectedBranch }).catch(() => {});
+  }
   closeModal('modal-settings');
   showUpdateProgress();
 }
