@@ -179,7 +179,7 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
 
   // Auto-install mdadm on the host if missing (needed for Software-RAID feature)
   try {
-    const { stdout: which } = await raidExec('which mdadm 2>/dev/null || echo missing');
+    const { stdout: which } = await raidExec('ls /usr/sbin/mdadm /sbin/mdadm 2>/dev/null | head -1 || echo missing');
     if (!which || which.includes('missing') || !which.includes('/')) {
       const { stdout: pmPath } = await raidExec(
         'which apt-get 2>/dev/null || which dnf 2>/dev/null || which yum 2>/dev/null || which pacman 2>/dev/null || echo ""'
@@ -2844,8 +2844,8 @@ function _parseMdDetail(text) {
 }
 
 app.get('/api/raid/available', requireAuth, asyncHandler(async (req, res) => {
-  const { stdout } = await raidExec('which mdadm 2>/dev/null && echo ok || echo missing');
-  res.json({ available: stdout.includes('/') || stdout.includes('ok') });
+  const { stdout } = await raidExec('ls /usr/sbin/mdadm /sbin/mdadm 2>/dev/null | head -1 || echo missing');
+  res.json({ available: stdout.includes('/') });
 }));
 
 app.get('/api/raid/status', requireAuth, asyncHandler(async (req, res) => {
