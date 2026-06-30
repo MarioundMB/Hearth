@@ -117,6 +117,14 @@ fi
 
 info "Checking prerequisites…"
 
+# ── Auto-install mdadm (Software RAID) ───────────────────────────────────────
+if ! command -v mdadm &>/dev/null; then
+  info "Installing mdadm (Software RAID support)…"
+  _pkg_install mdadm \
+    && ok "mdadm installed" \
+    || warn "mdadm could not be installed — RAID features will be unavailable."
+fi
+
 # ── Auto-install Git ──────────────────────────────────────────────────────
 if ! command -v git &>/dev/null; then
   info "Installing Git…"

@@ -176,6 +176,29 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
       _hearthImage = info.Config.Image || 'alpine:latest';
     }
   } catch (_) {}
+
+  // Auto-install mdadm on the host if missing (needed for Software-RAID feature)
+  try {
+    const { stdout: which } = await raidExec('which mdadm 2>/dev/null || echo missing');
+    if (!which || which.includes('missing') || !which.includes('/')) {
+      const { stdout: pmPath } = await raidExec(
+        'which apt-get 2>/dev/null || which dnf 2>/dev/null || which yum 2>/dev/null || which pacman 2>/dev/null || echo ""'
+      );
+      let cmd = '';
+      if      (pmPath.includes('apt-get')) cmd = 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mdadm 2>&1';
+      else if (pmPath.includes('dnf'))     cmd = 'dnf install -y -q mdadm 2>&1';
+      else if (pmPath.includes('yum'))     cmd = 'yum install -y -q mdadm 2>&1';
+      else if (pmPath.includes('pacman'))  cmd = 'pacman -Sy --noconfirm mdadm 2>&1';
+      if (cmd) {
+        console.log('[RAID] mdadm not found — installing on host…');
+        const res = await raidExec(cmd);
+        if (res.ok) console.log('[RAID] mdadm installed successfully.');
+        else        console.warn('[RAID] mdadm install failed:', res.stderr || res.stdout);
+      }
+    }
+  } catch (e) {
+    console.warn('[RAID] mdadm startup check skipped:', e.message);
+  }
 })();
 
 const app = express();
