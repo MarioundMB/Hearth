@@ -89,6 +89,11 @@ textarea {
   color: inherit;
 }
 
+select option {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

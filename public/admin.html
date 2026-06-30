@@ -2746,7 +2746,7 @@
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
                       <div>
                         <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px">RAID-Level</label>
-                        <select class="s-select" id="raid-level" style="width:100%">
+                        <select class="input s-select" id="raid-level" style="width:100%;max-width:100%">
                           <option value="0">RAID 0 — Striping</option>
                           <option value="1" selected>RAID 1 — Mirror</option>
                           <option value="5">RAID 5 — Parity (min. 3)</option>
@@ -2756,7 +2756,7 @@
                       </div>
                       <div>
                         <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px">Array-Name</label>
-                        <select class="s-select" id="raid-mddev" style="width:100%">
+                        <select class="input s-select" id="raid-mddev" style="width:100%;max-width:100%">
                           <option>md0</option><option>md1</option><option>md2</option>
                           <option>md3</option><option>md4</option><option>md5</option>
                         </select>
