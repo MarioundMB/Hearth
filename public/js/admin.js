@@ -2544,6 +2544,10 @@ async function updateAllContainers() {
 
 async function updateHearth() {
   if (!confirm(t('settings.updateConfirm'))) return;
+  const selectedBranch = document.getElementById('s-update-branch')?.value;
+  if (selectedBranch) {
+    await api('POST', '/api/settings', { updateBranch: selectedBranch }).catch(() => {});
+  }
   closeModal('modal-settings');
   showUpdateProgress();
 }
@@ -2613,23 +2617,54 @@ function showUpdateProgress() {
 
   function startPolling() {
     const fakeTimer = setInterval(() => {
-      if (fakePct < 92) { fakePct += 0.3; bar.style.width = fakePct + '%'; }
+      if (fakePct < 90) { fakePct += 0.3; bar.style.width = fakePct + '%'; }
     }, 500);
 
+    let wentOffline = false;
+    let failStreak  = 0;
+    let elapsed     = 0;
+    const TIMEOUT   = 5 * 60 * 1000;
+
+    status.textContent = 'Docker-Build läuft — bitte warten…';
+    addLog('Warte auf Server-Neustart…');
+
     async function poll() {
+      elapsed += 2500;
+      if (elapsed > TIMEOUT) {
+        clearInterval(fakeTimer);
+        bar.style.background = 'var(--warn)';
+        status.textContent = 'Timeout — bitte Seite manuell neu laden.';
+        return;
+      }
       try {
         await fetch('/api/public/apps', { signal: AbortSignal.timeout(2000) });
-        clearInterval(fakeTimer);
-        bar.style.width = '100%';
-        icon.innerHTML = '<span style="font-size:18px;line-height:1;color:var(--ok)">✓</span>';
-        title.childNodes[title.childNodes.length - 1].textContent = ' Fertig!';
-        status.textContent = 'Seite wird neu geladen…';
-        setTimeout(() => location.reload(), 1500);
+        failStreak = 0;
+        if (wentOffline) {
+          // Server war weg und ist jetzt wieder da → Update abgeschlossen
+          clearInterval(fakeTimer);
+          bar.style.width = '100%';
+          icon.innerHTML = '<span style="font-size:18px;line-height:1;color:var(--ok)">✓</span>';
+          title.childNodes[title.childNodes.length - 1].textContent = ' Fertig!';
+          status.textContent = 'Seite wird neu geladen…';
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          // Server noch erreichbar — Build läuft noch, weiter warten
+          setTimeout(poll, 2500);
+        }
       } catch (_) {
-        setTimeout(poll, 1500);
+        failStreak++;
+        if (failStreak >= 2 && !wentOffline) {
+          // 2 aufeinanderfolgende Fehler → Server ist jetzt offline (Build/Neustart)
+          wentOffline = true;
+          fakePct = Math.max(fakePct, 86);
+          bar.style.width = fakePct + '%';
+          status.textContent = 'Server startet neu…';
+          addLog('Server-Neustart erkannt — warte auf Rückkehr…');
+        }
+        setTimeout(poll, 2500);
       }
     }
-    setTimeout(poll, 4000);
+    setTimeout(poll, 5000);
   }
 }
 
