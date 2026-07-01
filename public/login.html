@@ -203,7 +203,7 @@
     <script src="/js/common.js"></script>
     <script>
       // Patch i18n for keys added in this file — ensures compatibility even if server i18n.js is older
-      if (window.I18N) {
+      if (typeof I18N !== 'undefined') {
         const _rm = { de: 'Angemeldet bleiben', en: 'Stay signed in', ro: 'Rămâi conectat', fr: 'Rester connecté', es: 'Permanecer conectado', it: 'Rimani connesso', pl: 'Pozostań zalogowany', nl: 'Aangemeld blijven', pt: 'Manter sessão iniciada' };
         Object.keys(I18N).forEach(lang => { if (!I18N[lang]['login.rememberMe']) I18N[lang]['login.rememberMe'] = _rm[lang] || _rm.en; });
       }
