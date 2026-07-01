@@ -1732,8 +1732,9 @@ app.get('/api/settings', requireAuth, (req, res) => {
     cfZoneId:         runtimeConfig.cfZoneId || '',
     cfTunnelToken:    runtimeConfig.cfTunnelToken || '',
     serverPublicIp:   runtimeConfig.serverPublicIp || '',
-    autoUpdateLinux:  runtimeConfig.autoUpdateLinux ?? { enabled: false },
-    notifArchiveMax:  runtimeConfig.notifArchiveMax  || 500,
+    autoUpdateLinux:        runtimeConfig.autoUpdateLinux ?? { enabled: false },
+    notifArchiveMax:        runtimeConfig.notifArchiveMax  || 500,
+    containerAutoUpdates:   runtimeConfig.containerAutoUpdates || {},
   });
 });
 
@@ -1784,6 +1785,20 @@ app.post(
     const { autoUpdateLinux } = req.body || {};
     if (autoUpdateLinux && typeof autoUpdateLinux === 'object') {
       updates.autoUpdateLinux = { enabled: !!autoUpdateLinux.enabled };
+    }
+    const { containerAutoUpdates } = req.body || {};
+    if (containerAutoUpdates && typeof containerAutoUpdates === 'object') {
+      const cleaned = {};
+      for (const [name, cfg] of Object.entries(containerAutoUpdates)) {
+        if (typeof name === 'string' && name.length < 256 && cfg && typeof cfg === 'object') {
+          cleaned[name] = {
+            enabled: !!cfg.enabled,
+            hour:    Math.max(0, Math.min(23, parseInt(cfg.hour)   || 0)),
+            minute:  Math.max(0, Math.min(59, parseInt(cfg.minute) || 0)),
+          };
+        }
+      }
+      updates.containerAutoUpdates = cleaned;
     }
 
     saveConfig(updates);
@@ -3594,6 +3609,78 @@ async function runHearthSelfUpdate(emit = () => {}) {
   return { upToDate: false, version: newVersion };
 }
 
+// ---------------------------------------------------------------------------
+// Container Auto-Update — per-container scheduled updates
+// ---------------------------------------------------------------------------
+async function runContainerAutoUpdate(name) {
+  const list = await docker.listContainers({ all: true, filters: { name: [name] } });
+  const match = list.find(c => (c.Names || []).some(n => n.replace(/^\//, '') === name));
+  if (!match) throw new Error(`Container not found: ${name}`);
+
+  const c = docker.getContainer(match.Id);
+  const info = await c.inspect();
+  const image = info.Config.Image;
+
+  const check = await checkImageUpdate(image);
+  if (!check.hasUpdate) return { updated: false, name };
+
+  const wasRunning = info.State.Running;
+  await pullImage(image);
+  if (wasRunning) await c.stop().catch(() => {});
+  await c.remove({ force: true });
+
+  const hc = info.HostConfig;
+  const cc = info.Config;
+  const portBindings = hc.PortBindings || {};
+  const exposedPorts = {};
+  for (const key of Object.keys(portBindings)) exposedPorts[key] = {};
+
+  const newC = await docker.createContainer({
+    Image: image,
+    name:  info.Name.replace(/^\//, ''),
+    Env:   cc.Env    || [],
+    Labels: cc.Labels || {},
+    ExposedPorts: exposedPorts,
+    HostConfig: {
+      PortBindings: portBindings,
+      Binds:        hc.Binds        || [],
+      RestartPolicy: hc.RestartPolicy || { Name: 'unless-stopped' },
+      Privileged:   hc.Privileged   || false,
+      NetworkMode:  hc.NetworkMode  || 'bridge',
+    },
+  });
+  if (wasRunning) await newC.start();
+  _updateCache = { ts: 0, data: null };
+  return { updated: true, name };
+}
+
+let _containerUpdateInterval = null;
+
+function startContainerAutoUpdater() {
+  if (_containerUpdateInterval) return;
+  _containerUpdateInterval = setInterval(async () => {
+    const updates = runtimeConfig.containerAutoUpdates || {};
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const due = Object.entries(updates).filter(([, c]) => c.enabled && c.hour === h && c.minute === m);
+    if (!due.length) return;
+
+    console.log(`[CONTAINER-UPDATE] Running auto-update for: ${due.map(([n]) => n).join(', ')}`);
+    const results = await Promise.allSettled(due.map(([n]) => runContainerAutoUpdate(n)));
+
+    const updated = [], failed = [];
+    results.forEach((r, i) => {
+      const name = due[i][0];
+      if (r.status === 'fulfilled' && r.value?.updated) updated.push(name);
+      else if (r.status === 'rejected') failed.push(name);
+    });
+
+    if (updated.length) addNotif('update-done', 'Container Auto-Update', `Updated: ${updated.join(', ')}.`, { section: 'updates' });
+    if (failed.length)  addNotif('error', 'Container Auto-Update failed', `Failed: ${failed.join(', ')}.`);
+  }, 60000);
+  console.log('[CONTAINER-UPDATE] Auto-updater started.');
+}
+
 // Nightly auto-update — time and enabled flag read from runtimeConfig.autoUpdate
 let _nightlyTimer = null;
 
@@ -4398,6 +4485,7 @@ adminHttpServer.listen(PORT, () => {
   console.log(`\x1b[32m✓ Admin panel   http://localhost:${PORT}/admin\x1b[0m`);
   console.log(`  File manager root: ${FILES_ROOT}`);
   scheduleNightlyUpdate();
+  startContainerAutoUpdater();
   // Remove leftover ephemeral update containers from previous runs
   docker.listContainers({ all: true }).then(list => {
     for (const c of list) {

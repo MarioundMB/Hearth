@@ -1183,10 +1183,11 @@ function openSettingsCat(cat) {
   document.querySelectorAll('.s-detail').forEach(el => el.style.display = 'none');
   const panel = document.getElementById('s-cat-' + cat);
   if (panel) panel.style.display = 'block';
-  if (cat === 'appearance')    { loadThemeStatus(); loadSettingsThemePicker(); }
-  if (cat === 'news')          loadChangelog();
-  if (cat === 'notifications') loadNotifSettings();
-  if (cat === 'storage')       loadRaidStatus();
+  if (cat === 'appearance')      { loadThemeStatus(); loadSettingsThemePicker(); }
+  if (cat === 'news')            loadChangelog();
+  if (cat === 'notifications')   loadNotifSettings();
+  if (cat === 'storage')         loadRaidStatus();
+  if (cat === 'containerUpdates') loadContainerAutoUpdateSettings();
 }
 
 function closeSettingsCat() {
@@ -1263,6 +1264,105 @@ document.getElementById('s-save').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// ---------- Container Auto-Update Settings ----------
+async function loadContainerAutoUpdateSettings() {
+  const wrap = document.getElementById('container-autoupdate-table-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div style="padding:16px;color:var(--text-faint);font-size:13px">Lade…</div>';
+  try {
+    const [containers, settings] = await Promise.all([
+      api('GET', '/api/containers'),
+      api('GET', '/api/settings'),
+    ]);
+    const savedUpdates = settings.containerAutoUpdates || {};
+
+    if (!containers.length) {
+      wrap.innerHTML = '<div style="padding:16px;color:var(--text-faint);font-size:13px" data-i18n="containers.empty">Keine Container</div>';
+      return;
+    }
+
+    const rows = containers.map(c => {
+      const name = (c.Names?.[0] || '').replace(/^\//, '') || c.Id.slice(0, 12);
+      const image = c.Image || '';
+      const cfg = savedUpdates[name] || { enabled: false, hour: 0, minute: 0 };
+      const h = String(cfg.hour ?? 0);
+      const m = String(cfg.minute ?? 0).padStart(2, '0');
+      return `<tr data-name="${esc(name)}">
+        <td><label class="fw-toggle">
+          <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="cuToggle('${esc(name)}',this)">
+          <span class="fw-toggle-track"></span>
+        </label></td>
+        <td style="font-weight:500">${esc(name)}</td>
+        <td style="color:var(--text-faint);font-size:12px;max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(image)}</td>
+        <td>
+          <div class="cu-time${cfg.enabled ? '' : ' cu-time-disabled'}" id="cu-time-${esc(name)}">
+            <input type="number" class="input cu-hour" min="0" max="23" value="${esc(h)}" style="width:50px;text-align:center;padding:4px 6px">
+            <span style="color:var(--text-faint)">:</span>
+            <input type="number" class="input cu-minute" min="0" max="59" value="${esc(m)}" style="width:50px;text-align:center;padding:4px 6px">
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    wrap.innerHTML = `<table class="fw-table" style="width:100%;table-layout:auto">
+      <thead><tr>
+        <th style="width:44px"><label class="fw-toggle" title="${t('settings.selectAll')}">
+          <input type="checkbox" id="cu-all" onchange="cuToggleAll(this)">
+          <span class="fw-toggle-track"></span>
+        </label></th>
+        <th data-i18n="containers.name">Name</th>
+        <th>Image</th>
+        <th data-i18n="settings.autoUpdateAt">Zeit</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+    applyTranslations(wrap);
+
+    // Sync master checkbox state
+    const allEnabled = Object.values(savedUpdates).length > 0 && containers.every(c => {
+      const name = (c.Names?.[0] || '').replace(/^\//, '') || c.Id.slice(0, 12);
+      return savedUpdates[name]?.enabled;
+    });
+    const cuAll = document.getElementById('cu-all');
+    if (cuAll) cuAll.checked = allEnabled;
+  } catch (e) {
+    wrap.innerHTML = `<div style="padding:16px;color:var(--danger);font-size:13px">${esc(e.message)}</div>`;
+  }
+}
+
+function cuToggle(name, checkbox) {
+  const timeDiv = document.getElementById(`cu-time-${name}`);
+  if (timeDiv) timeDiv.classList.toggle('cu-time-disabled', !checkbox.checked);
+}
+
+function cuToggleAll(checkbox) {
+  document.querySelectorAll('#container-autoupdate-table-wrap tbody tr').forEach(row => {
+    const cb = row.querySelector('input[type=checkbox]');
+    if (cb && cb !== checkbox) {
+      cb.checked = checkbox.checked;
+      cuToggle(row.dataset.name, cb);
+    }
+  });
+}
+
+async function saveContainerAutoUpdates() {
+  const containerAutoUpdates = {};
+  document.querySelectorAll('#container-autoupdate-table-wrap tbody tr').forEach(row => {
+    const name = row.dataset.name;
+    if (!name) return;
+    const cb     = row.querySelector('input[type=checkbox]');
+    const hour   = Math.max(0, Math.min(23, parseInt(row.querySelector('.cu-hour')?.value,   10) || 0));
+    const minute = Math.max(0, Math.min(59, parseInt(row.querySelector('.cu-minute')?.value, 10) || 0));
+    containerAutoUpdates[name] = { enabled: !!cb?.checked, hour, minute };
+  });
+  try {
+    await api('POST', '/api/settings', { containerAutoUpdates });
+    toast(t('toast.settingsSaved'));
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
 
 // ---------- Notifications ----------
 function toggleNotifPanel() {

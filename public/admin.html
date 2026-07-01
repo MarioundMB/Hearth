@@ -662,6 +662,9 @@
       .fw-log-body { max-height:220px; overflow-y:auto; font-family:var(--font-mono); font-size:11.5px; }
       .fw-log-entry { display:grid; grid-template-columns:52px 1fr 1fr 110px; gap:8px; padding:5px 14px; border-bottom:1px solid var(--border); align-items:center; }
       .fw-log-entry:last-child { border-bottom:none; }
+      /* Container Auto-Update */
+      .cu-time { display:flex; align-items:center; gap:4px; transition:opacity .15s; }
+      .cu-time-disabled { opacity:.35; pointer-events:none; }
       .fw-log-action { font-weight:700; }
       .fw-log-action.BLOCK { color:var(--danger); }
       .fw-log-action.ALLOW { color:var(--ok); }
@@ -2287,6 +2290,12 @@
               <span class="s-chevron">›</span>
             </div>
 
+            <div class="s-nav-item" onclick="openSettingsCat('containerUpdates')">
+              <span class="s-icon"><svg class="icon icon-md"><use href="#icon-package"/></svg></span>
+              <div><div class="s-label" data-i18n="settings.containerUpdates">Container-Updates</div><div class="s-sub" data-i18n="settings.nav.containerUpdatesSub">Automatische Container-Aktualisierungen</div></div>
+              <span class="s-chevron">›</span>
+            </div>
+
             <div class="s-nav-item" onclick="openSettingsCat('appearance')">
               <span class="s-icon"><svg class="icon icon-md"><use href="#icon-layers"/></svg></span>
               <div><div class="s-label" data-i18n="settings.appearance">Erscheinungsbild</div><div class="s-sub" id="s-theme-overview-sub">Theme · Custom CSS</div></div>
@@ -2529,6 +2538,19 @@
               </div>
             </div>
           </div><!-- /#s-cat-updates -->
+
+          <!-- ── Level 2: Container-Updates ───────────────────────── -->
+          <div class="s-detail" id="s-cat-containerUpdates" style="display:none">
+            <button class="s-back-btn" onclick="closeSettingsCat()" data-i18n="settings.back">‹ Zurück</button>
+            <div class="s-cat-title" data-i18n="settings.containerUpdates">Container-Updates</div>
+            <div class="s-group">
+              <p class="s-sub" style="padding:10px 16px 4px;margin:0;font-size:13px" data-i18n="settings.containerUpdatesSub">Wähle Container aus und lege eine tägliche Update-Zeit fest.</p>
+              <div id="container-autoupdate-table-wrap" style="padding:0 16px 12px;overflow-x:auto"></div>
+              <div style="padding:0 16px 16px;display:flex;justify-content:flex-end">
+                <button class="btn primary sm" onclick="saveContainerAutoUpdates()" data-i18n="settings.saveContainerUpdates">Speichern</button>
+              </div>
+            </div>
+          </div><!-- /#s-cat-containerUpdates -->
 
 
           <!-- ── Level 2: Erscheinungsbild ──────────────────────────── -->
