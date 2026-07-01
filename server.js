@@ -2949,6 +2949,7 @@ app.delete('/api/raid/array/:dev', requireAuth, asyncHandler(async (req, res) =>
 const _notifs = [];
 let   _notifSeq    = 1;
 let   _notifArchive = [];
+let   _dismissedUpdateVersion = null; // remote version the user has already dismissed
 
 function _loadNotifArchive() {
   try {
@@ -2971,12 +2972,13 @@ function _archiveNotif(n) {
 
 _loadNotifArchive();
 
-function addNotif(type, title, body, action = null) {
+function addNotif(type, title, body, action = null, version = null) {
   if (type === 'update') {
+    if (version && version === _dismissedUpdateVersion) return; // already dismissed this version
     const idx = _notifs.findIndex(n => n.type === 'update');
     if (idx >= 0) _notifs.splice(idx, 1);
   }
-  _notifs.unshift({ id: _notifSeq++, type, title, body, action, ts: Date.now() });
+  _notifs.unshift({ id: _notifSeq++, type, title, body, action, version, ts: Date.now() });
   if (_notifs.length > 30) _notifs.pop();
 }
 
@@ -2987,7 +2989,9 @@ app.get('/api/notifications', requireAuth, (req, res) => res.json(_notifs));
 app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
   const idx = _notifs.findIndex(n => n.id === Number(req.params.id));
   if (idx >= 0) {
-    _archiveNotif(_notifs[idx]);
+    const n = _notifs[idx];
+    if (n.type === 'update' && n.version) _dismissedUpdateVersion = n.version;
+    _archiveNotif(n);
     _notifs.splice(idx, 1);
   }
   res.json({ ok: true });
@@ -2995,6 +2999,8 @@ app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
 
 // Mark all as read → move all to archive
 app.post('/api/notifications/read-all', requireAuth, (req, res) => {
+  const updateNotif = _notifs.find(n => n.type === 'update');
+  if (updateNotif?.version) _dismissedUpdateVersion = updateNotif.version;
   const copy = [..._notifs];
   _notifs.length = 0;
   copy.forEach(n => _notifArchive.unshift({ id: n.id, type: n.type, title: n.title, body: n.body, ts: n.ts }));
@@ -3251,7 +3257,8 @@ app.get(
     if (hearthUpdate?.hasUpdate) {
       addNotif('update', 'Hearth update available',
         `v${hearthUpdate.localVersion} → v${hearthUpdate.remoteVersion}: ${hearthUpdate.message}`,
-        { section: 'updates', label: 'Aktualisieren' });
+        { section: 'updates', label: 'Aktualisieren' },
+        hearthUpdate.remoteVersion);
     }
 
     const result = { containers: containerUpdates, hearth: hearthUpdate, ts: Date.now() };
