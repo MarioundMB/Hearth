@@ -1282,10 +1282,11 @@ function toggleNotifPanel() {
 }
 
 document.addEventListener('click', (e) => {
-  const wrap    = document.getElementById('notif-wrap');
-  const panel   = document.getElementById('notif-panel');
-  const overlay = document.getElementById('notif-archive-overlay');
-  if (wrap && !wrap.contains(e.target) && panel && !panel.contains(e.target) && overlay && overlay.style.display === 'none') {
+  const wrap  = document.getElementById('notif-wrap');
+  const panel = document.getElementById('notif-panel');
+  if (panel && panel.style.display !== 'none' &&
+      wrap  && !wrap.contains(e.target) &&
+      !panel.contains(e.target)) {
     panel.style.display = 'none';
   }
 });
