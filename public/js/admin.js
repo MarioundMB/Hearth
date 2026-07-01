@@ -3254,11 +3254,8 @@ async function loadFirewall() {
         : `<span style="color:var(--text-faint)">–</span>`;
       return `<tr draggable="true" data-fw-id="${esc(r.id)}" class="${enabled ? '' : 'fw-row-disabled'}">
         <td><span class="fw-drag-handle" title="Drag to reorder">⠿</span></td>
-        <td>
-          <label class="toggle" title="${enabled ? 'Disable rule' : 'Enable rule'}">
-            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="fwToggleRule('${esc(r.id)}')" onclick="event.stopPropagation()">
-            <span class="toggle-track"></span>
-          </label>
+        <td style="text-align:center">
+          <button class="fw-enable-btn ${enabled ? 'on' : ''}" onclick="fwToggleRule('${esc(r.id)}');event.stopPropagation()" title="${enabled ? 'Disable rule' : 'Enable rule'}">✓</button>
         </td>
         <td><span class="fw-rule-action ${r.action.toLowerCase()}">${r.action.toUpperCase()}</span></td>
         <td><span class="fw-dir-badge">${(r.direction||'in').toUpperCase()}</span>${r.iface ? ` <span class="fw-dir-badge">${esc(r.iface)}</span>` : ''}</td>
