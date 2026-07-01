@@ -1374,8 +1374,9 @@ async function openNotifArchive() {
   const footer = panel.querySelector('.notif-footer');
 
   head.innerHTML = `
-    <button class="btn ghost sm" onclick="closeNotifArchive()" style="gap:5px;padding:4px 8px;font-size:12px">
-      ← ${t('notif.back')}
+    <button class="btn ghost sm" onclick="closeNotifArchive()" style="gap:4px;padding:4px 10px;font-size:12px;display:flex;align-items:center">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      ${t('notif.back')}
     </button>
     <span style="font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-dim)">${t('notif.archiveTitle')}</span>`;
   if (footer) footer.style.display = 'none';
