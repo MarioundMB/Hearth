@@ -1268,15 +1268,25 @@ document.getElementById('s-save').addEventListener('click', async () => {
 function toggleNotifPanel() {
   const panel = document.getElementById('notif-panel');
   const open  = panel.style.display !== 'none';
-  panel.style.display = open ? 'none' : 'flex';
-  if (!open) loadNotifications();
+  if (open) {
+    panel.style.display = 'none';
+    return;
+  }
+  // Position the panel below the bell button
+  const btn  = document.getElementById('btn-bell');
+  const rect = btn.getBoundingClientRect();
+  panel.style.top   = (rect.bottom + 8) + 'px';
+  panel.style.right = (window.innerWidth - rect.right) + 'px';
+  panel.style.display = 'flex';
+  loadNotifications();
 }
 
 document.addEventListener('click', (e) => {
   const wrap    = document.getElementById('notif-wrap');
+  const panel   = document.getElementById('notif-panel');
   const overlay = document.getElementById('notif-archive-overlay');
-  if (wrap && !wrap.contains(e.target) && overlay && overlay.style.display === 'none') {
-    document.getElementById('notif-panel').style.display = 'none';
+  if (wrap && !wrap.contains(e.target) && panel && !panel.contains(e.target) && overlay && overlay.style.display === 'none') {
+    panel.style.display = 'none';
   }
 });
 

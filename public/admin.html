@@ -981,13 +981,12 @@
         padding: 2px 4px; border-radius: 99px; pointer-events: none;
       }
       .notif-panel {
-        position: absolute; top: calc(100% + 8px); right: 0; z-index: 9999;
+        position: fixed; z-index: 9999;
         width: 340px;
-        background: #1f2421;
+        background: var(--panel-2);
         border: 1px solid var(--border-bright);
         border-radius: var(--radius); box-shadow: 0 20px 60px -10px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04);
         display: flex; flex-direction: column; overflow: hidden;
-        isolation: isolate;
       }
       .notif-list-wrap { max-height: 340px; overflow-y: auto; }
       .notif-footer {
@@ -1642,19 +1641,6 @@
             <svg class="icon icon-md"><use href="#icon-bell"/></svg>
             <span class="notif-badge" id="notif-badge" style="display:none">0</span>
           </button>
-          <div class="notif-panel" id="notif-panel" style="display:none">
-            <div class="notif-head">
-              <span data-i18n="notif.title">Notifications</span>
-              <button class="btn ghost sm" onclick="markAllRead()" data-i18n="notif.markAllRead">Mark all read</button>
-            </div>
-            <div class="notif-list-wrap">
-              <div id="notif-list"><div class="notif-empty" data-i18n="notif.empty">No notifications</div></div>
-            </div>
-            <div class="notif-footer" onclick="openNotifArchive()">
-              <span data-i18n="notif.showAll">Alle Benachrichtigungen anzeigen</span>
-              <span>›</span>
-            </div>
-          </div>
           <!-- Archive overlay -->
           <div class="notif-archive-overlay" id="notif-archive-overlay" style="display:none" onclick="closeNotifArchive(event)">
             <div class="notif-archive-panel" onclick="event.stopPropagation()">
@@ -3727,6 +3713,20 @@
     </div>
 
     <div id="toast"></div>
+    <!-- Notification panel — outside topbar so backdrop-filter doesn't bleed through -->
+    <div class="notif-panel" id="notif-panel" style="display:none">
+      <div class="notif-head">
+        <span data-i18n="notif.title">Notifications</span>
+        <button class="btn ghost sm" onclick="markAllRead()" data-i18n="notif.markAllRead">Mark all read</button>
+      </div>
+      <div class="notif-list-wrap">
+        <div id="notif-list"><div class="notif-empty" data-i18n="notif.empty">No notifications</div></div>
+      </div>
+      <div class="notif-footer" onclick="openNotifArchive()">
+        <span data-i18n="notif.showAll">Alle Benachrichtigungen anzeigen</span>
+        <span>›</span>
+      </div>
+    </div>
     <script src="/js/common.js"></script>
     <script src="/js/admin.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
