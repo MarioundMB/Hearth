@@ -3342,12 +3342,17 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
     }
   }
 
-  // 2) Host git via /host mount (read-only, no fetch — uses already-cached remote refs)
-  //    Handles the case where the bind-mount resolves to an empty /app/repo on the host.
+  // 2) Host git via /host mount — use ls-remote to query live branch list directly from
+  //    the remote. This avoids stale local remote-tracking refs (the /host mount is :ro
+  //    so git fetch/prune can't write to .git/, but ls-remote is read-only).
   const hostRepo = await _findHostRepo().catch(() => null);
   if (hostRepo) {
     await _exec('git', ['config', '--global', '--add', 'safe.directory', hostRepo]).catch(() => {});
-    const branches = _parseBranches(await _exec('git', ['-C', hostRepo, 'branch', '-r']).catch(() => ''));
+    const lsOut = await _exec('git', ['-C', hostRepo, 'ls-remote', '--heads', 'origin']).catch(() => '');
+    const branches = lsOut.split('\n')
+      .map(l => (l.split('\t')[1] || '').replace('refs/heads/', '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b));
     if (branches.length) {
       _branchListCache = { ts: Date.now(), branches };
       return res.json({ branches });
