@@ -639,8 +639,12 @@
       .fw-table tbody tr:hover td { background:rgba(255,255,255,.018); }
       .fw-table tbody tr.fw-row-disabled td { opacity:.38; }
       .fw-drag-handle { color:var(--text-faint); font-size:14px; cursor:grab; padding:0 4px; user-select:none; display:inline-block; }
-      .fw-enable-btn { width:18px; height:18px; border-radius:4px; border:1.5px solid var(--border-bright); background:transparent; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-faint); flex-shrink:0; padding:0; }
-      .fw-enable-btn.on { background:rgba(88,214,141,.15); border-color:rgba(88,214,141,.4); color:var(--ok); }
+      .fw-toggle { position:relative; display:inline-block; width:30px; height:17px; flex-shrink:0; cursor:pointer; }
+      .fw-toggle input { opacity:0; width:0; height:0; position:absolute; }
+      .fw-toggle-track { position:absolute; inset:0; background:var(--panel-2); border:1px solid var(--border-bright); border-radius:17px; transition:background .2s,border-color .2s; }
+      .fw-toggle-track::after { content:''; position:absolute; width:11px; height:11px; left:2px; top:2px; background:var(--text-faint); border-radius:50%; transition:transform .2s,background .2s; }
+      .fw-toggle input:checked + .fw-toggle-track { background:rgba(88,214,141,.18); border-color:rgba(88,214,141,.5); }
+      .fw-toggle input:checked + .fw-toggle-track::after { transform:translateX(13px); background:var(--ok); }
       .fw-table tr.dragging { opacity:.3; cursor:grabbing; }
       .fw-table tr.drag-over td:first-child { box-shadow:inset 3px 0 0 var(--accent); }
       .fw-rule-action { font-family:var(--font-mono); font-size:11px; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }

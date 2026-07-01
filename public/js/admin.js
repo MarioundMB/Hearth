@@ -3255,7 +3255,10 @@ async function loadFirewall() {
       return `<tr draggable="true" data-fw-id="${esc(r.id)}" class="${enabled ? '' : 'fw-row-disabled'}">
         <td><span class="fw-drag-handle" title="Drag to reorder">⠿</span></td>
         <td style="text-align:center">
-          <button class="fw-enable-btn ${enabled ? 'on' : ''}" onclick="fwToggleRule('${esc(r.id)}');event.stopPropagation()" title="${enabled ? 'Disable rule' : 'Enable rule'}">✓</button>
+          <label class="fw-toggle" onclick="event.stopPropagation()" title="${enabled ? 'Disable rule' : 'Enable rule'}">
+            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="fwToggleRule('${esc(r.id)}',this)">
+            <span class="fw-toggle-track"></span>
+          </label>
         </td>
         <td><span class="fw-rule-action ${r.action.toLowerCase()}">${r.action.toUpperCase()}</span></td>
         <td><span class="fw-dir-badge">${(r.direction||'in').toUpperCase()}</span>${r.iface ? ` <span class="fw-dir-badge">${esc(r.iface)}</span>` : ''}</td>
@@ -3303,12 +3306,22 @@ async function fwToggleFirewall() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-// Enable/disable a single rule
-async function fwToggleRule(id) {
+// Enable/disable a single rule — optimistic UI (slider moves immediately, reverts on error)
+async function fwToggleRule(id, checkbox) {
+  const row     = checkbox?.closest('tr');
+  const nowOn   = checkbox?.checked;
+  if (row) row.classList.toggle('fw-row-disabled', !nowOn);
+  const rule = _fwStoredRules.find(r => r.id === id);
+  if (rule) rule.enabled = nowOn;
   try {
     await api('PATCH', `/api/firewall/rules/${id}/toggle`, {});
-    loadFirewall();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) {
+    // Revert on error
+    if (checkbox) checkbox.checked = !nowOn;
+    if (row) row.classList.toggle('fw-row-disabled', nowOn);
+    if (rule) rule.enabled = !nowOn;
+    toast(e.message, 'error');
+  }
 }
 
 // Open modal in edit mode
