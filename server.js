@@ -3182,7 +3182,29 @@ async function checkImageUpdate(image) {
 }
 
 // Update-Cache (verhindert zu häufige Docker Hub Anfragen)
-let _updateCache = { ts: 0, data: null };
+let _updateCache    = { ts: 0, data: null };
+let _branchListCache = { ts: 0, branches: null };
+
+// Scan host filesystem (mounted at /host) for the actual hearth git repo.
+// Needed when the bind-mount resolves to an empty /app/repo on the host.
+async function _findHostRepo() {
+  const candidates = [];
+  try {
+    const mount = (await docker.getContainer((await docker.listContainers({ all: true })
+      .catch(() => []))
+      .find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater')))
+      ?.Id)?.inspect().catch(() => null))?.Mounts?.find(m => m.Destination === '/app/repo' && m.Type === 'bind');
+    if (mount?.Source) candidates.push(`/host${mount.Source}`);
+  } catch (_) {}
+  try {
+    for (const u of fs.readdirSync('/host/home')) candidates.push(`/host/home/${u}/hearth`);
+  } catch (_) {}
+  candidates.push('/host/root/hearth');
+  for (const p of candidates) {
+    if (fs.existsSync(path.join(p, '.git'))) return p;
+  }
+  return null;
+}
 const UPDATE_CACHE_TTL = 15 * 60 * 1000; // 15 Minuten
 
 app.get(
@@ -3269,22 +3291,45 @@ app.get(
 
 // List available remote branches for the update branch selector
 app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
-  // Try git first (fast, works when volume is mounted)
-  if (fs.existsSync(path.join(_REPO, '.git'))) {
-    await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
-    // After a shallow clone (--depth=1 --branch X) only one branch is tracked.
-    // Force the full refspec so fetch pulls all remote branches.
-    await _exec('git', ['-C', _REPO, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']).catch(() => {});
-    await _exec('git', ['-C', _REPO, 'fetch', '--prune', '--quiet']).catch(() => {});
-    const raw = await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => '');
-    const branches = raw
-      .split('\n')
+  const CACHE_TTL = 5 * 60 * 1000;
+
+  function _parseBranches(raw) {
+    return raw.split('\n')
       .map(b => b.trim().replace(/^origin\//, ''))
       .filter(b => b && b !== 'HEAD' && !b.includes('->'))
       .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
-    if (branches.length) return res.json({ branches });
   }
-  // Fallback: GitHub API
+
+  // Return cache if still fresh
+  if (_branchListCache.branches && Date.now() - _branchListCache.ts < CACHE_TTL) {
+    return res.json({ branches: _branchListCache.branches });
+  }
+
+  // 1) Local git (works when /app/repo is correctly bind-mounted)
+  if (fs.existsSync(path.join(_REPO, '.git'))) {
+    await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
+    await _exec('git', ['-C', _REPO, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']).catch(() => {});
+    await _exec('git', ['-C', _REPO, 'fetch', '--prune', '--quiet']).catch(() => {});
+    const branches = _parseBranches(await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => ''));
+    if (branches.length) {
+      _branchListCache = { ts: Date.now(), branches };
+      return res.json({ branches });
+    }
+  }
+
+  // 2) Host git via /host mount (read-only, no fetch — uses already-cached remote refs)
+  //    Handles the case where the bind-mount resolves to an empty /app/repo on the host.
+  const hostRepo = await _findHostRepo().catch(() => null);
+  if (hostRepo) {
+    await _exec('git', ['config', '--global', '--add', 'safe.directory', hostRepo]).catch(() => {});
+    const branches = _parseBranches(await _exec('git', ['-C', hostRepo, 'branch', '-r']).catch(() => ''));
+    if (branches.length) {
+      _branchListCache = { ts: Date.now(), branches };
+      return res.json({ branches });
+    }
+  }
+
+  // 3) GitHub API
   try {
     const r = await fetch(
       'https://api.github.com/repos/MarioundMB/Hearth/branches?per_page=100',
@@ -3292,16 +3337,19 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
         signal: AbortSignal.timeout(8000) }
     );
     if (r.ok) {
-      const data = await r.json();
-      const branches = data
-        .map(b => b.name)
+      const branches = (await r.json()).map(b => b.name)
         .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
+      _branchListCache = { ts: Date.now(), branches };
       return res.json({ branches });
     }
-    console.warn('[branches] GitHub API returned', r.status, '— only showing main');
+    console.warn('[branches] GitHub API returned', r.status);
   } catch (e) {
     console.warn('[branches] GitHub API error:', e.message);
   }
+
+  // 4) Stale cache beats showing only main
+  if (_branchListCache.branches) return res.json({ branches: _branchListCache.branches });
+
   res.json({ branches: ['main'] });
 }));
 
