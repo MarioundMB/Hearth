@@ -105,6 +105,25 @@
         gap: 4px;
       }
       .back-link:hover { color: var(--accent); }
+      .remember-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 10px 0 4px;
+      }
+      .remember-row input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent);
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .remember-row label {
+        font-size: 13px;
+        color: var(--text-dim);
+        cursor: pointer;
+        user-select: none;
+      }
     </style>
   </head>
   <body>
@@ -125,6 +144,10 @@
           <div class="field">
             <label for="p" data-i18n="login.password">Passwort</label>
             <input class="input" id="p" type="password" autocomplete="current-password" />
+          </div>
+          <div class="remember-row">
+            <input type="checkbox" id="remember-me" />
+            <label for="remember-me" data-i18n="login.rememberMe">Angemeldet bleiben</label>
           </div>
           <button class="btn primary" type="submit" data-i18n="login.submit">Anmelden</button>
         </form>
@@ -187,8 +210,9 @@
         e.preventDefault();
         try {
           const res = await api('POST', '/api/login', {
-            username: document.getElementById('u').value,
-            password: document.getElementById('p').value,
+            username:   document.getElementById('u').value,
+            password:   document.getElementById('p').value,
+            rememberMe: document.getElementById('remember-me').checked,
           });
           if (res.pending === '2fa') {
             document.getElementById('step-password').style.display = 'none';

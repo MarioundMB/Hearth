@@ -1832,7 +1832,7 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
 // Auth-Routen
 // ---------------------------------------------------------------------------
 app.post('/api/login', asyncHandler(async (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, rememberMe } = req.body || {};
   const users = runtimeConfig.users || [];
   const user  = users.find(u => u.username === username);
   if (!user) return res.status(401).json({ error: 'Invalid username or password' });
@@ -1842,6 +1842,7 @@ app.post('/api/login', asyncHandler(async (req, res) => {
 
   if (user.totp_enabled && user.totp_secret) {
     req.session.pending2fa = username;
+    req.session.pending2faRememberMe = !!rememberMe;
     return res.json({ pending: '2fa' });
   }
 
@@ -1849,6 +1850,7 @@ app.post('/api/login', asyncHandler(async (req, res) => {
   req.session.user   = username;
   req.session.role   = user.role;
   delete req.session.pending2fa;
+  if (rememberMe) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
   res.json({ ok: true, role: user.role });
 }));
 
@@ -1917,10 +1919,13 @@ app.post('/api/2fa/verify', asyncHandler(async (req, res) => {
   if (!user || !user.totp_enabled) return res.status(400).json({ error: 'Invalid state' });
   if (!authenticator.verify({ token: String(token), secret: user.totp_secret }))
     return res.status(401).json({ error: 'Invalid code' });
+  const remember = !!req.session.pending2faRememberMe;
   delete req.session.pending2fa;
+  delete req.session.pending2faRememberMe;
   req.session.authed = true;
   req.session.user   = user.username;
   req.session.role   = user.role;
+  if (remember) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
   res.json({ ok: true, role: user.role });
 }));
 
