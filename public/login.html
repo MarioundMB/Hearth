@@ -22,8 +22,14 @@
         z-index: 1;
       }
       .login .brand {
-        font-size: 26px;
-        margin-bottom: 6px;
+        font-size: 22px;
+        margin-bottom: 4px;
+        gap: 12px;
+      }
+      .login .brand .flame {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
       }
       .login .sub {
         color: var(--text-dim);
@@ -108,28 +114,44 @@
       .remember-row {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin: 10px 0 4px;
+        gap: 9px;
+        margin: 14px 0 2px;
+        padding: 10px 12px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      .remember-row:hover {
+        border-color: var(--accent);
       }
       .remember-row input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
+        width: 15px;
+        height: 15px;
         accent-color: var(--accent);
         cursor: pointer;
         flex-shrink: 0;
+        margin: 0;
       }
-      .remember-row label {
+      .remember-row span {
         font-size: 13px;
         color: var(--text-dim);
-        cursor: pointer;
         user-select: none;
+        flex: 1;
+      }
+      .remember-row:has(input:checked) {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 6%, var(--panel-2));
+      }
+      .remember-row:has(input:checked) span {
+        color: var(--text);
       }
     </style>
   </head>
   <body>
     <div class="login panel">
       <div class="brand">
-        <span class="flame">▲</span>
+        <img src="/favicon.svg" alt="Hearth" class="flame">
         <span>Hearth</span>
       </div>
 
@@ -145,10 +167,10 @@
             <label for="p" data-i18n="login.password">Passwort</label>
             <input class="input" id="p" type="password" autocomplete="current-password" />
           </div>
-          <div class="remember-row">
+          <label class="remember-row" for="remember-me">
             <input type="checkbox" id="remember-me" />
-            <label for="remember-me" data-i18n="login.rememberMe">Angemeldet bleiben</label>
-          </div>
+            <span data-i18n="login.rememberMe">Angemeldet bleiben</span>
+          </label>
           <button class="btn primary" type="submit" data-i18n="login.submit">Anmelden</button>
         </form>
 
@@ -180,6 +202,11 @@
     <div id="toast"></div>
     <script src="/js/common.js"></script>
     <script>
+      // Patch i18n for keys added in this file — ensures compatibility even if server i18n.js is older
+      if (typeof I18N !== 'undefined') {
+        const _rm = { de: 'Angemeldet bleiben', en: 'Stay signed in', ro: 'Rămâi conectat', fr: 'Rester connecté', es: 'Permanecer conectado', it: 'Rimani connesso', pl: 'Pozostań zalogowany', nl: 'Aangemeld blijven', pt: 'Manter sessão iniciada' };
+        Object.keys(I18N).forEach(lang => { if (!I18N[lang]['login.rememberMe']) I18N[lang]['login.rememberMe'] = _rm[lang] || _rm.en; });
+      }
       api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
     </script>
     <script>
