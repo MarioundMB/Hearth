@@ -710,19 +710,20 @@ async function fwAvailable() {
 }
 
 function buildUfwCmd(rule) {
-  const action = String(rule.action).replace(/[^a-z]/gi, '');
+  const action    = String(rule.action).replace(/[^a-z]/gi, '');
   const direction = String(rule.direction) === 'out' ? 'out' : 'in';
-  const iface = rule.iface ? String(rule.iface).replace(/[^a-z0-9]/gi, '') : '';
-  const from = rule.from && rule.from !== 'any' ? String(rule.from).replace(/[^a-f0-9\.:/]/gi, '') : '';
-  const port = rule.port ? String(rule.port).replace(/[^0-9:]/g, '') : '';
-  const proto = rule.proto && rule.proto !== 'any' ? String(rule.proto).replace(/[^a-z]/gi, '') : '';
-  const id = String(rule.id).replace(/[^a-z0-9]/gi, '');
+  const iface     = rule.iface ? String(rule.iface).replace(/[^a-z0-9]/gi, '') : '';
+  const from      = rule.from && rule.from !== 'any' ? String(rule.from).replace(/[^a-f0-9\.:/]/gi, '') : '';
+  const to        = rule.to   && rule.to   !== 'any' ? String(rule.to  ).replace(/[^a-f0-9\.:/]/gi, '') : '';
+  const port      = rule.port ? String(rule.port).replace(/[^0-9:]/g, '') : '';
+  const proto     = rule.proto && rule.proto !== 'any' ? String(rule.proto).replace(/[^a-z]/gi, '') : '';
+  const id        = String(rule.id).replace(/[^a-z0-9]/gi, '');
 
   let cmd = `ufw ${action}`;
   if (direction === 'out') cmd += ' out';
   if (iface) cmd += ` on ${iface}`;
   if (from) cmd += ` from ${from}`;
-  cmd += ' to any';
+  cmd += to ? ` to ${to}` : ' to any';
   if (port) cmd += ` port ${port}`;
   if (proto) cmd += ` proto ${proto}`;
   cmd += ` comment "hearth-rule-${id}"`;
@@ -742,8 +743,9 @@ async function syncFirewallRules(rules) {
   for (const num of managed) {
     await fwExec(`echo y | ufw delete ${num}`).catch(() => {});
   }
-  // Re-add all rules in new order
+  // Re-add all rules in new order, skipping disabled ones
   for (const rule of (rules || [])) {
+    if (rule.enabled === false) continue;
     await fwExec(buildUfwCmd(rule)).catch(e => console.warn('[FW]', e.message));
   }
 }
@@ -1606,10 +1608,10 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
 
 app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
-  const { action, port, proto = 'any', from = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
+  const { action, port, proto = 'any', from = 'any', to = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
   if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
   const id = Date.now().toString(36);
-  const rule = { id, action, port, proto, from, direction, iface, comment };
+  const rule = { id, action, port, proto, from, to, direction, iface, comment, enabled: true };
   const rules = [...(runtimeConfig.firewallRules || []), rule];
   saveConfig({ firewallRules: rules });
   await fwExec(buildUfwCmd(rule));
@@ -1625,6 +1627,29 @@ app.put('/api/firewall/rules/reorder', requireAuth, asyncHandler(async (req, res
   saveConfig({ firewallRules: reordered });
   await syncFirewallRules(reordered);
   res.json({ ok: true });
+}));
+
+app.put('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { action, port, proto = 'any', from = 'any', to = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
+  const rules = runtimeConfig.firewallRules || [];
+  const idx = rules.findIndex(r => r.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Rule not found' });
+  rules[idx] = { ...rules[idx], action, port, proto, from, to, direction, iface, comment };
+  saveConfig({ firewallRules: rules });
+  await syncFirewallRules(rules);
+  res.json({ ok: true });
+}));
+
+app.patch('/api/firewall/rules/:id/toggle', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const rules = runtimeConfig.firewallRules || [];
+  const rule = rules.find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ error: 'Rule not found' });
+  rule.enabled = rule.enabled === false ? true : false;
+  saveConfig({ firewallRules: rules });
+  await syncFirewallRules(rules);
+  res.json({ ok: true, enabled: rule.enabled !== false });
 }));
 
 app.delete('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {

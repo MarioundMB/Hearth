@@ -290,6 +290,8 @@ const I18N = {
     'firewall.comment': 'Kommentar', 'firewall.commentPH': 'z.B. SSH-Zugang',
     'firewall.limitHint': '⚡ Limit blockiert IPs mit mehr als 6 Verbindungen in 30 Sekunden — ideal für SSH und Admin-Ports.',
     'firewall.liveLog': 'Live-Firewall-Protokoll', 'firewall.logStart': 'Starten', 'firewall.logStop': 'Stoppen', 'firewall.logHint': '„Starten" drücken um Firewall-Ereignisse zu überwachen.',
+    'firewall.editTitle': 'Firewall-Regel bearbeiten', 'firewall.saveChanges': 'Änderungen speichern', 'firewall.ruleUpdated': 'Firewall-Regel aktualisiert',
+    'firewall.managedRules': 'Regeln', 'firewall.enable': 'Aktivieren', 'firewall.disable': 'Deaktivieren', 'firewall.destination': 'Ziel',
     // Proxy – neue Felder
     'proxy.certReplace': 'Zertifikat holen / ersetzen',
     'proxy.basicAuth': 'Passwortschutz', 'proxy.basicAuthEnable': 'Passwortschutz aktivieren',
@@ -661,6 +663,8 @@ const I18N = {
     'firewall.comment': 'Comment', 'firewall.commentPH': 'e.g. SSH access',
     'firewall.limitHint': '⚡ Limit blocks IPs that make more than 6 connections in 30 seconds — ideal for SSH, admin ports.',
     'firewall.liveLog': 'Live Firewall Log', 'firewall.logStart': 'Start', 'firewall.logStop': 'Stop', 'firewall.logHint': 'Press "Start" to begin monitoring firewall events.',
+    'firewall.editTitle': 'Edit Firewall Rule', 'firewall.saveChanges': 'Save Changes', 'firewall.ruleUpdated': 'Firewall rule updated',
+    'firewall.managedRules': 'rules', 'firewall.enable': 'Enable', 'firewall.disable': 'Disable', 'firewall.destination': 'Destination',
     'proxy.certReplace': 'Get / Replace Certificate',
     'proxy.basicAuth': 'Basic Auth', 'proxy.basicAuthEnable': 'Enable password protection',
     'proxy.usernamePH': 'Username', 'proxy.passwordPH': 'Password (leave empty to keep existing)',

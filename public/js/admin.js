@@ -3162,120 +3162,219 @@ async function cfDetectPublicIp(btn) {
 
 // ---------- Firewall ----------
 const FW_QUICK_PORTS = [
-  { name: 'SSH',    port: 22,    proto: 'tcp' },
-  { name: 'HTTP',   port: 80,    proto: 'tcp' },
-  { name: 'HTTPS',  port: 443,   proto: 'tcp' },
-  { name: 'DNS',    port: 53,    proto: 'udp' },
-  { name: 'SMB',    port: 445,   proto: 'tcp' },
-  { name: 'Plex',   port: 32400, proto: 'tcp' },
-  { name: 'Hearth', port: 4500,  proto: 'tcp' },
+  { name: 'SSH',      port: 22,    proto: 'tcp' },
+  { name: 'HTTP',     port: 80,    proto: 'tcp' },
+  { name: 'HTTPS',    port: 443,   proto: 'tcp' },
+  { name: 'DNS',      port: 53,    proto: 'udp' },
+  { name: 'SMB',      port: 445,   proto: 'tcp' },
+  { name: 'Plex',     port: 32400, proto: 'tcp' },
+  { name: 'Hearth',   port: 4500,  proto: 'tcp' },
 ];
 
-let _fwAvailable = false;
+let _fwAvailable    = false;
 let _fwLiveInterval = null;
-let _fwStoredRules = [];
+let _fwStoredRules  = [];
+let _fwAllLogs      = [];
+let _fwEditId       = null;
 
 async function loadFirewall() {
   const info = await api('GET', '/api/firewall/status').catch(() => ({ available: false }));
   _fwAvailable = !!info.available;
 
-  document.getElementById('fw-unavail').style.display         = _fwAvailable ? 'none' : '';
-  document.getElementById('fw-normal-content').style.display  = _fwAvailable ? '' : 'none';
-  const logPanel = document.getElementById('fw-log-panel');
-  if (logPanel) logPanel.style.display = _fwAvailable ? '' : 'none';
+  const unavailEl   = document.getElementById('fw-unavail');
+  const contentEl   = document.getElementById('fw-normal-content');
+  const toggleBtn   = document.getElementById('fw-toggle-btn');
+  const addBtn      = document.getElementById('fw-add-rule-btn');
+  const statManaged = document.getElementById('fw-stat-managed');
+  const statExt     = document.getElementById('fw-stat-external');
 
-  if (!_fwAvailable) return;
+  unavailEl.style.display = _fwAvailable ? 'none' : '';
+  contentEl.style.display = _fwAvailable ? '' : 'none';
+  if (toggleBtn) toggleBtn.style.display = _fwAvailable ? '' : 'none';
+  if (addBtn)    addBtn.style.display    = _fwAvailable ? '' : 'none';
 
   const badge = document.getElementById('fw-status-badge');
   if (badge) {
     badge.className   = `fw-status-badge ${info.active ? 'active' : 'inactive'}`;
     badge.textContent = info.active ? t('firewall.active') : t('firewall.inactive');
   }
+  if (toggleBtn) {
+    const isActive = !!info.active;
+    toggleBtn.textContent = isActive ? (t('firewall.disable') || 'Disable') : (t('firewall.enable') || 'Enable');
+    toggleBtn.className   = `btn sm ghost${isActive ? ' danger' : ''}`;
+  }
+
+  if (!_fwAvailable) return;
+
+  _fwStoredRules    = info.stored || [];
+  const ufwRules    = info.rules  || [];
+  const unmanaged   = ufwRules.filter(r => !r.hearthId);
+
+  if (statManaged) {
+    statManaged.textContent = `${_fwStoredRules.length} ${t('firewall.managedRules') || 'rules'}`;
+    statManaged.style.display = '';
+  }
+  if (statExt) {
+    statExt.textContent   = `${unmanaged.length} external`;
+    statExt.style.display = unmanaged.length ? '' : 'none';
+  }
 
   const rawEl = document.getElementById('fw-raw-output');
   if (rawEl) rawEl.textContent = info.raw || '–';
 
-  // Quick-Port-Karten (basierend auf UFW live rules)
-  const ufwRules = info.rules || [];
-  _fwStoredRules = info.stored || [];
-  const allowedPorts = new Set(ufwRules.filter(r => r.action === 'ALLOW').map(r => {
-    const m = r.to.match(/^(\d+)/); return m ? parseInt(m[1]) : null;
-  }).filter(Boolean));
-
+  // Quick preset pills (port active = any ALLOW rule for that port exists in UFW)
+  const allowedPorts = new Set(
+    ufwRules.filter(r => r.action === 'ALLOW').map(r => {
+      const m = r.to.match(/^(\d+)/); return m ? parseInt(m[1]) : null;
+    }).filter(Boolean)
+  );
   document.getElementById('fw-quick-ports').innerHTML = FW_QUICK_PORTS.map(p => {
-    const allowed = allowedPorts.has(p.port);
-    return `<div class="fw-port-card${allowed ? ' active' : ''}">
-      <div><div class="fw-port-name">${esc(p.name)}</div><div class="fw-port-num">${p.port}/${p.proto}</div></div>
-      <label class="toggle" title="${allowed ? t('firewall.allowed') : t('firewall.denied')}">
-        <input type="checkbox" ${allowed ? 'checked' : ''} data-fw-port="${p.port}" data-fw-proto="${p.proto}" />
-        <span class="toggle-track"></span>
-      </label>
+    const on = allowedPorts.has(p.port);
+    return `<div class="fw-preset-pill${on ? ' active' : ''}" onclick="fwTogglePreset(${p.port},'${p.proto}',${on})">
+      <span class="fw-preset-dot"></span>
+      ${esc(p.name)}
+      <span class="fw-preset-port">${p.port}/${p.proto}</span>
     </div>`;
   }).join('');
 
-  // Rule-Liste — Hearth-managed rules (with drag & drop) + unmanaged UFW rules
-  const box = document.getElementById('fw-rules-list');
-  const managed = _fwStoredRules;
-  const unmanaged = ufwRules.filter(r => !r.hearthId);
-
-  if (!managed.length && !unmanaged.length) {
-    box.innerHTML = `<div class="empty"><div class="big" style="font-size:32px">○</div>${t('firewall.empty')}</div>`;
-    return;
-  }
-
-  let html = '';
-  if (managed.length) {
-    html += managed.map((r, i) => {
-      const dirBadge = r.direction === 'out'
-        ? `<span class="fw-dir-badge">OUT</span>`
-        : `<span class="fw-dir-badge">IN</span>`;
-      const ifaceBadge = r.iface ? `<span class="fw-dir-badge">${esc(r.iface)}</span>` : '';
-      const fromTxt = r.from && r.from !== 'any' ? `from ${esc(r.from)}` : '';
-      return `<div class="fw-rule-row" draggable="true" data-fw-id="${esc(r.id)}" data-fw-idx="${i}">
-        <span class="fw-drag-handle" title="Drag to reorder">⠿</span>
-        <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action.toUpperCase()}</span>
-        ${dirBadge}${ifaceBadge}
-        <span style="flex:1;font-family:var(--font-mono);font-size:12px">${esc(r.port)}${r.proto && r.proto !== 'any' ? '/'+esc(r.proto) : ''}</span>
-        ${fromTxt ? `<span style="color:var(--text-faint);font-size:12px">${fromTxt}</span>` : ''}
-        ${r.comment ? `<span style="color:var(--text-faint);font-size:11px;font-style:italic">${esc(r.comment)}</span>` : ''}
-        <button class="iconbtn danger" data-fw-del="${esc(r.id)}" title="Delete rule">🗑</button>
-      </div>`;
+  // Managed rules table
+  const tbody   = document.getElementById('fw-rules-tbody');
+  const emptyEl = document.getElementById('fw-rules-empty');
+  if (!_fwStoredRules.length) {
+    tbody.innerHTML       = '';
+    emptyEl.style.display = '';
+  } else {
+    emptyEl.style.display = 'none';
+    tbody.innerHTML = _fwStoredRules.map(r => {
+      const enabled = r.enabled !== false;
+      const src  = r.from && r.from !== 'any' ? `<code style="font-size:11px;font-family:var(--font-mono)">${esc(r.from)}</code>` : `<span style="color:var(--text-faint)">any</span>`;
+      const dst  = r.to   && r.to   !== 'any' ? `<code style="font-size:11px;font-family:var(--font-mono)">${esc(r.to)}</code>`   : `<span style="color:var(--text-faint)">any</span>`;
+      const port = r.port
+        ? `<code style="font-family:var(--font-mono);font-size:11px">${esc(r.port)}</code>`
+        : `<span style="color:var(--text-faint)">–</span>`;
+      return `<tr draggable="true" data-fw-id="${esc(r.id)}" class="${enabled ? '' : 'fw-row-disabled'}">
+        <td><span class="fw-drag-handle" title="Drag to reorder">⠿</span></td>
+        <td>
+          <label class="toggle" title="${enabled ? 'Disable rule' : 'Enable rule'}">
+            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="fwToggleRule('${esc(r.id)}')" onclick="event.stopPropagation()">
+            <span class="toggle-track"></span>
+          </label>
+        </td>
+        <td><span class="fw-rule-action ${r.action.toLowerCase()}">${r.action.toUpperCase()}</span></td>
+        <td><span class="fw-dir-badge">${(r.direction||'in').toUpperCase()}</span>${r.iface ? ` <span class="fw-dir-badge">${esc(r.iface)}</span>` : ''}</td>
+        <td style="color:var(--text-faint);font-size:12px">${r.proto && r.proto !== 'any' ? r.proto : 'any'}</td>
+        <td>${src}</td>
+        <td>${dst}</td>
+        <td>${port}</td>
+        <td style="color:var(--text-faint);font-size:12px;font-style:italic;max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.comment ? esc(r.comment) : ''}</td>
+        <td>
+          <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
+            <button class="iconbtn" onclick="fwEditRule('${esc(r.id)}')" title="Edit rule">✏</button>
+            <button class="iconbtn danger" onclick="fwDeleteRule('${esc(r.id)}')" title="Delete rule">🗑</button>
+          </div>
+        </td>
+      </tr>`;
     }).join('');
+    fwInitDragDrop();
   }
 
+  // External rules table
+  const extWrap  = document.getElementById('fw-external-wrap');
+  const extTbody = document.getElementById('fw-ext-tbody');
   if (unmanaged.length) {
-    if (managed.length) html += `<div style="font-size:12px;color:var(--text-dim);font-weight:600;margin:14px 0 6px;padding:6px 10px;background:var(--panel-2);border-radius:var(--radius-sm);border-left:3px solid var(--border-bright)">Externe UFW-Regeln (nicht von Hearth verwaltet)</div>`;
-    html += unmanaged.map(r => `
-      <div class="fw-rule-row" style="opacity:.85">
-        <span class="fw-rule-num">${r.num}</span>
-        <span class="fw-rule-action ${r.action.toLowerCase()}">${r.action}</span>
-        <span class="fw-dir-badge">${r.dir}</span>
-        <span style="flex:1;font-family:var(--font-mono);font-size:12px">${esc(r.to)}</span>
-        <span style="color:var(--text-faint);font-size:12px">from ${esc(r.from)}</span>
-        <button class="iconbtn danger" data-fw-del-num="${r.num}" title="Delete rule">🗑</button>
-      </div>`).join('');
+    extWrap.style.display = '';
+    extTbody.innerHTML = unmanaged.map(r => `
+      <tr>
+        <td style="color:var(--text-faint);font-family:var(--font-mono);font-size:11px">${r.num}</td>
+        <td><span class="fw-rule-action ${r.action.toLowerCase()}">${r.action}</span></td>
+        <td><span class="fw-dir-badge">${r.dir}</span></td>
+        <td style="font-family:var(--font-mono);font-size:12px">${esc(r.to)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">${esc(r.from)}</td>
+        <td><button class="iconbtn danger" onclick="fwDeleteExtRule(${r.num})" title="Delete">🗑</button></td>
+      </tr>`).join('');
+  } else {
+    extWrap.style.display = 'none';
   }
+}
 
-  box.innerHTML = html;
-  fwInitDragDrop();
+// Toggle UFW on/off
+async function fwToggleFirewall() {
+  const isActive = document.getElementById('fw-status-badge')?.classList.contains('active');
+  try {
+    await api('POST', '/api/firewall/toggle', { enable: !isActive });
+    loadFirewall();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Enable/disable a single rule
+async function fwToggleRule(id) {
+  try {
+    await api('PATCH', `/api/firewall/rules/${id}/toggle`, {});
+    loadFirewall();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Open modal in edit mode
+function fwEditRule(id) {
+  const rule = _fwStoredRules.find(r => r.id === id);
+  if (!rule) return;
+  _fwEditId = id;
+  document.getElementById('fw-action').value    = rule.action;
+  document.getElementById('fw-direction').value = rule.direction || 'in';
+  document.getElementById('fw-port').value      = rule.port || '';
+  document.getElementById('fw-proto').value     = rule.proto || 'any';
+  document.getElementById('fw-from').value      = rule.from && rule.from !== 'any' ? rule.from : '';
+  document.getElementById('fw-to').value        = rule.to   && rule.to   !== 'any' ? rule.to   : '';
+  document.getElementById('fw-iface').value     = rule.iface || '';
+  document.getElementById('fw-comment').value   = rule.comment || '';
+  document.getElementById('fw-limit-hint').style.display  = rule.action === 'limit' ? '' : 'none';
+  document.getElementById('fw-modal-title').textContent   = t('firewall.editTitle') || 'Edit Firewall Rule';
+  document.getElementById('fw-rule-save').textContent     = t('firewall.saveChanges') || 'Save Changes';
+  openModal('modal-fw-rule');
+}
+
+// Delete a managed rule
+async function fwDeleteRule(id) {
+  if (!confirm(t('firewall.deleteConfirm').replace('#{n}', ''))) return;
+  await api('DELETE', `/api/firewall/rules/${id}`).catch(e => toast(e.message, 'error'));
+  loadFirewall();
+}
+
+// Delete an external (unmanaged) UFW rule
+async function fwDeleteExtRule(num) {
+  if (!confirm(t('firewall.deleteConfirm').replace('#{n}', num))) return;
+  await api('DELETE', `/api/firewall/rules/num/${num}`).catch(e => toast(e.message, 'error'));
+  loadFirewall();
+}
+
+// Toggle a quick preset port on/off
+async function fwTogglePreset(port, proto, isActive) {
+  try {
+    if (isActive) {
+      const toDelete = _fwStoredRules.filter(r => String(r.port) === String(port));
+      for (const r of toDelete) await api('DELETE', `/api/firewall/rules/${r.id}`);
+    } else {
+      await api('POST', '/api/firewall/rules', { action: 'allow', port: String(port), proto, direction: 'in', from: 'any' });
+    }
+    loadFirewall();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ---------- Drag & Drop ----------
 let _fwDragId = null;
 
 function fwInitDragDrop() {
-  const rows = document.querySelectorAll('#fw-rules-list [data-fw-id]');
+  const rows = document.querySelectorAll('#fw-rules-tbody [data-fw-id]');
   rows.forEach(row => {
     row.addEventListener('dragstart', () => { _fwDragId = row.dataset.fwId; row.classList.add('dragging'); });
-    row.addEventListener('dragend',   () => { row.classList.remove('dragging'); document.querySelectorAll('.fw-rule-row').forEach(r => r.classList.remove('drag-over')); });
+    row.addEventListener('dragend',   () => { row.classList.remove('dragging'); document.querySelectorAll('#fw-rules-tbody tr').forEach(r => r.classList.remove('drag-over')); });
     row.addEventListener('dragover',  e => { e.preventDefault(); row.classList.add('drag-over'); });
     row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
     row.addEventListener('drop', async e => {
       e.preventDefault();
       row.classList.remove('drag-over');
       if (!_fwDragId || _fwDragId === row.dataset.fwId) return;
-      // Reorder in DOM order
-      const allRows = [...document.querySelectorAll('#fw-rules-list [data-fw-id]')];
+      const allRows = [...document.querySelectorAll('#fw-rules-tbody [data-fw-id]')];
       const ids = allRows.map(r => r.dataset.fwId);
       const fromIdx = ids.indexOf(_fwDragId);
       const toIdx   = ids.indexOf(row.dataset.fwId);
@@ -3287,83 +3386,50 @@ function fwInitDragDrop() {
   });
 }
 
-// Quick-Port-Toggles
-document.getElementById('fw-quick-ports').addEventListener('change', async (e) => {
-  const inp = e.target.closest('[data-fw-port]');
-  if (!inp) return;
-  const action = inp.checked ? 'allow' : 'deny';
-  await api('POST', '/api/firewall/rules', { action, port: inp.dataset.fwPort, proto: inp.dataset.fwProto, direction: 'in' })
-    .catch((err) => { toast(err.message, 'error'); inp.checked = !inp.checked; });
-  setTimeout(loadFirewall, 800);
-});
-
-// Rule löschen (Hearth-managed: by id, external: by UFW num)
-document.getElementById('fw-rules-list').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-fw-del]');
-  if (btn) {
-    if (!confirm(t('firewall.deleteConfirm').replace('#{n}', ''))) return;
-    await api('DELETE', `/api/firewall/rules/${btn.dataset.fwDel}`).catch(err => toast(err.message, 'error'));
-    loadFirewall(); return;
-  }
-  const btnNum = e.target.closest('[data-fw-del-num]');
-  if (btnNum) {
-    if (!confirm(t('firewall.deleteConfirm').replace('#{n}', btnNum.dataset.fwDelNum))) return;
-    await api('DELETE', `/api/firewall/rules/num/${btnNum.dataset.fwDelNum}`).catch(err => toast(err.message, 'error'));
-    loadFirewall();
-  }
-});
-
 // Limit hint
 document.getElementById('fw-action').addEventListener('change', function() {
   document.getElementById('fw-limit-hint').style.display = this.value === 'limit' ? '' : 'none';
 });
 
-// Firewall-Regel hinzufügen
+// Add rule button — reset to add mode
 document.getElementById('fw-add-rule-btn').addEventListener('click', () => {
-  document.getElementById('fw-port').value      = '';
-  document.getElementById('fw-from').value      = '';
-  document.getElementById('fw-iface').value     = '';
-  document.getElementById('fw-comment').value   = '';
+  _fwEditId = null;
+  ['fw-port','fw-from','fw-to','fw-iface','fw-comment'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('fw-action').value    = 'allow';
   document.getElementById('fw-proto').value     = 'tcp';
   document.getElementById('fw-direction').value = 'in';
   document.getElementById('fw-limit-hint').style.display = 'none';
+  document.getElementById('fw-modal-title').textContent  = t('firewall.addTitle');
+  document.getElementById('fw-rule-save').textContent    = t('firewall.saveRule');
   openModal('modal-fw-rule');
 });
 
+// Save rule — add or edit
 document.getElementById('fw-rule-save').addEventListener('click', async () => {
   const btn = document.getElementById('fw-rule-save');
   btn.disabled = true;
+  const payload = {
+    action:    document.getElementById('fw-action').value,
+    port:      document.getElementById('fw-port').value.trim(),
+    proto:     document.getElementById('fw-proto').value,
+    from:      document.getElementById('fw-from').value.trim() || 'any',
+    to:        document.getElementById('fw-to').value.trim()   || 'any',
+    direction: document.getElementById('fw-direction').value,
+    iface:     document.getElementById('fw-iface').value.trim(),
+    comment:   document.getElementById('fw-comment').value.trim(),
+  };
   try {
-    await api('POST', '/api/firewall/rules', {
-      action:    document.getElementById('fw-action').value,
-      port:      document.getElementById('fw-port').value.trim(),
-      proto:     document.getElementById('fw-proto').value,
-      from:      document.getElementById('fw-from').value.trim() || 'any',
-      direction: document.getElementById('fw-direction').value,
-      iface:     document.getElementById('fw-iface').value.trim(),
-      comment:   document.getElementById('fw-comment').value.trim(),
-    });
-    toast(t('firewall.ruleAdded'));
+    if (_fwEditId) {
+      await api('PUT', `/api/firewall/rules/${_fwEditId}`, payload);
+      toast(t('firewall.ruleUpdated') || 'Rule updated');
+    } else {
+      await api('POST', '/api/firewall/rules', payload);
+      toast(t('firewall.ruleAdded'));
+    }
     closeModal('modal-fw-rule');
     loadFirewall();
   } catch (err) { toast(err.message, 'error'); }
   finally { btn.disabled = false; }
-});
-
-// Normal / Advanced Toggle
-document.getElementById('fw-mode-normal').addEventListener('click', () => {
-  document.getElementById('fw-normal').style.display   = '';
-  document.getElementById('fw-advanced').style.display = 'none';
-  document.getElementById('fw-mode-normal').classList.add('active');
-  document.getElementById('fw-mode-advanced').classList.remove('active');
-});
-document.getElementById('fw-mode-advanced').addEventListener('click', () => {
-  document.getElementById('fw-normal').style.display   = 'none';
-  document.getElementById('fw-advanced').style.display = '';
-  document.getElementById('fw-mode-advanced').classList.add('active');
-  document.getElementById('fw-mode-normal').classList.remove('active');
-  loadFirewall();
 });
 
 // ---------- Live Firewall Logs ----------
@@ -3373,36 +3439,40 @@ function fwToggleLiveLog() {
   if (_fwLiveInterval) {
     clearInterval(_fwLiveInterval);
     _fwLiveInterval = null;
-    btn.textContent = 'Start';
+    btn.textContent = t('firewall.logStart') || 'Start';
     dot.classList.remove('live');
   } else {
-    btn.textContent = 'Stop';
+    btn.textContent = t('firewall.logStop') || 'Stop';
     dot.classList.add('live');
     fwFetchLogs();
     _fwLiveInterval = setInterval(fwFetchLogs, 3000);
   }
 }
 
-let _fwLastLogCount = 0;
-
 async function fwFetchLogs() {
-  const data = await api('GET', '/api/firewall/logs?lines=80').catch(() => null);
+  const data = await api('GET', '/api/firewall/logs?lines=100').catch(() => null);
   if (!data) return;
-  const body = document.getElementById('fw-log-body');
-  const entries = data.entries || [];
+  _fwAllLogs = data.entries || [];
+  fwRenderLogs();
+}
+
+function fwRenderLogs() {
+  const body   = document.getElementById('fw-log-body');
+  const filter = (document.getElementById('fw-log-filter')?.value || '').trim().toLowerCase();
+  const entries = filter
+    ? _fwAllLogs.filter(e => e.src.toLowerCase().includes(filter) || e.dst.toLowerCase().includes(filter))
+    : _fwAllLogs;
   if (!entries.length) {
-    body.innerHTML = `<div style="padding:12px 14px;color:var(--text-faint);font-size:12px">No firewall events yet — blocked/allowed traffic will appear here.</div>`;
+    body.innerHTML = `<div style="padding:12px 14px;color:var(--text-faint);font-size:12px">${filter ? 'No matching entries.' : (t('firewall.logHint') || 'Press "Start" to begin monitoring.')}</div>`;
     return;
   }
-  if (entries.length === _fwLastLogCount) return;
-  _fwLastLogCount = entries.length;
-  body.innerHTML = entries.slice(0, 60).map(e => {
-    const actionClass = e.action === 'BLOCK' ? 'BLOCK' : 'ALLOW';
+  body.innerHTML = entries.slice(0, 80).map(e => {
+    const cls = e.action === 'BLOCK' ? 'BLOCK' : 'ALLOW';
     return `<div class="fw-log-entry">
-      <span class="fw-log-action ${actionClass}">${e.action}</span>
-      <span style="color:var(--text)">${esc(e.src)}${e.spt ? ':'+e.spt : ''}</span>
-      <span class="fw-log-entry-meta">→ :${esc(e.dpt)} ${esc(e.proto)}</span>
-      <span class="fw-log-entry-meta" style="margin-left:auto">${esc(e.iface)} ${esc(e.time)}</span>
+      <span class="fw-log-action ${cls}">${e.action}</span>
+      <span style="font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis">${esc(e.src)}${e.spt?':'+e.spt:''}</span>
+      <span class="fw-log-meta">→ :${esc(e.dpt)} ${esc(e.proto)} ${esc(e.iface)}</span>
+      <span class="fw-log-meta" style="text-align:right">${esc(e.time)}</span>
     </div>`;
   }).join('');
 }
