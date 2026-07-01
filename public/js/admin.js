@@ -1283,8 +1283,8 @@ async function loadContainerAutoUpdateSettings() {
     }
 
     const rows = containers.map(c => {
-      const name = (c.Names?.[0] || '').replace(/^\//, '') || c.Id.slice(0, 12);
-      const image = c.Image || '';
+      const name = c.name || c.shortId || '';
+      const image = c.image || '';
       const cfg = savedUpdates[name] || { enabled: false, hour: 0, minute: 0 };
       const h = String(cfg.hour ?? 0);
       const m = String(cfg.minute ?? 0).padStart(2, '0');
@@ -1321,7 +1321,7 @@ async function loadContainerAutoUpdateSettings() {
 
     // Sync master checkbox state
     const allEnabled = Object.values(savedUpdates).length > 0 && containers.every(c => {
-      const name = (c.Names?.[0] || '').replace(/^\//, '') || c.Id.slice(0, 12);
+      const name = c.name || c.shortId || '';
       return savedUpdates[name]?.enabled;
     });
     const cuAll = document.getElementById('cu-all');
