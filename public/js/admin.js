@@ -1278,7 +1278,7 @@ function toggleNotifPanel() {
   panel.style.top   = (rect.bottom + 8) + 'px';
   panel.style.right = (window.innerWidth - rect.right) + 'px';
   panel.style.display = 'flex';
-  loadNotifications();
+  closeNotifArchive();
 }
 
 document.addEventListener('click', (e) => {
