@@ -3265,6 +3265,9 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
   // Try git first (fast, works when volume is mounted)
   if (fs.existsSync(path.join(_REPO, '.git'))) {
     await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
+    // After a shallow clone (--depth=1 --branch X) only one branch is tracked.
+    // Force the full refspec so fetch pulls all remote branches.
+    await _exec('git', ['-C', _REPO, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']).catch(() => {});
     await _exec('git', ['-C', _REPO, 'fetch', '--prune', '--quiet']).catch(() => {});
     const raw = await _exec('git', ['-C', _REPO, 'branch', '-r']).catch(() => '');
     const branches = raw
@@ -3279,7 +3282,7 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
     const r = await fetch(
       'https://api.github.com/repos/MarioundMB/Hearth/branches?per_page=100',
       { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Hearth-Panel' },
-        signal: AbortSignal.timeout(6000) }
+        signal: AbortSignal.timeout(8000) }
     );
     if (r.ok) {
       const data = await r.json();
@@ -3288,7 +3291,10 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
         .sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)));
       return res.json({ branches });
     }
-  } catch (_) {}
+    console.warn('[branches] GitHub API returned', r.status, '— only showing main');
+  } catch (e) {
+    console.warn('[branches] GitHub API error:', e.message);
+  }
   res.json({ branches: ['main'] });
 }));
 
