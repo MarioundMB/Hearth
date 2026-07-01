@@ -1282,6 +1282,7 @@ function toggleNotifPanel() {
 }
 
 document.addEventListener('click', (e) => {
+  if (!e.target.isConnected) return; // element was removed from DOM before event bubbled (e.g. innerHTML replace)
   const wrap  = document.getElementById('notif-wrap');
   const panel = document.getElementById('notif-panel');
   if (panel && panel.style.display !== 'none' &&
