@@ -1366,23 +1366,31 @@ function _notifAction(action) {
   if (action.section === 'updates') updateHearth();
 }
 
-// Archive overlay
+// Archive — switches the panel to archive view in-place (no second popup)
 async function openNotifArchive() {
-  document.getElementById('notif-panel').style.display = 'none';
-  const overlay = document.getElementById('notif-archive-overlay');
-  overlay.style.display = 'flex';
-  const listEl = document.getElementById('notif-archive-list');
-  listEl.innerHTML = `<div class="notif-archive-empty">${t('notif.archiveLoading')}</div>`;
+  const panel  = document.getElementById('notif-panel');
+  const head   = panel.querySelector('.notif-head');
+  const listEl = document.getElementById('notif-list');
+  const footer = panel.querySelector('.notif-footer');
+
+  head.innerHTML = `
+    <button class="btn ghost sm" onclick="closeNotifArchive()" style="gap:5px;padding:4px 8px;font-size:12px">
+      ← ${t('notif.back')}
+    </button>
+    <span style="font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-dim)">${t('notif.archiveTitle')}</span>`;
+  if (footer) footer.style.display = 'none';
+
+  listEl.innerHTML = `<div class="notif-empty">${t('notif.archiveLoading')}</div>`;
   try {
     const data  = await api('GET', '/api/notifications/archive?limit=200');
     const items = data.items || [];
     if (!items.length) {
-      listEl.innerHTML = `<div class="notif-archive-empty">${t('notif.archiveEmpty')}</div>`;
+      listEl.innerHTML = `<div class="notif-empty">${t('notif.archiveEmpty')}</div>`;
       return;
     }
     const icons = { update: '🔼', 'update-done': '✅', error: '⚠️', info: 'ℹ️' };
     listEl.innerHTML = items.map(n => `
-      <div class="notif-item" style="cursor:default">
+      <div class="notif-item notif-archive-item">
         <div class="notif-item-icon">${icons[n.type] || 'ℹ️'}</div>
         <div class="notif-item-body">
           <div class="notif-item-title">${esc(n.title)}</div>
@@ -1391,13 +1399,19 @@ async function openNotifArchive() {
         </div>
       </div>`).join('');
   } catch (_) {
-    listEl.innerHTML = `<div class="notif-archive-empty">${t('notif.archiveError')}</div>`;
+    listEl.innerHTML = `<div class="notif-empty">${t('notif.archiveError')}</div>`;
   }
 }
 
-function closeNotifArchive(e) {
-  if (e && e.target !== document.getElementById('notif-archive-overlay')) return;
-  document.getElementById('notif-archive-overlay').style.display = 'none';
+function closeNotifArchive() {
+  const panel  = document.getElementById('notif-panel');
+  const head   = panel.querySelector('.notif-head');
+  const footer = panel.querySelector('.notif-footer');
+  head.innerHTML = `
+    <span>${t('notif.title')}</span>
+    <button class="btn ghost sm" onclick="markAllRead()">${t('notif.markAllRead')}</button>`;
+  if (footer) footer.style.display = '';
+  loadNotifications();
 }
 
 // Settings: load archive stats
