@@ -1641,18 +1641,6 @@
             <svg class="icon icon-md"><use href="#icon-bell"/></svg>
             <span class="notif-badge" id="notif-badge" style="display:none">0</span>
           </button>
-          <!-- Archive overlay -->
-          <div class="notif-archive-overlay" id="notif-archive-overlay" style="display:none" onclick="closeNotifArchive(event)">
-            <div class="notif-archive-panel" onclick="event.stopPropagation()">
-              <div class="notif-archive-head">
-                <span data-i18n="notif.archiveTitle">Archiv</span>
-                <button class="btn ghost sm" onclick="closeNotifArchive()" style="font-size:18px;line-height:1;padding:2px 8px">×</button>
-              </div>
-              <div class="notif-archive-list" id="notif-archive-list">
-                <div class="notif-archive-empty" data-i18n="notif.archiveEmpty">Noch keine archivierten Benachrichtigungen</div>
-              </div>
-            </div>
-          </div>
         </div>
         <a class="btn ghost sm" href="/" target="_blank" data-i18n="nav.guestView">Gäste-Ansicht ↗</a>
         <button class="btn sm" id="btn-settings" data-i18n="nav.settings">⚙ Einstellungen</button>
@@ -3713,7 +3701,18 @@
     </div>
 
     <div id="toast"></div>
-    <!-- Notification panel — outside topbar so backdrop-filter doesn't bleed through -->
+    <!-- Notification overlays — outside topbar so backdrop-filter doesn't bleed through -->
+    <div class="notif-archive-overlay" id="notif-archive-overlay" style="display:none" onclick="closeNotifArchive(event)">
+      <div class="notif-archive-panel" onclick="event.stopPropagation()">
+        <div class="notif-archive-head">
+          <span data-i18n="notif.archiveTitle">Archiv</span>
+          <button class="btn ghost sm" onclick="closeNotifArchive()" style="font-size:18px;line-height:1;padding:2px 8px">×</button>
+        </div>
+        <div class="notif-archive-list" id="notif-archive-list">
+          <div class="notif-archive-empty" data-i18n="notif.archiveEmpty">Noch keine archivierten Benachrichtigungen</div>
+        </div>
+      </div>
+    </div>
     <div class="notif-panel" id="notif-panel" style="display:none">
       <div class="notif-head">
         <span data-i18n="notif.title">Notifications</span>
