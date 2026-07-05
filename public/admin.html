@@ -652,6 +652,9 @@
       .fw-rule-action.deny  { background:rgba(255,107,94,.15);  color:var(--danger); }
       .fw-rule-action.limit { background:rgba(255,187,51,.15);  color:#ffbb33; }
       .fw-dir-badge { font-size:10px; padding:1px 5px; border-radius:3px; background:var(--panel-2); color:var(--text-faint); }
+      /* Aliases */
+      .fw-alias-pill { display:inline-block; font-family:var(--font-mono); font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:var(--accent-glow); color:var(--accent-dim); border:1px solid rgba(196,240,66,.3); white-space:nowrap; }
+      .fw-rule-filter { height:26px; font-size:11px; padding:0 8px; width:160px; }
       /* Live Logs */
       .fw-log-panel { margin-top:10px; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }
       .fw-log-header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
@@ -1814,6 +1817,9 @@
               <span class="fw-stat-chip" id="fw-stat-external" style="display:none"></span>
               <div class="spacer"></div>
               <button class="btn sm ghost" id="fw-toggle-btn" onclick="fwToggleFirewall()" style="display:none"></button>
+              <button class="btn sm ghost" id="fw-export-btn" onclick="fwExportRules()" style="display:none" data-i18n="firewall.export">Export</button>
+              <button class="btn sm ghost" id="fw-import-btn" onclick="document.getElementById('fw-import-file').click()" style="display:none" data-i18n="firewall.import">Import</button>
+              <input type="file" id="fw-import-file" accept="application/json" style="display:none" onchange="fwImportRules(this.files[0])">
               <button class="btn primary sm" id="fw-add-rule-btn" style="display:none" data-i18n="firewall.addRule">+ Add Rule</button>
             </div>
 
@@ -1827,17 +1833,43 @@
             </div>
 
             <div id="fw-normal-content" style="display:none">
+              <datalist id="fw-network-aliases"></datalist>
+              <datalist id="fw-port-aliases"></datalist>
+
               <!-- Quick Presets -->
               <div>
                 <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:0">Quick Presets</div>
                 <div class="fw-presets-row" id="fw-quick-ports"></div>
               </div>
 
+              <!-- Aliases -->
+              <div class="fw-rules-wrap" id="fw-aliases-wrap">
+                <div class="fw-rules-head">
+                  <span style="font-size:13px;font-weight:700" data-i18n="firewall.aliases">Aliases</span>
+                  <button class="btn sm ghost" id="fw-add-alias-btn" data-i18n="firewall.addAlias">+ Add Alias</button>
+                </div>
+                <table class="fw-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="firewall.aliasName">Name</th>
+                      <th data-i18n="firewall.aliasKind">Kind</th>
+                      <th style="width:99%" data-i18n="firewall.aliasMembers">Members</th>
+                      <th style="width:64px"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="fw-aliases-tbody"></tbody>
+                </table>
+                <div id="fw-aliases-empty" style="display:none;padding:20px 14px;color:var(--text-faint);font-size:13px;text-align:center" data-i18n="firewall.aliasesEmpty">No aliases configured.</div>
+              </div>
+
               <!-- Managed rules table -->
               <div class="fw-rules-wrap">
                 <div class="fw-rules-head">
                   <span style="font-size:13px;font-weight:700" data-i18n="firewall.rules">Rules</span>
-                  <span style="font-size:11px;color:var(--text-faint)">drag to reorder</span>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <input type="text" id="fw-rule-filter" class="input fw-rule-filter" placeholder="Filter…" data-i18n-ph="firewall.filterPH" oninput="fwRenderRulesTable()">
+                    <span style="font-size:11px;color:var(--text-faint)">drag to reorder</span>
+                  </div>
                 </div>
                 <table class="fw-table">
                   <thead>
@@ -3149,17 +3181,17 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
             <div class="field" style="margin:0">
               <label data-i18n="firewall.fromSubnet">From IP / Subnet</label>
-              <input class="input" id="fw-from" placeholder="any / 192.168.1.0/24" />
+              <input class="input" id="fw-from" list="fw-network-aliases" placeholder="any / 192.168.1.0/24 / 2001:db8::/32 / @alias" />
             </div>
             <div class="field" style="margin:0">
               <label>Destination IP / Subnet</label>
-              <input class="input" id="fw-to" placeholder="any / 192.168.1.0/24" />
+              <input class="input" id="fw-to" list="fw-network-aliases" placeholder="any / 192.168.1.0/24 / 2001:db8::/32 / @alias" />
             </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 90px 1fr;gap:10px;margin-top:10px">
             <div class="field" style="margin:0">
               <label data-i18n="firewall.port">Port / Range</label>
-              <input class="input" id="fw-port" placeholder="22 or 8000:9000" />
+              <input class="input" id="fw-port" list="fw-port-aliases" placeholder="22, 8000:9000 or @alias" />
             </div>
             <div class="field" style="margin:0">
               <label data-i18n="firewall.protocol">Protocol</label>
@@ -3185,6 +3217,67 @@
         <div class="modal-foot">
           <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
           <button class="btn primary" id="fw-rule-save" data-i18n="firewall.saveRule">Add Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Firewall-Alias Modal -->
+    <div class="modal-backdrop" id="modal-fw-alias">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-head">
+          <h3 id="fw-alias-modal-title" data-i18n="firewall.addAliasTitle">Add Alias</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.aliasName">Name</label>
+              <input class="input" id="fw-alias-name" placeholder="trusted-ips" autocomplete="off" />
+            </div>
+            <div class="field" style="margin:0">
+              <label data-i18n="firewall.aliasKind">Kind</label>
+              <select class="input" id="fw-alias-kind">
+                <option value="network" data-i18n="firewall.aliasKindNetwork">Network / IP</option>
+                <option value="port" data-i18n="firewall.aliasKindPort">Port</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="margin-top:10px;margin-bottom:0">
+            <label data-i18n="firewall.aliasMembers">Members</label>
+            <input class="input" id="fw-alias-members" placeholder="192.168.1.0/24, 10.0.0.5" autocomplete="off" />
+            <div class="muted" style="font-size:11px;margin-top:4px" id="fw-alias-members-hint" data-i18n="firewall.aliasMembersHintNetwork">Comma-separated IPs or CIDR ranges (IPv4 or IPv6).</div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="fw-alias-save" data-i18n="firewall.saveAlias">Add Alias</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Firewall-Import Modal -->
+    <div class="modal-backdrop" id="modal-fw-import">
+      <div class="modal" style="max-width:420px">
+        <div class="modal-head">
+          <h3 data-i18n="firewall.importTitle">Import Firewall Ruleset</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="font-size:13px" id="fw-import-summary"></div>
+          <div class="field" style="margin-top:14px;margin-bottom:0">
+            <label data-i18n="firewall.importMode">Mode</label>
+            <select class="input" id="fw-import-mode">
+              <option value="merge" data-i18n="firewall.importModeMerge">Merge — add to existing rules</option>
+              <option value="replace" data-i18n="firewall.importModeReplace">Replace — overwrite everything</option>
+            </select>
+          </div>
+          <div id="fw-import-replace-warning" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(255,107,94,.08);border:1px solid rgba(255,107,94,.25);border-radius:var(--radius-sm);font-size:12px;color:var(--danger)" data-i18n="firewall.importReplaceWarning">
+            ⚠ This deletes all current rules and aliases and replaces them with the imported file.
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="fw-import-confirm-btn" data-i18n="firewall.importAction">Import</button>
         </div>
       </div>
     </div>

@@ -92,6 +92,7 @@ let runtimeConfig = {
   refreshInterval: 15,
   proxyRules: [],
   firewallRules: [],
+  firewallAliases: [],
   guestHidden: [],
   users: [],
   autoUpdate: { enabled: true, hour: 0, minute: 0 },
@@ -709,29 +710,104 @@ async function fwAvailable() {
   } catch (_) { return false; }
 }
 
-function buildUfwCmd(rule) {
+function fwError(msg, statusCode = 400) {
+  const e = new Error(msg);
+  e.statusCode = statusCode;
+  return e;
+}
+
+// ---- Aliases: named, reusable IP/network or port lists (referenced as "@Name") ----
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+const IPV6_RE = /^[0-9a-fA-F:]+(\/\d{1,3})?$/;
+const ALIAS_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+function isValidNetworkLiteral(v) {
+  if (!v) return false;
+  if (IPV4_RE.test(v)) return v.split('/')[0].split('.').every(o => Number(o) <= 255);
+  if (v.includes(':') && IPV6_RE.test(v)) return true;
+  return false;
+}
+
+function isValidPortToken(v) {
+  return /^\d{1,5}(:\d{1,5})?$/.test(v) && v.split(':').every(n => Number(n) <= 65535);
+}
+
+function isValidAliasMember(v, kind) {
+  return kind === 'port' ? isValidPortToken(v) : isValidNetworkLiteral(v);
+}
+
+// "any" / "@AliasName" / a literal IPv4/IPv6(+CIDR) value — used for From/To
+function isValidEndpoint(str) {
+  const v = String(str ?? '').trim();
+  if (!v || v === 'any') return true;
+  if (v.startsWith('@')) return v.length > 1;
+  return isValidNetworkLiteral(v);
+}
+
+// "any" / "@AliasName" / a port number, range, or comma-list — used for Port
+function isValidPortSpec(str) {
+  const v = String(str ?? '').trim();
+  if (!v || v === 'any') return true;
+  if (v.startsWith('@')) return v.length > 1;
+  return v.split(',').every(t => isValidPortToken(t.trim()));
+}
+
+// Resolves a From/To/Port token to its member list: "@Name" → alias members, else itself
+function resolveAliasMembers(token, kind, aliases) {
+  const raw = String(token ?? '').trim();
+  if (!raw || raw === 'any') return ['any'];
+  if (raw.startsWith('@')) {
+    const name = raw.slice(1);
+    const alias = (aliases || []).find(a => a.kind === kind && a.name === name);
+    if (!alias) throw fwError(`Unknown ${kind} alias @${name}`);
+    return alias.members;
+  }
+  return raw.split(',').map(t => t.trim()).filter(Boolean);
+}
+
+function buildUfwCmds(rule, aliases) {
   const action    = String(rule.action).replace(/[^a-z]/gi, '');
   const direction = String(rule.direction) === 'out' ? 'out' : 'in';
   const iface     = rule.iface ? String(rule.iface).replace(/[^a-z0-9]/gi, '') : '';
-  const from      = rule.from && rule.from !== 'any' ? String(rule.from).replace(/[^a-f0-9\.:/]/gi, '') : '';
-  const to        = rule.to   && rule.to   !== 'any' ? String(rule.to  ).replace(/[^a-f0-9\.:/]/gi, '') : '';
-  const port      = rule.port ? String(rule.port).replace(/[^0-9:]/g, '') : '';
   const proto     = rule.proto && rule.proto !== 'any' ? String(rule.proto).replace(/[^a-z]/gi, '') : '';
   const id        = String(rule.id).replace(/[^a-z0-9]/gi, '');
 
-  let cmd = `ufw ${action}`;
-  if (direction === 'out') cmd += ' out';
-  if (iface) cmd += ` on ${iface}`;
-  if (from) cmd += ` from ${from}`;
-  cmd += to ? ` to ${to}` : ' to any';
-  if (port) cmd += ` port ${port}`;
-  if (proto) cmd += ` proto ${proto}`;
-  cmd += ` comment "hearth-rule-${id}"`;
-  return cmd;
+  const froms = resolveAliasMembers(rule.from, 'network', aliases);
+  const tos   = resolveAliasMembers(rule.to,   'network', aliases);
+  const ports = resolveAliasMembers(rule.port, 'port',    aliases);
+
+  if (froms.length * tos.length * ports.length > 100) {
+    throw fwError('Alias expansion exceeds 100 rules — narrow the alias members');
+  }
+
+  const cmds = [];
+  for (const from of froms) {
+    for (const to of tos) {
+      for (const port of ports) {
+        const f = from !== 'any' ? String(from).replace(/[^a-f0-9\.:/]/gi, '') : '';
+        const t = to   !== 'any' ? String(to  ).replace(/[^a-f0-9\.:/]/gi, '') : '';
+        const p = port !== 'any' ? String(port).replace(/[^0-9:]/g, '') : '';
+        let cmd = `ufw ${action}`;
+        if (direction === 'out') cmd += ' out';
+        if (iface) cmd += ` on ${iface}`;
+        if (f) cmd += ` from ${f}`;
+        cmd += t ? ` to ${t}` : ' to any';
+        if (p) cmd += ` port ${p}`;
+        if (proto) cmd += ` proto ${proto}`;
+        cmd += ` comment "hearth-rule-${id}"`;
+        cmds.push(cmd);
+      }
+    }
+  }
+  return cmds;
 }
 
+// Returns a list of { id, error } for rules that failed to apply (e.g. a dangling
+// alias reference) — callers should surface these instead of assuming ok:true
+// means every rule actually made it into ufw.
 async function syncFirewallRules(rules) {
-  if (!await fwAvailable()) return;
+  if (!await fwAvailable()) return [];
+  const aliases = runtimeConfig.firewallAliases || [];
   const numbered = await fwExec('ufw status numbered').catch(() => '');
   const lines = numbered.split('\n').filter(l => /^\[/.test(l.trim()));
   // Find and delete existing hearth-managed rules in reverse order
@@ -744,10 +820,17 @@ async function syncFirewallRules(rules) {
     await fwExec(`echo y | ufw delete ${num}`).catch(() => {});
   }
   // Re-add all rules in new order, skipping disabled ones
+  const warnings = [];
   for (const rule of (rules || [])) {
     if (rule.enabled === false) continue;
-    await fwExec(buildUfwCmd(rule)).catch(e => console.warn('[FW]', e.message));
+    try {
+      for (const cmd of buildUfwCmds(rule, aliases)) {
+        await fwExec(cmd).catch(e => warnings.push({ id: rule.id, error: e.message }));
+      }
+    } catch (e) { warnings.push({ id: rule.id, error: e.message }); }
   }
+  if (warnings.length) console.warn('[FW] sync warnings:', warnings);
+  return warnings;
 }
 
 // ---------------------------------------------------------------------------
@@ -1600,7 +1683,8 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
     }).filter(Boolean);
     // Merge stored Hearth rules (preserve order + metadata) with live UFW data
     const stored = runtimeConfig.firewallRules || [];
-    res.json({ available: true, active, raw: verbose, rules: ufwRules, stored });
+    const aliases = runtimeConfig.firewallAliases || [];
+    res.json({ available: true, active, raw: verbose, rules: ufwRules, stored, aliases });
   } catch (e) {
     res.status(500).json({ available: true, error: e.message });
   }
@@ -1610,11 +1694,15 @@ app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { action, port, proto = 'any', from = 'any', to = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
   if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
+  if (!isValidEndpoint(from)) return res.status(400).json({ error: `Invalid source: ${from}` });
+  if (!isValidEndpoint(to))   return res.status(400).json({ error: `Invalid destination: ${to}` });
+  if (!isValidPortSpec(port)) return res.status(400).json({ error: `Invalid port: ${port}` });
   const id = Date.now().toString(36);
   const rule = { id, action, port, proto, from, to, direction, iface, comment, enabled: true };
+  const cmds = buildUfwCmds(rule, runtimeConfig.firewallAliases || []);
   const rules = [...(runtimeConfig.firewallRules || []), rule];
   saveConfig({ firewallRules: rules });
-  await fwExec(buildUfwCmd(rule));
+  for (const cmd of cmds) await fwExec(cmd);
   res.json({ ok: true, id, rules });
 }));
 
@@ -1625,20 +1713,23 @@ app.put('/api/firewall/rules/reorder', requireAuth, asyncHandler(async (req, res
   const current = runtimeConfig.firewallRules || [];
   const reordered = ids.map(id => current.find(r => r.id === id)).filter(Boolean);
   saveConfig({ firewallRules: reordered });
-  await syncFirewallRules(reordered);
-  res.json({ ok: true });
+  const warnings = await syncFirewallRules(reordered);
+  res.json({ ok: true, warnings });
 }));
 
 app.put('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { action, port, proto = 'any', from = 'any', to = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
+  if (!isValidEndpoint(from)) return res.status(400).json({ error: `Invalid source: ${from}` });
+  if (!isValidEndpoint(to))   return res.status(400).json({ error: `Invalid destination: ${to}` });
+  if (!isValidPortSpec(port)) return res.status(400).json({ error: `Invalid port: ${port}` });
   const rules = runtimeConfig.firewallRules || [];
   const idx = rules.findIndex(r => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Rule not found' });
   rules[idx] = { ...rules[idx], action, port, proto, from, to, direction, iface, comment };
   saveConfig({ firewallRules: rules });
-  await syncFirewallRules(rules);
-  res.json({ ok: true });
+  const warnings = await syncFirewallRules(rules);
+  res.json({ ok: true, warnings });
 }));
 
 app.patch('/api/firewall/rules/:id/toggle', requireAuth, asyncHandler(async (req, res) => {
@@ -1648,16 +1739,16 @@ app.patch('/api/firewall/rules/:id/toggle', requireAuth, asyncHandler(async (req
   if (!rule) return res.status(404).json({ error: 'Rule not found' });
   rule.enabled = rule.enabled === false ? true : false;
   saveConfig({ firewallRules: rules });
-  await syncFirewallRules(rules);
-  res.json({ ok: true, enabled: rule.enabled !== false });
+  const warnings = await syncFirewallRules(rules);
+  res.json({ ok: true, enabled: rule.enabled !== false, warnings });
 }));
 
 app.delete('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const rules = (runtimeConfig.firewallRules || []).filter(r => r.id !== req.params.id);
   saveConfig({ firewallRules: rules });
-  await syncFirewallRules(rules);
-  res.json({ ok: true });
+  const warnings = await syncFirewallRules(rules);
+  res.json({ ok: true, warnings });
 }));
 
 // Legacy: delete by UFW rule number (expert mode + auto-rules)
@@ -1692,6 +1783,116 @@ app.get('/api/firewall/logs', requireAuth, asyncHandler(async (req, res) => {
     return { time, action, src, dst, proto, dpt, spt, iface };
   }).filter(e => e.src);
   res.json({ ok: true, entries: entries.reverse() });
+}));
+
+// ---------------------------------------------------------------------------
+// Firewall-Aliases (named, reusable IP/network or port lists)
+// ---------------------------------------------------------------------------
+function _fwCleanAliasInput(body, existingKind) {
+  const name = String(body?.name || '').trim();
+  const kind = existingKind || (body?.kind === 'port' ? 'port' : 'network');
+  if (!ALIAS_NAME_RE.test(name)) throw fwError('Alias name must be alphanumeric (with - or _), no spaces');
+  const members = [...new Set((Array.isArray(body?.members) ? body.members : []).map(m => String(m).trim()).filter(Boolean))];
+  if (!members.length) throw fwError('At least one member is required');
+  const bad = members.find(m => !isValidAliasMember(m, kind));
+  if (bad) throw fwError(`Invalid ${kind} member: ${bad}`);
+  return { name, kind, members };
+}
+
+app.post('/api/firewall/aliases', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { name, kind, members } = _fwCleanAliasInput(req.body);
+  const aliases = runtimeConfig.firewallAliases || [];
+  if (aliases.some(a => a.kind === kind && a.name === name)) {
+    return res.status(409).json({ error: `Alias @${name} already exists` });
+  }
+  const id = Date.now().toString(36);
+  saveConfig({ firewallAliases: [...aliases, { id, name, kind, members }] });
+  res.json({ ok: true, id, aliases: runtimeConfig.firewallAliases });
+}));
+
+app.put('/api/firewall/aliases/:id', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const aliases = runtimeConfig.firewallAliases || [];
+  const idx = aliases.findIndex(a => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Alias not found' });
+  const { name, kind, members } = _fwCleanAliasInput(req.body, aliases[idx].kind);
+  if (aliases.some((a, i) => i !== idx && a.kind === kind && a.name === name)) {
+    return res.status(409).json({ error: `Alias @${name} already exists` });
+  }
+  aliases[idx] = { ...aliases[idx], name, members };
+  saveConfig({ firewallAliases: aliases });
+  const warnings = await syncFirewallRules(runtimeConfig.firewallRules || []);
+  res.json({ ok: true, warnings });
+}));
+
+app.delete('/api/firewall/aliases/:id', requireAuth, asyncHandler(async (req, res) => {
+  const aliases = runtimeConfig.firewallAliases || [];
+  const alias = aliases.find(a => a.id === req.params.id);
+  if (!alias) return res.status(404).json({ error: 'Alias not found' });
+  const token = `@${alias.name}`;
+  const usedBy = (runtimeConfig.firewallRules || []).filter(r => r.from === token || r.to === token || String(r.port) === token);
+  if (usedBy.length) {
+    return res.status(409).json({
+      error: `Alias @${alias.name} is used by ${usedBy.length} rule(s)`,
+      rules: usedBy.map(r => ({ id: r.id, comment: r.comment })),
+    });
+  }
+  saveConfig({ firewallAliases: aliases.filter(a => a.id !== req.params.id) });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Firewall Export/Import
+// ---------------------------------------------------------------------------
+app.get('/api/firewall/export', requireAuth, asyncHandler(async (req, res) => {
+  res.json({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    rules: runtimeConfig.firewallRules || [],
+    aliases: runtimeConfig.firewallAliases || [],
+  });
+}));
+
+app.post('/api/firewall/import', requireAuth, asyncHandler(async (req, res) => {
+  if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
+  const { mode = 'replace', rules = [], aliases = [] } = req.body || {};
+  if (!Array.isArray(rules) || !Array.isArray(aliases)) {
+    return res.status(400).json({ error: 'rules and aliases must be arrays' });
+  }
+
+  const cleanAliases = aliases.map(a => {
+    const { name, kind, members } = _fwCleanAliasInput(a);
+    return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, kind, members };
+  });
+  const cleanRules = rules.map(r => {
+    const rule = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      action: r.action, port: r.port, proto: r.proto || 'any',
+      from: r.from || 'any', to: r.to || 'any', direction: r.direction || 'in',
+      iface: r.iface || '', comment: r.comment || '', enabled: r.enabled !== false,
+    };
+    if (!rule.action || !rule.port) throw fwError('Each rule requires action and port');
+    if (!isValidEndpoint(rule.from)) throw fwError(`Invalid source: ${rule.from}`);
+    if (!isValidEndpoint(rule.to))   throw fwError(`Invalid destination: ${rule.to}`);
+    if (!isValidPortSpec(rule.port)) throw fwError(`Invalid port: ${rule.port}`);
+    return rule;
+  });
+
+  let finalAliases, finalRules;
+  if (mode === 'merge') {
+    const existingAliases = runtimeConfig.firewallAliases || [];
+    const newAliases = cleanAliases.filter(a => !existingAliases.some(e => e.kind === a.kind && e.name === a.name));
+    finalAliases = [...existingAliases, ...newAliases];
+    finalRules = [...(runtimeConfig.firewallRules || []), ...cleanRules];
+  } else {
+    finalAliases = cleanAliases;
+    finalRules = cleanRules;
+  }
+
+  saveConfig({ firewallAliases: finalAliases, firewallRules: finalRules });
+  const warnings = await syncFirewallRules(finalRules);
+  res.json({ ok: true, rules: finalRules, aliases: finalAliases, warnings });
 }));
 
 // ---------------------------------------------------------------------------
