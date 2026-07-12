@@ -46,6 +46,11 @@ curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh |
 > ```bash
 > wget -O - https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh | bash
 > ```
+>
+> **Alternative — if your shell doesn't give the script a real terminal for prompts (e.g. some `ssh host '...'` invocations):**
+> ```bash
+> bash -c "$(curl -fsSL https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh)"
+> ```
 
 The installer automatically:
 - Installs **Docker**, **Docker Compose** and **Git** if needed

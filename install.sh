@@ -24,10 +24,11 @@ ask()  { echo -e "${BOLD}?${NC}  $*"; }
 
 # ── Pipe detection & self-relaunch ────────────────────────────────────────
 # When running via "curl URL | bash" or "wget URL | bash", bash reads the
-# script from stdin. Any subsequent `read` call gets EOF immediately and
-# the script exits silently. Fix: if we detect we are being read from
-# stdin (i.e. $0 is "bash" rather than a file path), download the script
-# to a temp file and exec it so stdin is the terminal.
+# script from stdin. Any subsequent `read` call gets EOF immediately (or,
+# worse, silently consumes the remaining piped script text as its answer).
+# Fix: if we detect we are being read from stdin (i.e. $0 is "bash" rather
+# than a file path), download the script to a temp file and exec it with
+# stdin explicitly redirected away from the original pipe.
 _SELF_URL="https://raw.githubusercontent.com/MarioundMB/Hearth/main/install.sh"
 
 if [[ "${0##*/}" == "bash" || "${0##*/}" == "sh" || "$0" == "-bash" || "$0" == "-sh" ]]; then
@@ -42,7 +43,18 @@ if [[ "${0##*/}" == "bash" || "${0##*/}" == "sh" || "$0" == "-bash" || "$0" == "
     exit 1
   fi
   chmod +x "$_TMP"
-  exec bash "$_TMP"   # replace current process — stdin is the terminal now
+  # exec replaces this process without running EXIT traps, so the temp
+  # file can't be cleaned up here — hand its path to the relaunched copy
+  # via the environment and let its own EXIT trap remove it.
+  export _HEARTH_TMP_SELF="$_TMP"
+  # exec inherits our file descriptors, so stdin would still be the curl
+  # pipe (with the rest of this script's bytes sitting unread in it) unless
+  # we explicitly repoint it: the terminal if we have one, /dev/null if not.
+  if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    exec bash "$_TMP" < /dev/tty
+  else
+    exec bash "$_TMP" < /dev/null
+  fi
 fi
 
 # ── Banner ────────────────────────────────────────────────────────────────
@@ -72,8 +84,8 @@ fi
 
 _sudo() { [ "$_IS_ROOT" = true ] && "$@" || sudo "$@"; }
 
-# Clean up background process on exit
-trap '[ -n "$_SUDO_KEEPALIVE_PID" ] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null; true' EXIT
+# Clean up background process (and the relaunch temp file, if any) on exit
+trap '[ -n "$_SUDO_KEEPALIVE_PID" ] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null; [ -n "${_HEARTH_TMP_SELF:-}" ] && rm -f "$_HEARTH_TMP_SELF"; true' EXIT
 
 # ── Package manager helpers ───────────────────────────────────────────────
 _apt_update() {
@@ -207,17 +219,66 @@ if [ -d "${INSTALL_DIR}/.git" ]; then
 fi
 
 if [ "${IS_UPDATE}" = false ]; then
-  ask "Installation directory [${INSTALL_DIR}]:"
-  read -rp "  → " INPUT_DIR  || INPUT_DIR=""
+  # Only prompt on an actual terminal — otherwise silently take the
+  # defaults. Without this guard a non-interactive stdin (e.g. a leftover
+  # pipe, or /dev/null) makes `read` return empty or, worse, consume
+  # unrelated bytes as if they were the user's answer.
+  INPUT_DIR=""
+  INPUT_DATA=""
+  INPUT_PORT=""
+  if [ -t 0 ]; then
+    ask "Installation directory [${INSTALL_DIR}]:"
+    read -rp "  → " INPUT_DIR  || INPUT_DIR=""
+
+    ask "Data directory for the file manager [/srv/hearth-data]:"
+    read -rp "  → " INPUT_DATA || INPUT_DATA=""
+
+    ask "Port [4500]:"
+    read -rp "  → " INPUT_PORT || INPUT_PORT=""
+  fi
   INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
-
-  ask "Data directory for the file manager [/srv/hearth-data]:"
-  read -rp "  → " INPUT_DATA || INPUT_DATA=""
   DATA_DIR="${INPUT_DATA:-/srv/hearth-data}"
-
-  ask "Port [4500]:"
-  read -rp "  → " INPUT_PORT || INPUT_PORT=""
   PORT="${INPUT_PORT:-4500}"
+
+  # ── Validate input before it ever reaches the .env file ──────────────
+  case "$PORT" in
+    ''|*[!0-9]*)
+      warn "Invalid port '${PORT}' — using 4500."
+      PORT=4500
+      ;;
+  esac
+  if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    warn "Port ${PORT} out of range — using 4500."
+    PORT=4500
+  fi
+
+  case "$INSTALL_DIR" in
+    /*|"~"*) ;;
+    *)
+      warn "Invalid installation directory '${INSTALL_DIR}' — using ${HOME}/hearth."
+      INSTALL_DIR="${HOME}/hearth"
+      ;;
+  esac
+  case "$INSTALL_DIR" in
+    *[[:space:][:cntrl:]]*)
+      warn "Invalid installation directory '${INSTALL_DIR}' — using ${HOME}/hearth."
+      INSTALL_DIR="${HOME}/hearth"
+      ;;
+  esac
+
+  case "$DATA_DIR" in
+    /*|"~"*) ;;
+    *)
+      warn "Invalid data directory '${DATA_DIR}' — using /srv/hearth-data."
+      DATA_DIR="/srv/hearth-data"
+      ;;
+  esac
+  case "$DATA_DIR" in
+    *[[:space:][:cntrl:]]*)
+      warn "Invalid data directory '${DATA_DIR}' — using /srv/hearth-data."
+      DATA_DIR="/srv/hearth-data"
+      ;;
+  esac
   echo ""
 fi
 
@@ -253,8 +314,38 @@ SESSION_SECRET=${SESSION_SECRET}
 EOF
   ok ".env created"
 else
-  [ -f .env ] && ok ".env preserved" \
-    || warn ".env missing — please create it manually (see .env.example)"
+  if [ -f .env ]; then
+    ok ".env preserved"
+
+    # ── Self-heal a previously corrupted .env ───────────────────────────
+    _ENV_PORT=$(grep '^PORT=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)
+    case "$_ENV_PORT" in
+      ''|*[!0-9]*)
+        warn "Invalid PORT in .env ('${_ENV_PORT}') — backing up to .env.bak, resetting to 4500."
+        cp .env .env.bak
+        sed -i 's|^PORT=.*|PORT=4500|' .env
+        ;;
+      *)
+        if [ "$_ENV_PORT" -lt 1 ] || [ "$_ENV_PORT" -gt 65535 ]; then
+          warn "PORT in .env out of range ('${_ENV_PORT}') — backing up to .env.bak, resetting to 4500."
+          cp .env .env.bak
+          sed -i 's|^PORT=.*|PORT=4500|' .env
+        fi
+        ;;
+    esac
+
+    _ENV_DATA_DIR=$(grep '^DATA_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)
+    case "$_ENV_DATA_DIR" in
+      /*) ;;
+      *)
+        warn "Invalid DATA_DIR in .env ('${_ENV_DATA_DIR}') — backing up to .env.bak, resetting to /srv/hearth-data."
+        cp .env .env.bak
+        sed -i 's|^DATA_DIR=.*|DATA_DIR=/srv/hearth-data|' .env
+        ;;
+    esac
+  else
+    warn ".env missing — please create it manually (see .env.example)"
+  fi
 fi
 
 # ── Build and start ────────────────────────────────────────────────────────
@@ -262,9 +353,20 @@ echo ""
 info "Building and starting Hearth…"
 export GIT_SHA=$(git -C "${INSTALL_DIR}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 if [ "$_DOCKER_NEEDS_SG" = true ]; then
-  sg docker "GIT_SHA=${GIT_SHA} ${DC} up -d --build"
+  sg docker -c "GIT_SHA='${GIT_SHA}' ${DC} up -d --build"
 else
   GIT_SHA=${GIT_SHA} ${DC} up -d --build
+fi
+
+# ── Verify it actually started ────────────────────────────────────────────
+sleep 3
+if [ "$_DOCKER_NEEDS_SG" = true ]; then
+  _RUNNING=$(sg docker -c "${DC} ps --status running" 2>/dev/null | grep -c hearth || true)
+else
+  _RUNNING=$(${DC} ps --status running 2>/dev/null | grep -c hearth || true)
+fi
+if [ "${_RUNNING:-0}" -eq 0 ]; then
+  err "The Hearth container is not running.\n  Check the logs: cd ${INSTALL_DIR} && ${DC} logs --tail 50"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
