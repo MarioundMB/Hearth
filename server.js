@@ -1782,6 +1782,10 @@ app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, r
       return res.json({ ok: true });
     }
   } catch(_) {}
+  // dockerode's createContainer, unlike `docker run`, does not auto-pull a
+  // missing image — without this the first-ever start fails with
+  // "No such image: cloudflare/cloudflared:latest".
+  await pullImage('cloudflare/cloudflared:latest');
   const container = await docker.createContainer({
     name: CF_TUNNEL_CONTAINER,
     Image: 'cloudflare/cloudflared:latest',
