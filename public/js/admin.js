@@ -301,7 +301,8 @@ function getContainerWebUrl(c) {
   if (l['hearth.url']) return l['hearth.url'];
   const pub = (c.ports || []).filter((p) => p.publicPort);
   if (!pub.length) return null;
-  let port = pub[0].publicPort;
+  const tcpPub = pub.filter((p) => p.type !== 'udp');
+  let port = (tcpPub[0] || pub[0]).publicPort;
   if (l['hearth.port']) {
     const m = pub.find((p) => String(p.privatePort) === l['hearth.port']);
     if (m) port = m.publicPort;
@@ -436,6 +437,22 @@ function populateEditForm(ins) {
   document.getElementById('cd-hearth-icon').value = l['hearth.icon'] || '';
   document.getElementById('cd-hearth-url').value  = l['hearth.url']  || '';
 
+  // Web UI port dropdown — one option per published TCP port, auto-detected
+  // port pre-selected unless hearth.port already pins a specific one.
+  const portSel = document.getElementById('cd-hearth-port');
+  portSel.innerHTML = `<option value="">${t('cd.webPortAuto')}</option>`;
+  const bindings = Object.entries(ins.HostConfig?.PortBindings || {});
+  for (const [key, binds] of bindings) {
+    const [containerPort, proto] = key.split('/');
+    const hostPort = binds?.[0]?.HostPort;
+    if (!hostPort || proto === 'udp') continue;
+    const opt = document.createElement('option');
+    opt.value = containerPort;
+    opt.textContent = `${hostPort} → ${containerPort}`;
+    portSel.appendChild(opt);
+  }
+  portSel.value = l['hearth.port'] || '';
+
   // Ports
   const portsBox = document.getElementById('cd-ports');
   portsBox.innerHTML = '';
@@ -493,9 +510,11 @@ document.getElementById('cd-save-btn').addEventListener('click', async () => {
   const hearthLabels = [];
   const hn = document.getElementById('cd-hearth-name').value.trim();
   const hi = document.getElementById('cd-hearth-icon').value.trim();
+  const hp = document.getElementById('cd-hearth-port').value.trim();
   const hu = document.getElementById('cd-hearth-url').value.trim();
   if (hn) hearthLabels.push({ key: 'hearth.name', value: hn });
   if (hi) hearthLabels.push({ key: 'hearth.icon', value: hi });
+  if (hp) hearthLabels.push({ key: 'hearth.port', value: hp });
   if (hu) hearthLabels.push({ key: 'hearth.url',  value: hu });
 
   const customLabels = collectEdit('cd-labels', (l) => l.key ? l : null);

@@ -1649,7 +1649,7 @@ const I18N = {
     'cd.privileged': 'Modo privilegiado', 'cd.customLabels': 'Etiquetas personalizadas', 'cd.addLabel': '+ Agregar etiqueta',
     'cd.recreateNote': '⚠ El Container será detenido y recreado.', 'cd.save': 'Guardar y reiniciar',
     'cd.dockerImage': 'Docker Image *', 'cd.tag': 'Etiqueta', 'cd.displayName': 'Nombre para mostrar',
-    'cd.iconLabel': 'Ícono (Emoji o URL de imagen)', 'cd.webUrl': 'URL web (reemplaza la detección automática)',
+    'cd.iconLabel': 'Ícono (Emoji o URL de imagen)', 'cd.webPort': 'Puerto de la interfaz web', 'cd.webPortAuto': 'Detección automática', 'cd.webUrl': 'URL web (reemplaza la detección automática)',
     'cd.imageRequired': 'El nombre de la imagen es obligatorio', 'cd.saved': 'Container recreado correctamente',
     'create.methodForm': '🖊 Formulario', 'create.methodRun': '▶ docker run', 'create.methodCompose': '🗋 Compose',
     'create.runDesc': 'Pega un comando docker run — será analizado y el formulario se rellenará automáticamente.',
