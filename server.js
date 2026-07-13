@@ -165,6 +165,9 @@ if (!runtimeConfig.setupDone) {
 // Nginx starten (läuft parallel zum Express-Server)
 startNginx();
 renewCertsIfNeeded().catch(() => {});
+// LE certs are 90 days — check daily so long-uptime deployments still renew
+// without needing a restart to re-trigger the boot-time check above.
+setInterval(() => renewCertsIfNeeded().catch(() => {}), 24 * 60 * 60 * 1000);
 
 const docker = new Docker({ socketPath: DOCKER_SOCKET });
 
@@ -394,12 +397,16 @@ function asyncHandler(fn) {
 const _DOMAIN_RE = /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 const _HOST_RE   = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)$|^(\d{1,3}\.){3}\d{1,3}$/;
 
-function validateProxyInputs(domain, target) {
+function validateDomain(domain) {
   if (!domain || !_DOMAIN_RE.test(domain.replace(/^\*\./, ''))) {
-    const err = new Error('Ungültige Domain – nur Buchstaben, Ziffern, Bindestriche und Punkte erlaubt');
+    const err = new Error(`Ungültige Domain '${domain}' – nur Buchstaben, Ziffern, Bindestriche und Punkte erlaubt`);
     err.statusCode = 400;
     throw err;
   }
+}
+
+function validateProxyInputs(domain, target) {
+  validateDomain(domain);
   let url;
   try { url = new URL(target); } catch {
     const err = new Error('Ungültiges Target – muss eine gültige http:// oder https:// URL sein');
@@ -421,6 +428,51 @@ function validateProxyInputs(domain, target) {
     err.statusCode = 400;
     throw err;
   }
+}
+
+// Builds+validates a target URL from split scheme/host/port fields (used for
+// the main forward target and for each custom location).
+function buildTarget(scheme, host, port) {
+  const s = (scheme === 'https') ? 'https' : 'http';
+  const h = (host || '').trim();
+  const p = String(port || '').trim();
+  if (!h) { const err = new Error('Forward-Hostname/IP ist erforderlich'); err.statusCode = 400; throw err; }
+  if (!_HOST_RE.test(h)) { const err = new Error(`Ungültiger Forward-Hostname '${h}'`); err.statusCode = 400; throw err; }
+  if (!p || isNaN(+p) || +p < 1 || +p > 65535) { const err = new Error(`Ungültiger Forward-Port '${p}'`); err.statusCode = 400; throw err; }
+  return `${s}://${h}:${p}`;
+}
+
+function normalizeExtraDomains(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((d) => String(d || '').trim())
+    .filter(Boolean)
+    .filter((d, i, arr) => arr.indexOf(d) === i);
+}
+
+// Safe URL-path characters only — this string is interpolated directly into
+// generated nginx config (`location ${path} { ... }`), so anything outside
+// this allowlist (braces, quotes, semicolons, newlines, …) could break out
+// of the location block and inject arbitrary nginx directives.
+const _LOC_PATH_RE = /^\/[a-zA-Z0-9\-._~/%]*$/;
+
+function normalizeLocations(list) {
+  return (Array.isArray(list) ? list : []).map((l, i) => {
+    const locPath = String(l?.path || '').trim() || '/';
+    if (!_LOC_PATH_RE.test(locPath)) { const err = new Error(`Ungültiger Custom-Location-Pfad '${locPath}' — muss mit / beginnen und darf nur Buchstaben, Ziffern, -._~/% enthalten`); err.statusCode = 400; throw err; }
+    const forwardScheme = l?.forwardScheme === 'https' ? 'https' : 'http';
+    const forwardHost = String(l?.forwardHost || '').trim();
+    const forwardPort = String(l?.forwardPort || '').trim();
+    return {
+      id: l?.id || `loc-${Date.now().toString(36)}-${i}`,
+      path: locPath,
+      forwardScheme, forwardHost, forwardPort,
+      target: buildTarget(forwardScheme, forwardHost, forwardPort),
+    };
+  });
+}
+
+function allDomainsOf(rule) {
+  return [rule.domain, ...(rule.extraDomains || [])].filter(Boolean);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,22 +505,24 @@ function getCertInfo(domain) {
   } catch (_) { return { domain }; }
 }
 
-function generateSelfSignedCert(domain) {
+function generateSelfSignedCert(domain, allDomains = [domain], force = false) {
   return new Promise((resolve, reject) => {
     const { dir, cert, key } = certPaths(domain);
-    if (certExists(domain)) { resolve(); return; }
+    if (!force && certExists(domain)) { resolve(); return; }
     try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    const sanList = (allDomains.length ? allDomains : [domain]).map((d) => `DNS:${d}`).join(',');
     const p = spawn('openssl', [
       'req', '-x509', '-newkey', 'rsa:2048',
       '-keyout', key, '-out', cert,
       '-days', '3650', '-nodes',
       '-subj', `/CN=${domain}`,
+      '-addext', `subjectAltName=${sanList}`,
     ], { stdio: 'ignore' });
     p.on('close', code => code === 0 ? resolve() : reject(new Error(`openssl fehlgeschlagen für ${domain}`)));
   });
 }
 
-async function requestLECert(domain) {
+async function requestLECert(domain, allDomains = [domain]) {
   if (!fs.existsSync(ACME_SH)) throw new Error('acme.sh nicht gefunden');
   const { dir, cert, key } = certPaths(domain);
   fs.mkdirSync(dir, { recursive: true });
@@ -483,10 +537,12 @@ async function requestLECert(domain) {
     try { fs.mkdirSync('/var/www/acme', { recursive: true }); } catch (_) {}
   }
 
+  const domainFlags = (allDomains.length ? allDomains : [domain]).flatMap((d) => ['-d', d]);
+
   await new Promise((resolve, reject) => {
     const args = usesCf
-      ? [ACME_SH, '--issue', '--dns', 'dns_cf', '-d', domain, '--server', 'letsencrypt']
-      : [ACME_SH, '--issue', '--webroot', '/var/www/acme', '-d', domain, '--server', 'letsencrypt'];
+      ? [ACME_SH, '--issue', '--dns', 'dns_cf', ...domainFlags, '--server', 'letsencrypt']
+      : [ACME_SH, '--issue', '--webroot', '/var/www/acme', ...domainFlags, '--server', 'letsencrypt'];
     const p = spawn('sh', args, { env, stdio: 'pipe' });
     let out = '';
     p.stdout.on('data', d => out += d);
@@ -514,7 +570,7 @@ async function renewCertsIfNeeded() {
     const info = getCertInfo(r.domain);
     if (info?.daysLeft != null && info.daysLeft < 30) {
       console.log(`[CERT] Renewing LE cert for ${r.domain} (${info.daysLeft} days left)`);
-      await requestLECert(r.domain).catch(e => console.warn('[CERT] Renewal failed:', e.message));
+      await requestLECert(r.domain, allDomainsOf(r)).catch(e => console.warn('[CERT] Renewal failed:', e.message));
     }
   }
 }
@@ -527,8 +583,13 @@ async function ensureDefaultCert() {
 
 async function ensureCertsForRules(rules) {
   for (const r of (rules || []).filter(r => r.enabled)) {
-    if (!certExists(r.domain)) {
-      await generateSelfSignedCert(r.domain).catch(e => console.warn('[CERT]', e.message));
+    if (!r.certType || r.certType === 'self-signed') {
+      // Regenerated every time so the SAN list always matches the rule's
+      // current domain + extraDomains — cheap, no rate limits, no external calls.
+      await generateSelfSignedCert(r.domain, allDomainsOf(r), true).catch(e => console.warn('[CERT]', e.message));
+    } else if (!certExists(r.domain)) {
+      // LE/custom cert missing (shouldn't normally happen) — fall back so nginx can still start.
+      await generateSelfSignedCert(r.domain, allDomainsOf(r), true).catch(e => console.warn('[CERT]', e.message));
     }
   }
 }
@@ -556,11 +617,44 @@ async function writeHtpasswd(ruleId, user, password) {
 // Nginx-Konfiguration
 // ---------------------------------------------------------------------------
 
+// Shared proxy_pass + headers block, reused for the main location and every
+// custom location — `target` differs, everything else stays identical.
+function proxyPassBlock(target, { basicAuthLines = '', websockets = true } = {}) {
+  return `${basicAuthLines}
+        proxy_pass ${target};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;${websockets ? `
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;` : ''}
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;`;
+}
+
+// Conservative "block common exploits" ruleset — blocks dotfile access
+// (besides ACME challenges), common backup/VCS/config file extensions, and
+// well-known exploit patterns in the query string.
+const BLOCK_EXPLOITS_SNIPPET = `
+    location ~ /\\.(?!well-known) { deny all; }
+    location ~* \\.(git|env|htaccess|htpasswd|bak|sql|swp)$ { deny all; }
+    if ($query_string ~ "(<|%3C).*script.*(>|%3E)") { return 403; }
+    if ($query_string ~ "GLOBALS(=|\\[|%\\[0-9A-Z]{0,2})") { return 403; }
+    if ($query_string ~ "_REQUEST(=|\\[|%\\[0-9A-Z]{0,2})") { return 403; }
+    if ($query_string ~ "proc/self/environ") { return 403; }
+    if ($query_string ~ "base64_(en|de)code\\(.*\\)") { return 403; }`;
+
 function nginxConfForRule(rule) {
   const { cert, key } = certPaths(rule.domain);
   const logFile = path.join(NGINX_LOG_DIR, `hearth-${rule.id}.log`);
   const ba = rule.basicAuth;
   const maxBody = rule.maxBodySize ? rule.maxBodySize.replace(/[^0-9kmgKMG]/g, '') : '';
+  const serverNames = allDomainsOf(rule).join(' ');
+  const websockets = rule.websockets !== false;
+  const forceSsl = rule.forceSsl !== false;
+  const http2 = !!rule.http2;
 
   // IP access control
   const ipLines = [];
@@ -574,12 +668,16 @@ function nginxConfForRule(rule) {
     ipLines.push('    deny all;');
   }
 
-  // Security headers
+  // HSTS + other security headers (independent toggles)
+  const hstsHeader = rule.hstsEnabled
+    ? `\n    add_header Strict-Transport-Security "max-age=31536000${rule.hstsSubdomains ? '; includeSubDomains' : ''}" always;`
+    : '';
   const secHeaders = rule.securityHeaders ? `
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer-when-downgrade" always;` : '';
+
+  const blockExploits = rule.blockExploits ? BLOCK_EXPLOITS_SNIPPET : '';
 
   // Static cache location
   const staticCache = rule.cacheStatic ? `
@@ -590,43 +688,55 @@ function nginxConfForRule(rule) {
         add_header Cache-Control "public, max-age=604800";
     }` : '';
 
+  // Custom Locations (sub-path routing to other backends)
+  const customLocations = (rule.locations || []).map((loc) => `
+    location ${loc.path} {
+        ${proxyPassBlock(loc.target, { websockets })}
+    }`).join('\n');
+
   // Custom snippet (strip dangerous directives)
   const snippet = (rule.customSnippet || '')
     .split('\n').filter(l => !/^\s*(root|alias|include|load_module)\s/i.test(l)).join('\n');
 
-  return `# Hearth Proxy: ${rule.id} (${rule.domain})
-server {
+  const basicAuthLines = ba?.enabled && ba?.user
+    ? `auth_basic "Restricted";\n        auth_basic_user_file ${htpasswdPath(rule.id)};`
+    : '';
+
+  // When Force SSL is off, the HTTP server also serves real content, so it
+  // needs the same IP allow/deny + exploit-blocking as the HTTPS block —
+  // otherwise those protections would be silently bypassed over plain HTTP.
+  const httpServer = `server {
     listen ${HTTP_PORT};
-    server_name ${rule.domain};
+    server_name ${serverNames};
     location /.well-known/acme-challenge/ {
         root /var/www/acme;
     }
+    ${forceSsl ? '' : ipLines.join('\n    ')}
+    ${forceSsl ? '' : blockExploits}
     location / {
-        return 301 https://$host$request_uri;
+        ${forceSsl
+          ? 'return 301 https://$host$request_uri;'
+          : proxyPassBlock(rule.target, { basicAuthLines, websockets })}
     }
-}
+}`;
+
+  return `# Hearth Proxy: ${rule.id} (${serverNames})
+${httpServer}
 server {
-    listen ${PROXY_PORT} ssl;
-    server_name ${rule.domain};
+    listen ${PROXY_PORT} ssl${http2 ? ' http2' : ''};
+    server_name ${serverNames};
     ssl_certificate     ${cert};
     ssl_certificate_key ${key};
     access_log ${logFile} hearth_combined;
     ${maxBody ? `client_max_body_size ${maxBody};` : ''}
+    ${hstsHeader}
     ${secHeaders}
     ${ipLines.join('\n    ')}
+    ${blockExploits}
     ${staticCache}
+    ${customLocations}
     location / {
-        ${ba?.enabled && ba?.user ? `auth_basic "Restricted";\n        auth_basic_user_file ${htpasswdPath(rule.id)};` : ''}
-        proxy_pass ${rule.target};
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-        proxy_send_timeout 300;
+        ${proxyPassBlock(rule.target, { basicAuthLines, websockets })}
         ${snippet}
     }
 }
@@ -1280,24 +1390,36 @@ app.get('/api/proxy/status', requireAuth, (req, res) => {
 
 app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
   const {
-    domain, target, enabled = true, strip = '', cfSync = false,
+    domain, extraDomains, forwardScheme, forwardHost, forwardPort,
+    locations, enabled = true, cfSync = false,
     basicAuth, ipAllowlist = '', ipDenylist = '',
-    securityHeaders = false, cacheStatic = false, maxBodySize = '', customSnippet = '',
+    securityHeaders = false, hstsEnabled = false, hstsSubdomains = false,
+    forceSsl = true, http2 = false, blockExploits = false, websockets = true,
+    cacheStatic = false, maxBodySize = '', customSnippet = '',
   } = req.body || {};
-  if (!domain || !target) return res.status(400).json({ error: 'domain and target are required' });
-  validateProxyInputs(domain.trim(), target.trim());
+  if (!domain || !forwardHost || !forwardPort) return res.status(400).json({ error: 'domain, forwardHost and forwardPort are required' });
+  const target = buildTarget(forwardScheme, forwardHost, forwardPort);
+  validateProxyInputs(domain.trim(), target);
+  const extraDomainsClean = normalizeExtraDomains(extraDomains);
+  extraDomainsClean.forEach(validateDomain);
+  const locationsClean = normalizeLocations(locations);
 
   const rules = [...(runtimeConfig.proxyRules || [])];
   const id = Date.now().toString(36);
   const rule = {
-    id, domain: domain.trim(), target: target.trim().replace(/\/$/, ''),
-    enabled: !!enabled, strip: strip.trim(), cfSync: !!cfSync, cfDnsId: null,
+    id, domain: domain.trim(), extraDomains: extraDomainsClean,
+    forwardScheme: forwardScheme === 'https' ? 'https' : 'http',
+    forwardHost: forwardHost.trim(), forwardPort: String(forwardPort).trim(),
+    target, locations: locationsClean,
+    enabled: !!enabled, cfSync: !!cfSync, cfDnsId: null,
     basicAuth: basicAuth || null, ipAllowlist, ipDenylist,
-    securityHeaders: !!securityHeaders, cacheStatic: !!cacheStatic,
-    maxBodySize, customSnippet, certType: 'self-signed',
+    securityHeaders: !!securityHeaders, hstsEnabled: !!hstsEnabled, hstsSubdomains: !!hstsSubdomains,
+    forceSsl: !!forceSsl, http2: !!http2, blockExploits: !!blockExploits, websockets: !!websockets,
+    cacheStatic: !!cacheStatic, maxBodySize, customSnippet, certType: 'self-signed',
   };
   if (basicAuth?.enabled && basicAuth?.user && basicAuth?.password) {
     await writeHtpasswd(id, basicAuth.user, basicAuth.password).catch(e => console.warn('[AUTH]', e.message));
+    delete rule.basicAuth.password;
   }
   rules.push(rule);
   saveConfig({ proxyRules: rules });
@@ -1312,29 +1434,46 @@ app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
 
 app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   const {
-    domain, target, enabled, strip, cfSync,
+    domain, extraDomains, forwardScheme, forwardHost, forwardPort,
+    locations, enabled, cfSync,
     basicAuth, ipAllowlist, ipDenylist,
-    securityHeaders, cacheStatic, maxBodySize, customSnippet,
+    securityHeaders, hstsEnabled, hstsSubdomains,
+    forceSsl, http2, blockExploits, websockets,
+    cacheStatic, maxBodySize, customSnippet,
   } = req.body || {};
   const existing = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
-  const newDomain = domain !== undefined ? domain.trim() : existing?.domain;
-  const newTarget = target !== undefined ? target.trim() : existing?.target;
-  if (newDomain && newTarget) validateProxyInputs(newDomain, newTarget);
+  if (!existing) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+
+  const newDomain = domain !== undefined ? domain.trim() : existing.domain;
+  const newForwardHost = forwardHost !== undefined ? forwardHost.trim() : existing.forwardHost;
+  const newForwardPort = forwardPort !== undefined ? String(forwardPort).trim() : existing.forwardPort;
+  const newForwardScheme = forwardScheme !== undefined ? (forwardScheme === 'https' ? 'https' : 'http') : (existing.forwardScheme || 'http');
+  const newTarget = buildTarget(newForwardScheme, newForwardHost, newForwardPort);
+  validateProxyInputs(newDomain, newTarget);
+  const newExtraDomains = extraDomains !== undefined ? normalizeExtraDomains(extraDomains) : (existing.extraDomains || []);
+  newExtraDomains.forEach(validateDomain);
+  const newLocations = locations !== undefined ? normalizeLocations(locations) : (existing.locations || []);
 
   let updatedRule;
   const rules = (runtimeConfig.proxyRules || []).map((r) => {
     if (r.id !== req.params.id) return r;
     updatedRule = {
       ...r,
-      domain:  domain  !== undefined ? domain.trim()  : r.domain,
-      target:  target  !== undefined ? target.trim().replace(/\/$/, '') : r.target,
+      domain: newDomain, extraDomains: newExtraDomains,
+      forwardScheme: newForwardScheme, forwardHost: newForwardHost, forwardPort: newForwardPort,
+      target: newTarget, locations: newLocations,
       enabled: enabled !== undefined ? !!enabled : r.enabled,
-      strip:   strip   !== undefined ? strip.trim() : (r.strip || ''),
       cfSync:  cfSync  !== undefined ? !!cfSync : r.cfSync,
       basicAuth:      basicAuth      !== undefined ? basicAuth      : r.basicAuth,
       ipAllowlist:    ipAllowlist    !== undefined ? ipAllowlist    : (r.ipAllowlist || ''),
       ipDenylist:     ipDenylist     !== undefined ? ipDenylist     : (r.ipDenylist || ''),
       securityHeaders: securityHeaders !== undefined ? !!securityHeaders : r.securityHeaders,
+      hstsEnabled:    hstsEnabled    !== undefined ? !!hstsEnabled   : !!r.hstsEnabled,
+      hstsSubdomains: hstsSubdomains !== undefined ? !!hstsSubdomains: !!r.hstsSubdomains,
+      forceSsl:       forceSsl       !== undefined ? !!forceSsl      : (r.forceSsl !== false),
+      http2:          http2          !== undefined ? !!http2        : !!r.http2,
+      blockExploits:  blockExploits  !== undefined ? !!blockExploits: !!r.blockExploits,
+      websockets:     websockets     !== undefined ? !!websockets   : (r.websockets !== false),
       cacheStatic:    cacheStatic    !== undefined ? !!cacheStatic  : r.cacheStatic,
       maxBodySize:    maxBodySize    !== undefined ? maxBodySize    : (r.maxBodySize || ''),
       customSnippet:  customSnippet  !== undefined ? customSnippet  : (r.customSnippet || ''),

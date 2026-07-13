@@ -2882,6 +2882,8 @@ async function loadProxyRules() {
   // Load CF tunnel status if token is configured
   if (_cfConfigured) loadCfTunnelStatus();
 
+  renderProxyStats(rules);
+
   const box = document.getElementById('proxy-rules-list');
   if (!rules.length) {
     box.innerHTML = `<div class="empty"><div class="big">⇌</div>${t('proxy.empty')}<br><span class="muted" style="font-size:13px">${t('proxy.emptyHint')}</span></div>`;
@@ -2895,12 +2897,24 @@ async function loadProxyRules() {
     const certBadgeClass = certType === 'letsencrypt' ? 'le' : certType === 'custom' ? 'custom' : 'self';
     const certBadgeLabel = certType === 'letsencrypt' ? '🔒 LE' : certType === 'custom' ? '🔑 Custom' : '⚠ Self';
     const certBadge = `<span class="cert-badge ${certBadgeClass}" data-proxy-cert="${esc(r.id)}" title="Manage certificate">${certBadgeLabel}</span>`;
+    const accessClass = (r.ipAllowlist || '').trim() ? 'restricted' : (r.ipDenylist || '').trim() ? 'blocked' : 'public';
+    const accessLabel = accessClass === 'restricted' ? t('proxy.accessAllow') : accessClass === 'blocked' ? t('proxy.accessDeny') : t('proxy.accessPublic');
+    const accessBadge = `<span class="access-badge ${accessClass}">${accessLabel}</span>`;
+    const locCount = (r.locations || []).length;
+    const locBadge = locCount ? `<span class="loc-badge">${locCount} location${locCount > 1 ? 's' : ''}</span>` : '';
+    const extraDomains = (r.extraDomains || []);
+    const extraDomainsHtml = extraDomains.length ? `<span class="proxy-extra-domains">+${extraDomains.length} more</span>` : '';
     return `
     <div class="proxy-row">
-      <span class="proxy-status-dot ${r.enabled ? '' : 'off'}"></span>
+      <span class="proxy-status-dot ${r.enabled ? '' : 'off'}" id="proxy-dot-${esc(r.id)}"></span>
       <div class="proxy-main">
-        <div class="proxy-domain">${esc(r.domain)} ${certBadge} ${cfBadge}</div>
+        <div class="proxy-domain">${esc(r.domain)}${extraDomainsHtml} ${certBadge} ${cfBadge}</div>
         <div class="proxy-target">→ ${esc(r.target)}</div>
+        <div class="proxy-badges">
+          ${accessBadge}
+          ${locBadge}
+          <span class="proxy-status-text checking" id="proxy-status-text-${esc(r.id)}">${t('proxy.checking')}</span>
+        </div>
       </div>
       <div class="proxy-actions">
         <button class="btn sm ghost proxy-test-btn" data-proxy-test="${esc(r.id)}" title="Test connection">⚡</button>
@@ -2915,6 +2929,35 @@ async function loadProxyRules() {
       </div>
     </div>`;
   }).join('');
+
+  // Live reachability check per host (parallel, non-blocking)
+  rules.forEach((r) => {
+    const textEl = document.getElementById(`proxy-status-text-${r.id}`);
+    const dotEl  = document.getElementById(`proxy-dot-${r.id}`);
+    if (!textEl) return;
+    if (!r.enabled) { textEl.textContent = t('proxy.disabled'); textEl.className = 'proxy-status-text off'; return; }
+    api('GET', `/api/proxy/test/${r.id}`).then((res) => {
+      if (!document.getElementById(`proxy-status-text-${r.id}`)) return; // list re-rendered meanwhile
+      textEl.textContent = res.ok ? t('proxy.online') : t('proxy.offline');
+      textEl.className = `proxy-status-text ${res.ok ? 'online' : 'offline'}`;
+      if (dotEl) dotEl.style.background = res.ok ? '' : 'var(--danger)';
+    }).catch(() => { textEl.textContent = t('proxy.offline'); textEl.className = 'proxy-status-text offline'; });
+  });
+}
+
+function renderProxyStats(rules) {
+  const row = document.getElementById('proxy-stats-row');
+  if (!row) return;
+  const total = rules.length;
+  const enabled = rules.filter((r) => r.enabled).length;
+  const withLocations = rules.reduce((sum, r) => sum + (r.locations || []).length, 0);
+  const restricted = rules.filter((r) => (r.ipAllowlist || '').trim() || (r.ipDenylist || '').trim() || r.basicAuth?.enabled).length;
+  row.innerHTML = `
+    <div class="proxy-stat-tile"><div class="proxy-stat-icon">⇌</div><div><div class="proxy-stat-num">${total}</div><div class="proxy-stat-label">${t('proxy.statHosts')}</div></div></div>
+    <div class="proxy-stat-tile"><div class="proxy-stat-icon info">✓</div><div><div class="proxy-stat-num">${enabled}</div><div class="proxy-stat-label">${t('proxy.statEnabled')}</div></div></div>
+    <div class="proxy-stat-tile"><div class="proxy-stat-icon neutral">⛓</div><div><div class="proxy-stat-num">${withLocations}</div><div class="proxy-stat-label">${t('proxy.statLocations')}</div></div></div>
+    <div class="proxy-stat-tile"><div class="proxy-stat-icon warn">🔒</div><div><div class="proxy-stat-num">${restricted}</div><div class="proxy-stat-label">${t('proxy.statRestricted')}</div></div></div>
+  `;
 }
 
 async function loadCfTunnelStatus() {
@@ -3027,6 +3070,30 @@ document.getElementById('prl-ba-enabled').addEventListener('change', function() 
   document.getElementById('prl-ba-fields').style.display = this.checked ? 'flex' : 'none';
 });
 
+function prlLocationRow(loc = {}) {
+  const d = document.createElement('div');
+  d.className = 'prl-loc-row';
+  d.innerHTML = `
+    <input class="input" placeholder="/api" data-k="path" value="${esc(loc.path || '')}" />
+    <select class="input" data-k="forwardScheme">
+      <option value="http" ${loc.forwardScheme !== 'https' ? 'selected' : ''}>http</option>
+      <option value="https" ${loc.forwardScheme === 'https' ? 'selected' : ''}>https</option>
+    </select>
+    <input class="input" placeholder="192.168.1.51" data-k="forwardHost" value="${esc(loc.forwardHost || '')}" />
+    <input class="input" placeholder="8080" data-k="forwardPort" value="${esc(String(loc.forwardPort || ''))}" inputmode="numeric" />
+    <span class="rm-btn" onclick="this.parentNode.remove()">✕</span>`;
+  return d;
+}
+
+document.getElementById('prl-add-location').addEventListener('click', () => {
+  document.getElementById('prl-locations').appendChild(prlLocationRow());
+});
+
+document.getElementById('prl-access-mode').addEventListener('change', function () {
+  document.getElementById('prl-ip-allow').style.display = this.value === 'allow' ? '' : 'none';
+  document.getElementById('prl-ip-deny').style.display  = this.value === 'deny'  ? '' : 'none';
+});
+
 async function openProxyModal(id, tab = 'general') {
   _editingProxyId = id || null;
   document.getElementById('prl-title').textContent = id ? t('proxy.editTitle') : t('proxy.addTitle');
@@ -3040,19 +3107,32 @@ async function openProxyModal(id, tab = 'general') {
 
   // Reset fields
   document.getElementById('prl-domain').value = '';
-  document.getElementById('prl-target').value = '';
+  document.getElementById('prl-extra-domains').value = '';
+  document.getElementById('prl-fwd-scheme').value = 'http';
+  document.getElementById('prl-fwd-host').value = '';
+  document.getElementById('prl-fwd-port').value = '';
+  document.getElementById('prl-access-mode').value = 'public';
+  document.getElementById('prl-ip-allow').value = '';
+  document.getElementById('prl-ip-deny').value = '';
+  document.getElementById('prl-ip-allow').style.display = 'none';
+  document.getElementById('prl-ip-deny').style.display = 'none';
   document.getElementById('prl-enabled').checked = true;
   document.getElementById('prl-cf-sync').checked = false;
   document.getElementById('prl-ba-enabled').checked = false;
   document.getElementById('prl-ba-fields').style.display = 'none';
   document.getElementById('prl-ba-user').value = '';
   document.getElementById('prl-ba-pass').value = '';
-  document.getElementById('prl-ip-allow').value = '';
-  document.getElementById('prl-ip-deny').value = '';
-  document.getElementById('prl-sec-headers').checked = false;
   document.getElementById('prl-cache-static').checked = false;
+  document.getElementById('prl-block-exploits').checked = false;
+  document.getElementById('prl-websockets').checked = true;
+  document.getElementById('prl-force-ssl').checked = true;
+  document.getElementById('prl-http2').checked = false;
+  document.getElementById('prl-hsts-enabled').checked = false;
+  document.getElementById('prl-hsts-subdomains').checked = false;
+  document.getElementById('prl-sec-headers').checked = false;
   document.getElementById('prl-max-body').value = '';
   document.getElementById('prl-snippet').value = '';
+  document.getElementById('prl-locations').innerHTML = '';
   document.getElementById('prl-cert-info').textContent = id ? 'Loading…' : 'Save rule first to manage certificate.';
   document.getElementById('prl-cert-status').textContent = '';
 
@@ -3060,16 +3140,31 @@ async function openProxyModal(id, tab = 'general') {
     api('GET', '/api/proxy/rules').then(rules => {
       const r = rules.find(x => x.id === id);
       if (!r) return;
-      document.getElementById('prl-domain').value    = r.domain;
-      document.getElementById('prl-target').value    = r.target;
+      document.getElementById('prl-domain').value = r.domain;
+      document.getElementById('prl-extra-domains').value = (r.extraDomains || []).join(', ');
+      document.getElementById('prl-fwd-scheme').value = r.forwardScheme || 'http';
+      document.getElementById('prl-fwd-host').value = r.forwardHost || '';
+      document.getElementById('prl-fwd-port').value = r.forwardPort || '';
       document.getElementById('prl-enabled').checked = r.enabled;
       document.getElementById('prl-cf-sync').checked = !!r.cfSync;
+      const accessMode = (r.ipAllowlist || '').trim() ? 'allow' : (r.ipDenylist || '').trim() ? 'deny' : 'public';
+      document.getElementById('prl-access-mode').value = accessMode;
       document.getElementById('prl-ip-allow').value  = r.ipAllowlist || '';
       document.getElementById('prl-ip-deny').value   = r.ipDenylist || '';
+      document.getElementById('prl-ip-allow').style.display = accessMode === 'allow' ? '' : 'none';
+      document.getElementById('prl-ip-deny').style.display  = accessMode === 'deny'  ? '' : 'none';
       document.getElementById('prl-sec-headers').checked  = !!r.securityHeaders;
       document.getElementById('prl-cache-static').checked = !!r.cacheStatic;
+      document.getElementById('prl-block-exploits').checked = !!r.blockExploits;
+      document.getElementById('prl-websockets').checked = r.websockets !== false;
+      document.getElementById('prl-force-ssl').checked = r.forceSsl !== false;
+      document.getElementById('prl-http2').checked = !!r.http2;
+      document.getElementById('prl-hsts-enabled').checked = !!r.hstsEnabled;
+      document.getElementById('prl-hsts-subdomains').checked = !!r.hstsSubdomains;
       document.getElementById('prl-max-body').value   = r.maxBodySize || '';
       document.getElementById('prl-snippet').value    = r.customSnippet || '';
+      const locBox = document.getElementById('prl-locations');
+      (r.locations || []).forEach((loc) => locBox.appendChild(prlLocationRow(loc)));
       if (r.basicAuth?.enabled) {
         document.getElementById('prl-ba-enabled').checked = true;
         document.getElementById('prl-ba-fields').style.display = 'flex';
@@ -3102,12 +3197,12 @@ async function openProxyModal(id, tab = 'general') {
         const ports = (c.ports || []).filter(p => p.PublicPort || p.PrivatePort);
         if (!ports.length) {
           const opt = document.createElement('option');
-          opt.value = `http://${c.name}`; opt.textContent = c.name; sel.appendChild(opt);
+          opt.value = `${c.name}::`; opt.textContent = c.name; sel.appendChild(opt);
         } else {
           ports.forEach(p => {
             const port = p.PrivatePort || p.PublicPort;
             const opt = document.createElement('option');
-            opt.value = `http://${c.name}:${port}`; opt.textContent = `${c.name} :${port}`; sel.appendChild(opt);
+            opt.value = `${c.name}::${port}`; opt.textContent = `${c.name} :${port}`; sel.appendChild(opt);
           });
         }
       });
@@ -3120,27 +3215,43 @@ async function openProxyModal(id, tab = 'general') {
 
 document.getElementById('prl-pick-btn').addEventListener('click', () => {
   const val = document.getElementById('prl-container-select').value;
-  if (val) document.getElementById('prl-target').value = val;
+  if (!val) return;
+  const [host, , port] = val.split(':');
+  document.getElementById('prl-fwd-host').value = host;
+  if (port) document.getElementById('prl-fwd-port').value = port;
 });
 
 document.getElementById('add-proxy-btn').addEventListener('click', () => openProxyModal(null));
 
 document.getElementById('prl-save').addEventListener('click', async () => {
-  const domain  = document.getElementById('prl-domain').value.trim();
-  const target  = document.getElementById('prl-target').value.trim();
+  const domain      = document.getElementById('prl-domain').value.trim();
+  const extraDomains = document.getElementById('prl-extra-domains').value.split(',').map((s) => s.trim()).filter(Boolean);
+  const forwardScheme = document.getElementById('prl-fwd-scheme').value;
+  const forwardHost  = document.getElementById('prl-fwd-host').value.trim();
+  const forwardPort  = document.getElementById('prl-fwd-port').value.trim();
   const enabled = document.getElementById('prl-enabled').checked;
   const cfSync  = document.getElementById('prl-cf-sync')?.checked || false;
   const baEnabled = document.getElementById('prl-ba-enabled').checked;
   const baUser    = document.getElementById('prl-ba-user').value.trim();
   const baPass    = document.getElementById('prl-ba-pass').value;
-  if (!domain || !target) { toast(t('proxy.requiredFields'), 'error'); return; }
+  if (!domain || !forwardHost || !forwardPort) { toast(t('proxy.requiredFields'), 'error'); return; }
+
+  const accessMode = document.getElementById('prl-access-mode').value;
+  const locations = collectEdit('prl-locations', (l) => (l.path && l.forwardHost && l.forwardPort) ? l : null);
 
   const payload = {
-    domain, target, enabled, cfSync,
+    domain, extraDomains, forwardScheme, forwardHost, forwardPort, locations,
+    enabled, cfSync,
     basicAuth: { enabled: baEnabled, user: baUser, ...(baPass ? { password: baPass } : {}) },
-    ipAllowlist: document.getElementById('prl-ip-allow').value.trim(),
-    ipDenylist:  document.getElementById('prl-ip-deny').value.trim(),
+    ipAllowlist: accessMode === 'allow' ? document.getElementById('prl-ip-allow').value.trim() : '',
+    ipDenylist:  accessMode === 'deny'  ? document.getElementById('prl-ip-deny').value.trim()  : '',
     securityHeaders: document.getElementById('prl-sec-headers').checked,
+    hstsEnabled:     document.getElementById('prl-hsts-enabled').checked,
+    hstsSubdomains:  document.getElementById('prl-hsts-subdomains').checked,
+    forceSsl:        document.getElementById('prl-force-ssl').checked,
+    http2:           document.getElementById('prl-http2').checked,
+    blockExploits:   document.getElementById('prl-block-exploits').checked,
+    websockets:      document.getElementById('prl-websockets').checked,
     cacheStatic:     document.getElementById('prl-cache-static').checked,
     maxBodySize:     document.getElementById('prl-max-body').value.trim(),
     customSnippet:   document.getElementById('prl-snippet').value,

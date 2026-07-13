@@ -527,6 +527,29 @@
       .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
 
       /* ===== Reverse Proxy ===== */
+      /* Dashboard stat tiles */
+      .proxy-stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+      .proxy-stat-tile { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+      .proxy-stat-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; background: rgba(88,214,141,.15); color: var(--ok); }
+      .proxy-stat-icon.warn { background: rgba(255,187,51,.15); color: #ffbb33; }
+      .proxy-stat-icon.info { background: rgba(100,181,246,.15); color: #64b5f6; }
+      .proxy-stat-icon.neutral { background: var(--panel-2); color: var(--text-faint); }
+      .proxy-stat-num { font-size: 20px; font-weight: 700; line-height: 1.1; }
+      .proxy-stat-label { font-size: 11.5px; color: var(--text-faint); margin-top: 1px; }
+      /* Access + locations badges */
+      .access-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+      .access-badge.public { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
+      .access-badge.restricted { background: rgba(255,187,51,.15); color: #ffbb33; border: 1px solid rgba(255,187,51,.3); }
+      .access-badge.blocked { background: rgba(255,90,90,.15); color: var(--danger); border: 1px solid rgba(255,90,90,.3); }
+      .loc-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
+      .proxy-status-text { font-size: 11px; font-weight: 600; }
+      .proxy-status-text.online  { color: var(--ok); }
+      .proxy-status-text.offline { color: var(--danger); }
+      .proxy-status-text.checking, .proxy-status-text.off { color: var(--text-faint); }
+      /* Custom Locations rows in modal */
+      .prl-loc-row { display: grid; grid-template-columns: 1fr 90px 1.4fr 90px auto; gap: 8px; align-items: center; margin-bottom: 8px; padding: 10px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+      .prl-loc-row .rm-btn { color: var(--danger); cursor: pointer; font-size: 16px; padding: 2px 6px; }
+      @media (max-width: 640px) { .prl-loc-row { grid-template-columns: 1fr 1fr; } }
       /* Proxy Modal Tabs */
       .prl-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
       .prl-tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-faint); background: none; border-top: none; border-left: none; border-right: none; transition: color .15s, border-color .15s; }
@@ -571,6 +594,8 @@
       .proxy-row .proxy-domain { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
       .proxy-row .proxy-target { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); margin-top: 3px; }
       .proxy-row .proxy-main { flex: 1; min-width: 0; }
+      .proxy-row .proxy-badges { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+      .proxy-row .proxy-extra-domains { font-size: 11px; color: var(--text-faint); margin-left: 4px; }
       .proxy-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); display: inline-block; flex-shrink: 0; }
       .proxy-status-dot.off { background: var(--text-faint); box-shadow: none; }
       .proxy-row .proxy-actions { display: flex; align-items: center; gap: 4px; }
@@ -1749,6 +1774,8 @@
             <div class="proxy-info-bar" id="proxy-info-bar">
               <span data-i18n="proxy.infoBar">Routes incoming requests by domain to containers · WebSocket supported</span>
             </div>
+
+            <div class="proxy-stats-row" id="proxy-stats-row"></div>
 
             <!-- Cloudflare Settings Panel -->
             <div class="cf-settings-panel" id="cf-settings-panel">
@@ -3006,7 +3033,7 @@
 
     <!-- Proxy-Regel Modal -->
     <div class="modal-backdrop" id="modal-proxy-rule">
-      <div class="modal" style="max-width:540px">
+      <div class="modal" style="max-width:580px">
         <div class="modal-head">
           <h3 id="prl-title">Add Proxy Rule</h3>
           <button class="iconbtn" data-close>✕</button>
@@ -3014,26 +3041,71 @@
         <div class="modal-body" style="padding-top:0">
           <!-- Tabs -->
           <div class="prl-tabs">
-            <button class="prl-tab active" data-tab="general" data-i18n="proxy.tabGeneral">Allgemein</button>
-            <button class="prl-tab" data-tab="cert" data-i18n="proxy.tabSSL">SSL / Zertifikat</button>
-            <button class="prl-tab" data-tab="security" data-i18n="proxy.tabSecurity">Sicherheit</button>
-            <button class="prl-tab" data-tab="advanced" data-i18n="proxy.tabAdvanced">Erweitert</button>
+            <button class="prl-tab active" data-tab="general" data-i18n="proxy.tabDetails">Details</button>
+            <button class="prl-tab" data-tab="locations" data-i18n="proxy.tabLocations">Custom Locations</button>
+            <button class="prl-tab" data-tab="cert" data-i18n="proxy.tabSSL">SSL</button>
           </div>
 
-          <!-- Tab: General -->
+          <!-- Tab: Details -->
           <div class="prl-tab-panel active" id="prl-panel-general">
             <div class="field">
-              <label><span data-i18n="proxy.domain">Domain</span> <span class="muted" style="font-size:11px">(e.g. jellyfin.home.local)</span></label>
+              <label><span data-i18n="proxy.domain">Domain Names</span> <span class="muted" style="font-size:11px">(e.g. jellyfin.home.local)</span></label>
               <input class="input" id="prl-domain" placeholder="app.myserver.com" autocomplete="off" />
+              <input class="input" id="prl-extra-domains" placeholder="second.myserver.com, third.myserver.com …" autocomplete="off" style="margin-top:6px" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.extraDomainsHint">Weitere Domains, Komma-getrennt (optional).</div>
             </div>
             <div class="field">
-              <label><span data-i18n="proxy.target">Target</span> <span class="muted" style="font-size:11px">(e.g. http://192.168.1.50:8096)</span></label>
-              <input class="input" id="prl-target" placeholder="http://localhost:8096" autocomplete="off" />
+              <label data-i18n="proxy.forwardTo">Forward To</label>
+              <div style="display:grid;grid-template-columns:90px 1fr 110px;gap:8px">
+                <select class="input" id="prl-fwd-scheme"><option value="http">http</option><option value="https">https</option></select>
+                <input class="input" id="prl-fwd-host" placeholder="192.168.1.50" autocomplete="off" />
+                <input class="input" id="prl-fwd-port" placeholder="8096" autocomplete="off" inputmode="numeric" />
+              </div>
               <div class="prl-picker" id="prl-picker" style="display:none">
                 <select class="input" id="prl-container-select"><option value="">– Pick a container –</option></select>
-                <button class="btn sm ghost" id="prl-pick-btn">Use</button>
+                <button class="btn sm ghost" id="prl-pick-btn" data-i18n="proxy.useContainer">Use</button>
               </div>
             </div>
+
+            <div class="field">
+              <label data-i18n="proxy.access">Access</label>
+              <select class="input" id="prl-access-mode">
+                <option value="public" data-i18n="proxy.accessPublic">Publicly accessible</option>
+                <option value="allow" data-i18n="proxy.accessAllow">Restricted (allowlist)</option>
+                <option value="deny" data-i18n="proxy.accessDeny">Restricted (denylist)</option>
+              </select>
+              <input class="input" id="prl-ip-allow" placeholder="192.168.0.0/24, 10.0.0.1 (comma separated)" autocomplete="off" style="margin-top:6px;display:none" />
+              <input class="input" id="prl-ip-deny" placeholder="1.2.3.4, 5.6.7.0/24 (comma separated)" autocomplete="off" style="margin-top:6px;display:none" />
+            </div>
+
+            <div class="field">
+              <label style="font-weight:600" data-i18n="proxy.baTitle">Passwortschutz</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <input type="checkbox" id="prl-ba-enabled" style="width:auto" />
+                <label for="prl-ba-enabled" style="margin:0" data-i18n="proxy.baEnable">Passwortschutz aktivieren</label>
+              </div>
+              <div id="prl-ba-fields" style="display:none;gap:8px;flex-direction:column">
+                <input class="input" id="prl-ba-user" placeholder="Username" autocomplete="off" />
+                <input class="input" type="password" id="prl-ba-pass" placeholder="Password (leave empty to keep existing)" autocomplete="new-password" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label data-i18n="proxy.options">Options</label>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                <input type="checkbox" id="prl-cache-static" style="width:auto" />
+                <label for="prl-cache-static" style="margin:0" data-i18n="proxy.cacheStatic">Cache Assets</label>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                <input type="checkbox" id="prl-block-exploits" style="width:auto" />
+                <label for="prl-block-exploits" style="margin:0" data-i18n="proxy.blockExploits">Block Common Exploits</label>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <input type="checkbox" id="prl-websockets" checked style="width:auto" />
+                <label for="prl-websockets" style="margin:0" data-i18n="proxy.websockets">Websockets Support</label>
+              </div>
+            </div>
+
             <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
               <input type="checkbox" id="prl-enabled" checked style="width:auto" />
               <label for="prl-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
@@ -3043,9 +3115,32 @@
               <div class="cf-sync-label"><div>Cloudflare DNS sync</div><div class="cf-sync-sub">Auto-create A record when saving</div></div>
               <input type="checkbox" id="prl-cf-sync" style="width:auto" />
             </div>
+
+            <details style="margin-top:14px">
+              <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-faint)" data-i18n="proxy.tabAdvanced">Erweitert</summary>
+              <div style="margin-top:12px">
+                <div class="field">
+                  <label style="font-weight:600" data-i18n="proxy.maxBody">Max. Upload-Größe</label>
+                  <input class="input" id="prl-max-body" placeholder="e.g. 100m, 2g" autocomplete="off" style="max-width:140px" />
+                  <div class="s-sub" style="margin-top:4px" data-i18n="proxy.maxBodyHint">nginx client_max_body_size (Standard: 1m)</div>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label style="font-weight:600" data-i18n="proxy.snippet">Eigenes nginx-Snippet</label>
+                  <textarea class="input" id="prl-snippet" rows="4" placeholder="add_header X-Custom-Header value;&#10;proxy_buffer_size 128k;" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
+                  <div class="s-sub" style="margin-top:4px" data-i18n="proxy.snippetHint">Wird in den location / Block eingefügt.</div>
+                </div>
+              </div>
+            </details>
           </div>
 
-          <!-- Tab: SSL / Cert -->
+          <!-- Tab: Custom Locations -->
+          <div class="prl-tab-panel" id="prl-panel-locations">
+            <div class="s-sub" style="margin-bottom:12px" data-i18n="proxy.locationsHint">Route zusätzliche Unterpfade dieser Domain an einen anderen Container.</div>
+            <div id="prl-locations"></div>
+            <button class="btn sm ghost" id="prl-add-location" type="button" data-i18n="proxy.addLocation">+ Add Location</button>
+          </div>
+
+          <!-- Tab: SSL -->
           <div class="prl-tab-panel" id="prl-panel-cert">
             <div class="cert-panel">
               <div class="cert-panel-title" data-i18n="proxy.certCurrent">Aktuelles Zertifikat</div>
@@ -3069,58 +3164,28 @@
               </div>
               <div id="prl-cert-status" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
             </div>
-          </div>
-
-          <!-- Tab: Security -->
-          <div class="prl-tab-panel" id="prl-panel-security">
-            <div class="field">
-              <label style="font-weight:600" data-i18n="proxy.baTitle">Passwortschutz</label>
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                <input type="checkbox" id="prl-ba-enabled" style="width:auto" />
-                <label for="prl-ba-enabled" style="margin:0" data-i18n="proxy.baEnable">Passwortschutz aktivieren</label>
-              </div>
-              <div id="prl-ba-fields" style="display:none;gap:8px;flex-direction:column">
-                <input class="input" id="prl-ba-user" placeholder="Username" autocomplete="off" />
-                <input class="input" type="password" id="prl-ba-pass" placeholder="Password (leave empty to keep existing)" autocomplete="new-password" />
-              </div>
-            </div>
-            <div class="field">
-              <label style="font-weight:600" data-i18n="proxy.ipAllow">IP-Erlaubnisliste</label>
-              <input class="input" id="prl-ip-allow" placeholder="192.168.0.0/24, 10.0.0.1 (comma separated)" autocomplete="off" />
-              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipAllowHint">Nur diese IPs haben Zugriff. Leer = alle.</div>
-            </div>
-            <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600" data-i18n="proxy.ipDeny">IP-Sperrliste</label>
-              <input class="input" id="prl-ip-deny" placeholder="1.2.3.4, 5.6.7.0/24 (comma separated)" autocomplete="off" />
-              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.ipDenyHint">Diese IPs werden immer blockiert.</div>
-            </div>
-          </div>
-
-          <!-- Tab: Advanced -->
-          <div class="prl-tab-panel" id="prl-panel-advanced">
             <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="prl-force-ssl" checked style="width:auto" />
+              <label for="prl-force-ssl" style="margin:0" data-i18n="proxy.forceSsl">Force SSL</label>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="prl-http2" style="width:auto" />
+              <label for="prl-http2" style="margin:0" data-i18n="proxy.http2">HTTP/2 Support</label>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="prl-hsts-enabled" style="width:auto" />
+              <label for="prl-hsts-enabled" style="margin:0" data-i18n="proxy.hstsEnabled">HSTS Enabled</label>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="prl-hsts-subdomains" style="width:auto" />
+              <label for="prl-hsts-subdomains" style="margin:0" data-i18n="proxy.hstsSubdomains">HSTS Sub-domains</label>
+            </div>
+            <div class="field" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:0">
               <input type="checkbox" id="prl-sec-headers" style="width:auto" />
               <div>
-                <label for="prl-sec-headers" style="margin:0;font-weight:600" data-i18n="proxy.secHeaders">Security-Header</label>
-                <div class="s-sub" data-i18n="proxy.secHeadersHint">HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
+                <label for="prl-sec-headers" style="margin:0;font-weight:600" data-i18n="proxy.secHeaders">Weitere Security-Header</label>
+                <div class="s-sub" data-i18n="proxy.secHeadersHint">X-Frame-Options, X-Content-Type-Options, Referrer-Policy</div>
               </div>
-            </div>
-            <div class="field" style="flex-direction:row;align-items:center;gap:10px">
-              <input type="checkbox" id="prl-cache-static" style="width:auto" />
-              <div>
-                <label for="prl-cache-static" style="margin:0;font-weight:600" data-i18n="proxy.cacheStatic">Statische Dateien cachen</label>
-                <div class="s-sub" data-i18n="proxy.cacheStaticHint">CSS, JS, Bilder 7 Tage im Browser cachen</div>
-              </div>
-            </div>
-            <div class="field">
-              <label style="font-weight:600" data-i18n="proxy.maxBody">Max. Upload-Größe</label>
-              <input class="input" id="prl-max-body" placeholder="e.g. 100m, 2g" autocomplete="off" style="max-width:140px" />
-              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.maxBodyHint">nginx client_max_body_size (Standard: 1m)</div>
-            </div>
-            <div class="field" style="margin-bottom:0">
-              <label style="font-weight:600" data-i18n="proxy.snippet">Eigenes nginx-Snippet</label>
-              <textarea class="input" id="prl-snippet" rows="4" placeholder="add_header X-Custom-Header value;&#10;proxy_buffer_size 128k;" style="font-family:var(--font-mono);font-size:12px;resize:vertical"></textarea>
-              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.snippetHint">Wird in den location / Block eingefügt.</div>
             </div>
           </div>
         </div>
