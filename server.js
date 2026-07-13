@@ -1556,12 +1556,30 @@ app.post('/api/proxy/rules/:id/cert/letsencrypt', requireAuth, asyncHandler(asyn
   // Remove existing cert so it can be replaced
   const { cert, key } = certPaths(rule.domain);
   try { fs.unlinkSync(cert); fs.unlinkSync(key); } catch (_) {}
-  await requestLECert(rule.domain);
+  await requestLECert(rule.domain, allDomainsOf(rule));
   const rules = (runtimeConfig.proxyRules || []).map(r =>
     r.id === req.params.id ? { ...r, certType: 'letsencrypt' } : r
   );
   saveConfig({ proxyRules: rules });
   await writeProxyConfigs(rules);
+  await reloadNginx();
+  const info = getCertInfo(rule.domain);
+  res.json({ ok: true, ...info });
+}));
+
+// Delete the current certificate and fall back to a fresh self-signed one —
+// there was previously no way to get unstuck from a broken/unwanted cert
+// short of editing files on disk by hand.
+app.delete('/api/proxy/rules/:id/cert', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const { dir } = certPaths(rule.domain);
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  const rules = (runtimeConfig.proxyRules || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'self-signed' } : r
+  );
+  saveConfig({ proxyRules: rules });
+  await writeProxyConfigs(rules);  // regenerates a fresh self-signed cert
   await reloadNginx();
   const info = getCertInfo(rule.domain);
   res.json({ ok: true, ...info });

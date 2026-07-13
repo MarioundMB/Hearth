@@ -3323,6 +3323,21 @@ async function prlUploadCert() {
   finally { btn.disabled = false; btn.textContent = 'Apply Upload'; }
 }
 
+async function prlDeleteCert() {
+  if (!_editingProxyId) { toast('Save rule first', 'error'); return; }
+  if (!confirm(t('proxy.deleteCertConfirm'))) return;
+  const btn = document.getElementById('prl-delete-cert-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('DELETE', `/api/proxy/rules/${_editingProxyId}/cert`);
+    toast('Certificate reset to self-signed ✓');
+    document.getElementById('prl-cert-info').textContent = 'Self-signed (no expiry info)';
+    document.getElementById('prl-cert-status').textContent = '';
+    loadProxyRules();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
 // ---------- Traffic Logs ----------
 let _currentLogRuleId = null;
 
