@@ -538,11 +538,16 @@ async function requestLECert(domain, allDomains = [domain]) {
   }
 
   const domainFlags = (allDomains.length ? allDomains : [domain]).flatMap((d) => ['-d', d]);
+  // acme.sh needs a syntactically valid contact email to register a Let's
+  // Encrypt account (rejects anything without a dotted domain part) — we
+  // don't collect one from the admin, so derive one from the rule's own
+  // domain, which always has a dot.
+  const accountEmail = `admin@${domain}`;
 
   await new Promise((resolve, reject) => {
     const args = usesCf
-      ? [ACME_SH, '--issue', '--dns', 'dns_cf', ...domainFlags, '--server', 'letsencrypt']
-      : [ACME_SH, '--issue', '--webroot', '/var/www/acme', ...domainFlags, '--server', 'letsencrypt'];
+      ? [ACME_SH, '--issue', '--dns', 'dns_cf', ...domainFlags, '--accountemail', accountEmail, '--server', 'letsencrypt']
+      : [ACME_SH, '--issue', '--webroot', '/var/www/acme', ...domainFlags, '--accountemail', accountEmail, '--server', 'letsencrypt'];
     const p = spawn('sh', args, { env, stdio: 'pipe' });
     let out = '';
     p.stdout.on('data', d => out += d);
