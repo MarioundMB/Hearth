@@ -3623,6 +3623,20 @@ app.post(
     const exposedPorts = {};
     for (const key of Object.keys(portBindings)) exposedPorts[key] = {};
 
+    // HostConfig.Binds only reflects mounts created with the legacy `-v`
+    // syntax. Containers created via Docker Compose's long-form `volumes:`
+    // (type/source/target) — which is how CasaOS and most Compose stacks
+    // declare mounts — store them in HostConfig.Mounts instead, which
+    // Binds misses entirely. info.Mounts is the normalized view Docker
+    // always populates on inspect regardless of how the mount was
+    // declared, so rebuild from that instead of trusting Binds.
+    const mounts = (info.Mounts || []).map(m => ({
+      Type:     m.Type,
+      Source:   m.Type === 'volume' ? m.Name : m.Source,
+      Target:   m.Destination,
+      ReadOnly: !m.RW,
+    }));
+
     const newC = await docker.createContainer({
       Image: image,
       name:  info.Name.replace(/^\//, ''),
@@ -3631,7 +3645,7 @@ app.post(
       ExposedPorts: exposedPorts,
       HostConfig: {
         PortBindings: portBindings,
-        Binds:        hc.Binds        || [],
+        Mounts:       mounts,
         RestartPolicy: hc.RestartPolicy || { Name: 'unless-stopped' },
         Privileged:   hc.Privileged   || false,
         NetworkMode:  hc.NetworkMode  || 'bridge',
@@ -3836,6 +3850,16 @@ async function runContainerAutoUpdate(name) {
   const exposedPorts = {};
   for (const key of Object.keys(portBindings)) exposedPorts[key] = {};
 
+  // See the identical comment in /api/updates/container/:id — HostConfig.Binds
+  // misses Compose long-form volume mounts; rebuild from the normalized
+  // info.Mounts view instead so scheduled updates don't silently drop mounts.
+  const mounts = (info.Mounts || []).map(m => ({
+    Type:     m.Type,
+    Source:   m.Type === 'volume' ? m.Name : m.Source,
+    Target:   m.Destination,
+    ReadOnly: !m.RW,
+  }));
+
   const newC = await docker.createContainer({
     Image: image,
     name:  info.Name.replace(/^\//, ''),
@@ -3844,7 +3868,7 @@ async function runContainerAutoUpdate(name) {
     ExposedPorts: exposedPorts,
     HostConfig: {
       PortBindings: portBindings,
-      Binds:        hc.Binds        || [],
+      Mounts:       mounts,
       RestartPolicy: hc.RestartPolicy || { Name: 'unless-stopped' },
       Privileged:   hc.Privileged   || false,
       NetworkMode:  hc.NetworkMode  || 'bridge',
