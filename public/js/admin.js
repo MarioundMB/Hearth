@@ -3193,20 +3193,24 @@ async function openProxyModal(id, tab = 'general') {
     api('GET', '/api/containers').then(containers => {
       const running = (containers || []).filter(c => c.state === 'running');
       sel.innerHTML = `<option value="">– Pick a container –</option>`;
+      let any = false;
       running.forEach(c => {
-        const ports = (c.ports || []).filter(p => p.PublicPort || p.PrivatePort);
-        if (!ports.length) {
+        // nginx runs inside the hearth container, which usually isn't on the
+        // same Docker network as the target — reaching it by container name
+        // only works if they happen to share a network. The host's own IP +
+        // the container's *published* port always works instead (same
+        // reasoning as pointing an external reverse proxy at published
+        // ports), so that's what we offer here.
+        const ports = (c.ports || []).filter(p => p.publicPort);
+        ports.forEach(p => {
           const opt = document.createElement('option');
-          opt.value = `${c.name}::`; opt.textContent = c.name; sel.appendChild(opt);
-        } else {
-          ports.forEach(p => {
-            const port = p.PrivatePort || p.PublicPort;
-            const opt = document.createElement('option');
-            opt.value = `${c.name}::${port}`; opt.textContent = `${c.name} :${port}`; sel.appendChild(opt);
-          });
-        }
+          opt.value = `${location.hostname}::${p.publicPort}`;
+          opt.textContent = `${c.name} :${p.publicPort}`;
+          sel.appendChild(opt);
+          any = true;
+        });
       });
-      if (running.length) picker.style.display = 'flex';
+      if (any) picker.style.display = 'flex';
     }).catch(() => {});
   }
 

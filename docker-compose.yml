@@ -9,11 +9,13 @@ services:
     ports:
       - "${PORT:-4500}:${PORT:-4500}"         # Admin panel  — keep behind firewall/VPN
       - "${GUEST_PORT:-3000}:${GUEST_PORT:-3000}" # Guest view   — safe to expose publicly
-      - "${PROXY_PORT:-80}:80"                # Reverse Proxy
+      - "${HTTP_PORT:-80}:80"                 # Reverse Proxy — HTTP (ACME challenges + redirect to HTTPS)
+      - "${PROXY_PORT:-443}:443"              # Reverse Proxy — HTTPS
     environment:
       - PORT=${PORT:-4500}
       - GUEST_PORT=${GUEST_PORT:-3000}
-      - PROXY_PORT=80
+      - HTTP_PORT=${HTTP_PORT:-80}
+      - PROXY_PORT=${PROXY_PORT:-443}
       - SESSION_SECRET=${SESSION_SECRET}
       - FILES_ROOT=${FILES_ROOT:-/mnt}
       - CONFIG_PATH=/mnt/data/hearth.config.json
