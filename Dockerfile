@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 RUN apk add --no-cache nginx git docker-cli docker-compose openssl curl socat util-linux \
  && git config --global --add safe.directory /app/repo \
- && curl https://get.acme.sh | sh -s email=hearth@localhost 2>/dev/null || true
+ && curl https://get.acme.sh | sh 2>/dev/null || true
 
 ARG GIT_SHA=unknown
 ENV HEARTH_SHA=${GIT_SHA}
