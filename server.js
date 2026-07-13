@@ -2051,7 +2051,7 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
   if (runtimeConfig.setupDone) {
     return res.status(403).json({ error: 'Setup bereits abgeschlossen' });
   }
-  const { adminUser, adminPassword, serverName } = req.body || {};
+  const { adminUser, adminPassword, serverName, lang } = req.body || {};
   if (!adminUser || !adminPassword) {
     return res.status(400).json({ error: 'Benutzername und Passwort sind erforderlich' });
   }
@@ -2065,6 +2065,7 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
     adminPassword: hashedPassword,
     serverName: (serverName || 'Hearth').trim(),
     users: [{ username: trimmedUser, password: hashedPassword, role: 'admin' }],
+    ...(lang ? { lang } : {}),
   });
   res.json({ ok: true });
 }));

@@ -2,7 +2,10 @@ const TOTAL_STEPS = 5; // 0=lang, 1=welcome, 2=account, 3=name, 4=done
 let currentStep = 0;
 
 // ── Language selection ────────────────────────────────────────────────────────
+let selectedLang = localStorage.getItem('hearth-lang') || 'en';
+
 function pickLang(code) {
+  selectedLang = code;
   applyLang(code);
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.classList.toggle('selected', btn.dataset.lang === code);
@@ -85,6 +88,7 @@ async function finish() {
       adminUser:    document.getElementById('adminUser').value.trim(),
       adminPassword: document.getElementById('adminPassword').value,
       serverName:   document.getElementById('serverName').value.trim() || 'Hearth',
+      lang:         selectedLang,
     });
     goTo(4);
   } catch (err) {
