@@ -63,8 +63,8 @@ try { if (fs.existsSync(CONFIG_PATH)) _earlyConfig = JSON.parse(fs.readFileSync(
 const PORT        = parseInt(process.env.PORT       || _earlyConfig.configPort      || '4500', 10);
 // Separate public-facing port for the guest view only (no admin routes)
 const GUEST_PORT  = parseInt(process.env.GUEST_PORT || _earlyConfig.configGuestPort || '3000', 10);
-const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
-const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
+const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || _earlyConfig.configProxyPort || '443',  10);
+const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || _earlyConfig.configHttpPort  || '80',   10);
 const NGINX_PROXY_DIR   = '/etc/nginx/hearth-proxy';
 const NGINX_STREAMS_DIR = '/etc/nginx/hearth-streams';
 const CERTS_DIR       = '/etc/nginx/hearth-certs';
@@ -445,6 +445,24 @@ function buildTarget(scheme, host, port) {
   if (!_HOST_RE.test(h)) { const err = new Error(`Ungültiger Forward-Hostname '${h}'`); err.statusCode = 400; throw err; }
   if (!p || isNaN(+p) || +p < 1 || +p > 65535) { const err = new Error(`Ungültiger Forward-Port '${p}'`); err.statusCode = 400; throw err; }
   return `${s}://${h}:${p}`;
+}
+
+// A Proxy Host / Stream whose target is Hearth's own admin port would expose
+// the full control plane (Docker socket, root file manager, firewall) to
+// the internet. Require every admin account to have both a passkey and TOTP
+// 2FA enabled before such a rule can be created or (re-)enabled — password
+// auth alone isn't an acceptable gate for that level of exposure.
+function assertNoUnsecuredAdminExposure(forwardPort, enabled) {
+  if (!enabled) return;
+  if (parseInt(forwardPort, 10) !== PORT) return;
+  const admins = (runtimeConfig.users || []).filter((u) => u.role === 'admin');
+  const secured = admins.length > 0 && admins.every((u) => u.totp_enabled && (u.passkeys || []).length > 0);
+  if (secured) return;
+  const err = new Error(
+    'Um den Admin-Port öffentlich freizugeben, müssen für alle Admin-Konten sowohl Passkey als auch 2FA aktiviert sein (Einstellungen → Sicherheit).'
+  );
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeExtraDomains(list) {
@@ -898,12 +916,22 @@ function reloadNginx() {
   });
 }
 
+function renderNginxBaseConfig() {
+  const templatePath = '/etc/nginx/nginx.conf.template';
+  if (!fs.existsSync(templatePath)) return; // already-rendered nginx.conf from an older image
+  const rendered = fs.readFileSync(templatePath, 'utf8')
+    .replace(/__HTTP_PORT__/g, HTTP_PORT)
+    .replace(/__PROXY_PORT__/g, PROXY_PORT);
+  fs.writeFileSync('/etc/nginx/nginx.conf', rendered);
+}
+
 async function startNginx() {
   const nginxBin = ['/usr/sbin/nginx', '/usr/bin/nginx', '/sbin/nginx'].find(fs.existsSync);
   if (!nginxBin) {
     console.log('[PROXY] Nginx nicht gefunden – Reverse Proxy deaktiviert');
     return;
   }
+  renderNginxBaseConfig();
   await writeProxyConfigs(runtimeConfig.proxyRules);
   await writeStreamConfigs(runtimeConfig.streamRules);
   _nginxProc = spawn(nginxBin, ['-g', 'daemon off;'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1532,6 +1560,7 @@ app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
     cacheStatic = false, maxBodySize = '', customSnippet = '',
   } = req.body || {};
   if (!domain || !forwardHost || !forwardPort) return res.status(400).json({ error: 'domain, forwardHost and forwardPort are required' });
+  assertNoUnsecuredAdminExposure(forwardPort, enabled);
   const target = buildTarget(forwardScheme, forwardHost, forwardPort);
   validateProxyInputs(domain.trim(), target);
   const extraDomainsClean = normalizeExtraDomains(extraDomains);
@@ -1582,6 +1611,8 @@ app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   const newForwardHost = forwardHost !== undefined ? forwardHost.trim() : existing.forwardHost;
   const newForwardPort = forwardPort !== undefined ? String(forwardPort).trim() : existing.forwardPort;
   const newForwardScheme = forwardScheme !== undefined ? (forwardScheme === 'https' ? 'https' : 'http') : (existing.forwardScheme || 'http');
+  const newEnabled = enabled !== undefined ? !!enabled : existing.enabled;
+  assertNoUnsecuredAdminExposure(newForwardPort, newEnabled);
   const newTarget = buildTarget(newForwardScheme, newForwardHost, newForwardPort);
   validateProxyInputs(newDomain, newTarget);
   const newExtraDomains = extraDomains !== undefined ? normalizeExtraDomains(extraDomains) : (existing.extraDomains || []);
@@ -2003,6 +2034,7 @@ app.post('/api/proxy/streams', requireAuth, asyncHandler(async (req, res) => {
   if (!['tcp', 'udp', 'both'].includes(protocol)) return res.status(400).json({ error: 'invalid protocol' });
   const lp = validatePort(listenPort, 'Listen-Port');
   const fp = validatePort(forwardPort, 'Ziel-Port');
+  assertNoUnsecuredAdminExposure(fp, enabled);
   const streams = [...(runtimeConfig.streamRules || [])];
   checkStreamPortFree(lp, protocol, streams, null);
 
@@ -2032,6 +2064,8 @@ app.put('/api/proxy/streams/:id', requireAuth, asyncHandler(async (req, res) => 
   const newForwardPort = forwardPort !== undefined ? validatePort(forwardPort, 'Ziel-Port')  : existing.forwardPort;
   const newForwardHost = forwardHost !== undefined ? forwardHost.trim() : existing.forwardHost;
   if (!newForwardHost) return res.status(400).json({ error: 'forwardHost is required' });
+  const newEnabled = enabled !== undefined ? !!enabled : existing.enabled;
+  assertNoUnsecuredAdminExposure(newForwardPort, newEnabled);
   checkStreamPortFree(newListenPort, newProtocol, runtimeConfig.streamRules || [], req.params.id);
 
   const streams = (runtimeConfig.streamRules || []).map((r) => {
@@ -2728,6 +2762,8 @@ app.get('/api/settings', requireAuth, (req, res) => {
     configGuestPort: runtimeConfig.configGuestPort || GUEST_PORT,
     proxyPort:   PROXY_PORT,
     httpPort:    HTTP_PORT,
+    configHttpPort:  runtimeConfig.configHttpPort  || HTTP_PORT,
+    configProxyPort: runtimeConfig.configProxyPort || PROXY_PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
     dataDir:     DATA_DIR,
@@ -2749,6 +2785,7 @@ app.post(
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
       cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp, configPort, configGuestPort,
+      configHttpPort, configProxyPort,
     } = req.body || {};
     const updates = {};
 
@@ -2781,6 +2818,14 @@ app.post(
     if (configGuestPort !== undefined) {
       const p = parseInt(configGuestPort, 10);
       if (p >= 1 && p <= 65535) updates.configGuestPort = p;
+    }
+    if (configHttpPort !== undefined) {
+      const p = parseInt(configHttpPort, 10);
+      if (p >= 1 && p <= 65535) updates.configHttpPort = p;
+    }
+    if (configProxyPort !== undefined) {
+      const p = parseInt(configProxyPort, 10);
+      if (p >= 1 && p <= 65535) updates.configProxyPort = p;
     }
     if (cfApiToken !== undefined) updates.cfApiToken = (cfApiToken || '').trim();
     if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();

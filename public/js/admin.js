@@ -2817,14 +2817,6 @@ function showUpdateProgress() {
 // ---------- Reverse Proxy ----------
 let _cfConfigured = false;
 
-function cfSettingsToggle() {
-  const body    = document.getElementById('cf-settings-body');
-  const chevron = document.getElementById('cf-settings-chevron');
-  const open    = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  chevron.classList.toggle('open', !open);
-}
-
 function _cfUpdateStatus() {
   const statusEl = document.getElementById('cf-settings-status');
   if (!statusEl) return;
@@ -2832,19 +2824,40 @@ function _cfUpdateStatus() {
   statusEl.className     = `cf-settings-status ${_cfConfigured ? 'configured' : 'unconfigured'}`;
 }
 
-async function saveCfSettings() {
-  const cfApiToken    = document.getElementById('s-cf-token').value.trim();
-  const cfZoneId      = document.getElementById('s-cf-zone').value.trim();
-  const serverPublicIp = document.getElementById('s-cf-ip').value.trim();
-  const cfTunnelToken = document.getElementById('s-cf-tunnel').value.trim();
+async function openProxySettingsModal() {
   try {
-    await api('POST', '/api/settings', { cfApiToken, cfZoneId, serverPublicIp, cfTunnelToken });
+    const s = await api('GET', '/api/settings');
+    document.getElementById('prxs-http-port').value  = s.configHttpPort  || s.httpPort;
+    document.getElementById('prxs-proxy-port').value = s.configProxyPort || s.proxyPort;
+    document.getElementById('s-cf-token').value  = s.cfApiToken || '';
+    document.getElementById('s-cf-zone').value   = s.cfZoneId || '';
+    document.getElementById('s-cf-ip').value     = s.serverPublicIp || '';
+    document.getElementById('s-cf-tunnel').value = s.cfTunnelToken || '';
+  } catch (e) { toast(e.message, 'error'); }
+  openModal('modal-proxy-settings');
+}
+
+document.getElementById('proxy-settings-btn').addEventListener('click', openProxySettingsModal);
+
+document.getElementById('prxs-save').addEventListener('click', async () => {
+  const configHttpPort  = parseInt(document.getElementById('prxs-http-port').value, 10) || null;
+  const configProxyPort = parseInt(document.getElementById('prxs-proxy-port').value, 10) || null;
+  const cfApiToken     = document.getElementById('s-cf-token').value.trim();
+  const cfZoneId       = document.getElementById('s-cf-zone').value.trim();
+  const serverPublicIp = document.getElementById('s-cf-ip').value.trim();
+  const cfTunnelToken  = document.getElementById('s-cf-tunnel').value.trim();
+  const btn = document.getElementById('prxs-save');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/settings', { configHttpPort, configProxyPort, cfApiToken, cfZoneId, serverPublicIp, cfTunnelToken });
     _cfConfigured = !!(cfApiToken && cfZoneId);
     _cfUpdateStatus();
-    toast('Cloudflare settings saved');
+    toast(t('proxy.saved'));
+    closeModal('modal-proxy-settings');
     loadProxyRules();
-  } catch(e) { toast(e.message, 'error'); }
-}
+  } catch (e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
+});
 
 async function loadProxyRules() {
   const [status, rules] = await Promise.all([

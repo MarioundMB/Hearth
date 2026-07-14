@@ -1792,6 +1792,7 @@
             <div class="toolbar">
               <div class="spacer"></div>
               <div class="proxy-status" id="proxy-status-badge"></div>
+              <button class="btn sm ghost" id="proxy-settings-btn" title="Proxy-Einstellungen">⚙</button>
               <button class="btn primary sm" id="add-proxy-btn" data-i18n="proxy.addRule">+ Add Rule</button>
             </div>
             <div class="proxy-info-bar" id="proxy-info-bar">
@@ -1809,49 +1810,6 @@
 
             <!-- Proxy Hosts -->
             <div class="proxy-subview active" id="proxy-subview-hosts">
-              <!-- Cloudflare Settings Panel -->
-              <div class="cf-settings-panel" id="cf-settings-panel">
-                <button class="cf-settings-header" id="cf-settings-toggle" onclick="cfSettingsToggle()">
-                  <svg width="18" height="18" viewBox="0 0 100 60" fill="none" style="flex-shrink:0"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F"/></svg>
-                  <span style="font-weight:700;font-size:14px">Cloudflare</span>
-                  <span class="cf-settings-status" id="cf-settings-status"></span>
-                  <span class="spacer"></span>
-                  <span class="cf-settings-chevron" id="cf-settings-chevron">›</span>
-                </button>
-                <div class="cf-settings-body" id="cf-settings-body" style="display:none">
-                  <div class="cf-settings-grid">
-                    <div class="cf-field">
-                      <label class="cf-field-label">API Token</label>
-                      <div class="cf-field-sub">DNS edit permission required</div>
-                      <div style="display:flex;gap:6px">
-                        <input class="input" id="s-cf-token" type="password" placeholder="••••••••" autocomplete="off" style="flex:1" />
-                        <button class="btn sm ghost" onclick="cfVerifyCredentials(this)">Verify</button>
-                      </div>
-                    </div>
-                    <div class="cf-field">
-                      <label class="cf-field-label">Zone ID</label>
-                      <div class="cf-field-sub">From your domain's CF dashboard</div>
-                      <input class="input" id="s-cf-zone" placeholder="abc123…" autocomplete="off" />
-                    </div>
-                    <div class="cf-field">
-                      <label class="cf-field-label">Public IP</label>
-                      <div class="cf-field-sub">Used for DNS A records</div>
-                      <div style="display:flex;gap:6px">
-                        <input class="input" id="s-cf-ip" placeholder="auto-detect" autocomplete="off" style="flex:1" />
-                        <button class="btn sm ghost" onclick="cfDetectPublicIp(this)">Detect</button>
-                      </div>
-                    </div>
-                    <div class="cf-field">
-                      <label class="cf-field-label">Tunnel Token</label>
-                      <div class="cf-field-sub">From Cloudflare Tunnel dashboard</div>
-                      <input class="input" id="s-cf-tunnel" type="password" placeholder="••••••••" autocomplete="off" />
-                    </div>
-                  </div>
-                  <div class="cf-settings-foot">
-                    <button class="btn primary sm" onclick="saveCfSettings()">Save Cloudflare Settings</button>
-                  </div>
-                </div>
-              </div>
 
               <!-- Cloudflare Tunnel Card -->
               <div class="proxy-tunnel-card" id="cf-tunnel-card" style="display:none">
@@ -3276,6 +3234,64 @@
         <div class="modal-foot">
           <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
           <button class="btn primary" id="prl-save" data-i18n="proxy.save">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reverse Proxy Settings Modal -->
+    <div class="modal-backdrop" id="modal-proxy-settings">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-head">
+          <h3 data-i18n="proxy.settingsTitle">Proxy-Einstellungen</h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="s-cat-title" data-i18n="proxy.settingsPortsTitle">Ports</div>
+          <div class="field" style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label data-i18n="proxy.settingsHttpPort">HTTP-Port</label>
+              <input class="input" id="prxs-http-port" type="number" min="1" max="65535" />
+            </div>
+            <div style="flex:1">
+              <label data-i18n="proxy.settingsProxyPort">HTTPS-Port</label>
+              <input class="input" id="prxs-proxy-port" type="number" min="1" max="65535" />
+            </div>
+          </div>
+          <div class="s-sub" style="margin-bottom:22px" data-i18n="proxy.settingsPortsNote">⚠ Neustart erforderlich. ENV-Variablen HTTP_PORT/PROXY_PORT haben Vorrang.</div>
+
+          <div class="s-cat-title" data-i18n="proxy.settingsCfTitle">Cloudflare-Verbindung</div>
+          <div class="cf-settings-grid">
+            <div class="cf-field">
+              <label class="cf-field-label">API Token</label>
+              <div class="cf-field-sub">DNS edit permission required</div>
+              <div style="display:flex;gap:6px">
+                <input class="input" id="s-cf-token" type="password" placeholder="••••••••" autocomplete="off" style="flex:1" />
+                <button class="btn sm ghost" onclick="cfVerifyCredentials(this)">Verify</button>
+              </div>
+            </div>
+            <div class="cf-field">
+              <label class="cf-field-label">Zone ID</label>
+              <div class="cf-field-sub">From your domain's CF dashboard</div>
+              <input class="input" id="s-cf-zone" placeholder="abc123…" autocomplete="off" />
+            </div>
+            <div class="cf-field">
+              <label class="cf-field-label">Public IP</label>
+              <div class="cf-field-sub">Used for DNS A records</div>
+              <div style="display:flex;gap:6px">
+                <input class="input" id="s-cf-ip" placeholder="auto-detect" autocomplete="off" style="flex:1" />
+                <button class="btn sm ghost" onclick="cfDetectPublicIp(this)">Detect</button>
+              </div>
+            </div>
+            <div class="cf-field">
+              <label class="cf-field-label">Tunnel Token</label>
+              <div class="cf-field-sub">From Cloudflare Tunnel dashboard</div>
+              <input class="input" id="s-cf-tunnel" type="password" placeholder="••••••••" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="prxs-save" data-i18n="proxy.save">Speichern</button>
         </div>
       </div>
     </div>

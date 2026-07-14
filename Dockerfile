@@ -17,8 +17,10 @@ RUN npm install --omit=dev
 COPY server.js ./
 COPY public ./public
 
-# Nginx-Basiskonfiguration
-COPY nginx/nginx.conf /etc/nginx/nginx.conf
+# Nginx-Basiskonfiguration — rendered from template at boot (startNginx() in
+# server.js) so HTTP_PORT/PROXY_PORT overrides actually apply to the default
+# server blocks too, not just the per-rule generated configs.
+COPY nginx/nginx.conf /etc/nginx/nginx.conf.template
 RUN mkdir -p /etc/nginx/hearth-proxy /etc/nginx/hearth-certs/_default \
              /etc/nginx/hearth-auth /etc/nginx/hearth-streams /var/log/nginx /run/nginx /var/www/acme
 
