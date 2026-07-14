@@ -29,6 +29,13 @@ services:
       # file manager full host access, same as CasaOS's native file manager.
       # Path traversal outside FILES_ROOT is still blocked server-side.
       - /:/host
+      # Reverse Proxy certs and Basic Auth password hashes live only on disk
+      # (never in hearth.config.json), and only /etc/nginx/hearth-proxy's
+      # *.conf files get regenerated from config at boot — without these,
+      # every container update/rebuild silently reset every proxy host back
+      # to a self-signed cert and dropped Basic Auth passwords.
+      - hearth-certs:/etc/nginx/hearth-certs
+      - hearth-auth:/etc/nginx/hearth-auth
     labels:
       - "hearth.self=true"
       - "hearth.hide=true"
@@ -84,3 +91,5 @@ services:
 volumes:
   wireguard-config:
   ufw-config:
+  hearth-certs:
+  hearth-auth:
