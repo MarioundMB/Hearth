@@ -2438,7 +2438,13 @@ app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, r
     name: CF_TUNNEL_CONTAINER,
     Image: 'cloudflare/cloudflared:latest',
     Cmd: ['tunnel', '--no-autoupdate', 'run', '--token', token],
-    Labels: { 'hearth.self': 'true', 'hearth.hide': 'true' },
+    // hearth.self (not just hide) would make this collide with the "find the
+    // main hearth container" lookup in runHearthSelfUpdate() — that lookup
+    // only excludes names containing firewall/vpn/updater, so a second
+    // hearth.self=true container named hearth-cloudflared matched it too,
+    // making self-update try to `git clone` inside cloudflared's distroless
+    // image instead of Hearth's own.
+    Labels: { 'hearth.hide': 'true' },
     HostConfig: { RestartPolicy: { Name: 'unless-stopped' }, NetworkMode: 'host' },
   });
   await container.start();
@@ -5451,7 +5457,10 @@ wss.on('connection', async (ws, req) => {
       Tty: true,
       OpenStdin: true,
       StdinOnce: false,
-      Labels: { 'hearth.self': 'true', 'hearth.hide': 'true' },
+      // hearth.hide only — see the comment on the cloudflared tunnel
+      // container's Labels for why hearth.self must stay reserved for the
+      // actual main hearth container.
+      Labels: { 'hearth.hide': 'true' },
       HostConfig: {
         Privileged: true,
         PidMode: 'host',
