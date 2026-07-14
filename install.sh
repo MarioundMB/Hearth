@@ -311,6 +311,7 @@ if [ "${IS_UPDATE}" = false ]; then
 PORT=${PORT}
 DATA_DIR=${DATA_DIR}
 SESSION_SECRET=${SESSION_SECRET}
+FILES_ROOT=/host
 EOF
   ok ".env created"
 else
