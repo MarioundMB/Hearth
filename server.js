@@ -2286,6 +2286,7 @@ app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, r
     name: CF_TUNNEL_CONTAINER,
     Image: 'cloudflare/cloudflared:latest',
     Cmd: ['tunnel', '--no-autoupdate', 'run', '--token', token],
+    Labels: { 'hearth.self': 'true', 'hearth.hide': 'true' },
     HostConfig: { RestartPolicy: { Name: 'unless-stopped' }, NetworkMode: 'host' },
   });
   await container.start();
@@ -5298,6 +5299,7 @@ wss.on('connection', async (ws, req) => {
       Tty: true,
       OpenStdin: true,
       StdinOnce: false,
+      Labels: { 'hearth.self': 'true', 'hearth.hide': 'true' },
       HostConfig: {
         Privileged: true,
         PidMode: 'host',
