@@ -1,6 +1,6 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache nginx git docker-cli docker-compose openssl curl socat util-linux \
+RUN apk add --no-cache nginx nginx-mod-stream git docker-cli docker-compose openssl curl socat util-linux \
  && git config --global --add safe.directory /app/repo \
  && curl https://get.acme.sh | sh 2>/dev/null || true
 
@@ -20,7 +20,7 @@ COPY public ./public
 # Nginx-Basiskonfiguration
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 RUN mkdir -p /etc/nginx/hearth-proxy /etc/nginx/hearth-certs/_default \
-             /etc/nginx/hearth-auth /var/log/nginx /run/nginx /var/www/acme
+             /etc/nginx/hearth-auth /etc/nginx/hearth-streams /var/log/nginx /run/nginx /var/www/acme
 
 ENV PORT=4500
 ENV PROXY_PORT=443

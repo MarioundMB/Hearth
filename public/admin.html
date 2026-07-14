@@ -527,6 +527,14 @@
       .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
 
       /* ===== Reverse Proxy ===== */
+      /* Sub-navigation: Proxy Hosts / Redirection Hosts / Streams / 404 Hosts */
+      .proxy-subnav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+      .proxy-subnav-tab { padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-faint); background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; transition: color .15s, border-color .15s; }
+      .proxy-subnav-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+      .proxy-subview { display: none; }
+      .proxy-subview.active { display: block; }
+      .stream-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+      .stream-proto-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); text-transform: uppercase; }
       /* Dashboard stat tiles */
       .proxy-stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
       .proxy-stat-tile { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); }
@@ -1777,62 +1785,89 @@
 
             <div class="proxy-stats-row" id="proxy-stats-row"></div>
 
-            <!-- Cloudflare Settings Panel -->
-            <div class="cf-settings-panel" id="cf-settings-panel">
-              <button class="cf-settings-header" id="cf-settings-toggle" onclick="cfSettingsToggle()">
-                <svg width="18" height="18" viewBox="0 0 100 60" fill="none" style="flex-shrink:0"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F"/></svg>
-                <span style="font-weight:700;font-size:14px">Cloudflare</span>
-                <span class="cf-settings-status" id="cf-settings-status"></span>
-                <span class="spacer"></span>
-                <span class="cf-settings-chevron" id="cf-settings-chevron">›</span>
-              </button>
-              <div class="cf-settings-body" id="cf-settings-body" style="display:none">
-                <div class="cf-settings-grid">
-                  <div class="cf-field">
-                    <label class="cf-field-label">API Token</label>
-                    <div class="cf-field-sub">DNS edit permission required</div>
-                    <div style="display:flex;gap:6px">
-                      <input class="input" id="s-cf-token" type="password" placeholder="••••••••" autocomplete="off" style="flex:1" />
-                      <button class="btn sm ghost" onclick="cfVerifyCredentials(this)">Verify</button>
-                    </div>
-                  </div>
-                  <div class="cf-field">
-                    <label class="cf-field-label">Zone ID</label>
-                    <div class="cf-field-sub">From your domain's CF dashboard</div>
-                    <input class="input" id="s-cf-zone" placeholder="abc123…" autocomplete="off" />
-                  </div>
-                  <div class="cf-field">
-                    <label class="cf-field-label">Public IP</label>
-                    <div class="cf-field-sub">Used for DNS A records</div>
-                    <div style="display:flex;gap:6px">
-                      <input class="input" id="s-cf-ip" placeholder="auto-detect" autocomplete="off" style="flex:1" />
-                      <button class="btn sm ghost" onclick="cfDetectPublicIp(this)">Detect</button>
-                    </div>
-                  </div>
-                  <div class="cf-field">
-                    <label class="cf-field-label">Tunnel Token</label>
-                    <div class="cf-field-sub">From Cloudflare Tunnel dashboard</div>
-                    <input class="input" id="s-cf-tunnel" type="password" placeholder="••••••••" autocomplete="off" />
-                  </div>
-                </div>
-                <div class="cf-settings-foot">
-                  <button class="btn primary sm" onclick="saveCfSettings()">Save Cloudflare Settings</button>
-                </div>
-              </div>
+            <div class="proxy-subnav" id="proxy-subnav">
+              <button class="proxy-subnav-tab active" data-proxy-view="hosts" data-i18n="proxy.navHosts">Proxy Hosts</button>
+              <button class="proxy-subnav-tab" data-proxy-view="redirects" data-i18n="proxy.navRedirects">Redirection Hosts</button>
+              <button class="proxy-subnav-tab" data-proxy-view="streams" data-i18n="proxy.navStreams">Streams</button>
+              <button class="proxy-subnav-tab" data-proxy-view="404hosts" data-i18n="proxy.nav404">404 Hosts</button>
             </div>
 
-            <!-- Cloudflare Tunnel Card -->
-            <div class="proxy-tunnel-card" id="cf-tunnel-card" style="display:none">
-              <svg class="tunnel-logo" viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F" opacity=".9"/>
-              </svg>
-              <div class="tunnel-info">
-                <div class="tunnel-title"><span class="tunnel-status-dot" id="cf-tunnel-dot"></span>Cloudflare Tunnel</div>
-                <div class="tunnel-sub" id="cf-tunnel-sub">Checking…</div>
+            <!-- Proxy Hosts -->
+            <div class="proxy-subview active" id="proxy-subview-hosts">
+              <!-- Cloudflare Settings Panel -->
+              <div class="cf-settings-panel" id="cf-settings-panel">
+                <button class="cf-settings-header" id="cf-settings-toggle" onclick="cfSettingsToggle()">
+                  <svg width="18" height="18" viewBox="0 0 100 60" fill="none" style="flex-shrink:0"><path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F"/></svg>
+                  <span style="font-weight:700;font-size:14px">Cloudflare</span>
+                  <span class="cf-settings-status" id="cf-settings-status"></span>
+                  <span class="spacer"></span>
+                  <span class="cf-settings-chevron" id="cf-settings-chevron">›</span>
+                </button>
+                <div class="cf-settings-body" id="cf-settings-body" style="display:none">
+                  <div class="cf-settings-grid">
+                    <div class="cf-field">
+                      <label class="cf-field-label">API Token</label>
+                      <div class="cf-field-sub">DNS edit permission required</div>
+                      <div style="display:flex;gap:6px">
+                        <input class="input" id="s-cf-token" type="password" placeholder="••••••••" autocomplete="off" style="flex:1" />
+                        <button class="btn sm ghost" onclick="cfVerifyCredentials(this)">Verify</button>
+                      </div>
+                    </div>
+                    <div class="cf-field">
+                      <label class="cf-field-label">Zone ID</label>
+                      <div class="cf-field-sub">From your domain's CF dashboard</div>
+                      <input class="input" id="s-cf-zone" placeholder="abc123…" autocomplete="off" />
+                    </div>
+                    <div class="cf-field">
+                      <label class="cf-field-label">Public IP</label>
+                      <div class="cf-field-sub">Used for DNS A records</div>
+                      <div style="display:flex;gap:6px">
+                        <input class="input" id="s-cf-ip" placeholder="auto-detect" autocomplete="off" style="flex:1" />
+                        <button class="btn sm ghost" onclick="cfDetectPublicIp(this)">Detect</button>
+                      </div>
+                    </div>
+                    <div class="cf-field">
+                      <label class="cf-field-label">Tunnel Token</label>
+                      <div class="cf-field-sub">From Cloudflare Tunnel dashboard</div>
+                      <input class="input" id="s-cf-tunnel" type="password" placeholder="••••••••" autocomplete="off" />
+                    </div>
+                  </div>
+                  <div class="cf-settings-foot">
+                    <button class="btn primary sm" onclick="saveCfSettings()">Save Cloudflare Settings</button>
+                  </div>
+                </div>
               </div>
-              <button class="btn sm ghost" id="cf-tunnel-btn" onclick="cfTunnelToggle()">–</button>
+
+              <!-- Cloudflare Tunnel Card -->
+              <div class="proxy-tunnel-card" id="cf-tunnel-card" style="display:none">
+                <svg class="tunnel-logo" viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M81.5 40.5C85.6 38.2 88 34.2 88 29.8c0-7.5-6.1-13.6-13.6-13.6-.5 0-1 0-1.5.1C70.6 10.3 64.7 6 57.8 6c-4.5 0-8.6 1.8-11.6 4.7C44 8.6 41.1 7.5 38 7.5c-7.5 0-13.5 6-13.5 13.5 0 1.2.2 2.4.4 3.5C20.5 26.2 17 30.5 17 35.6c0 6.4 5.2 11.6 11.6 11.6h49.8c4.6 0 8.4-3.2 8.4-7.6 0-.5-.1-1-.1-1.1z" fill="#F6821F" opacity=".9"/>
+                </svg>
+                <div class="tunnel-info">
+                  <div class="tunnel-title"><span class="tunnel-status-dot" id="cf-tunnel-dot"></span>Cloudflare Tunnel</div>
+                  <div class="tunnel-sub" id="cf-tunnel-sub">Checking…</div>
+                </div>
+                <button class="btn sm ghost" id="cf-tunnel-btn" onclick="cfTunnelToggle()">–</button>
+              </div>
+              <div class="list" id="proxy-rules-list"></div>
             </div>
-            <div class="list" id="proxy-rules-list"></div>
+
+            <!-- Redirection Hosts -->
+            <div class="proxy-subview" id="proxy-subview-redirects">
+              <div class="list" id="redirect-rules-list"></div>
+            </div>
+
+            <!-- Streams -->
+            <div class="proxy-subview" id="proxy-subview-streams">
+              <div class="proxy-info-bar"><span data-i18n="proxy.streamsInfoBar">Raw TCP/UDP port forwarding — bypasses HTTP/SSL entirely</span></div>
+              <div class="list" id="stream-rules-list"></div>
+            </div>
+
+            <!-- 404 Hosts -->
+            <div class="proxy-subview" id="proxy-subview-404hosts">
+              <div class="proxy-info-bar"><span data-i18n="proxy.notFoundInfoBar">Claims a domain with a trusted certificate and always returns 404 — useful to avoid nginx's untrusted default certificate for domains you don't proxy anywhere</span></div>
+              <div class="list" id="notfound-rules-list"></div>
+            </div>
           </section>
 
           <!-- Firewall -->
@@ -3193,6 +3228,195 @@
         <div class="modal-foot">
           <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
           <button class="btn primary" id="prl-save" data-i18n="proxy.save">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Redirection Host Modal -->
+    <div class="modal-backdrop" id="modal-redirect-rule">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-head">
+          <h3 id="rdl-title" data-i18n="proxy.redirectAddTitle">Add Redirection Host</h3>
+          <button class="modal-close" data-close>&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="prl-tabs">
+            <button class="prl-tab active" data-rdl-tab="general" data-i18n="proxy.tabDetails">Details</button>
+            <button class="prl-tab" data-rdl-tab="cert" data-i18n="proxy.tabSSL">SSL</button>
+          </div>
+
+          <div class="prl-tab-panel active" id="rdl-panel-general">
+            <div class="field">
+              <label data-i18n="proxy.domain">Domain Names</label>
+              <input class="input" id="rdl-domain" placeholder="old.myserver.com" autocomplete="off" />
+              <input class="input" id="rdl-extra-domains" placeholder="second.myserver.com, third.myserver.com …" autocomplete="off" style="margin-top:6px" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.extraDomainsHint">Weitere Domains, Komma-getrennt (optional).</div>
+            </div>
+
+            <div class="field">
+              <label data-i18n="proxy.redirectTarget">Redirect to (full URL)</label>
+              <input class="input" id="rdl-target-url" placeholder="https://new.myserver.com" autocomplete="off" />
+            </div>
+
+            <div class="field" style="display:flex;gap:12px">
+              <div style="flex:1">
+                <label data-i18n="proxy.redirectStatusCode">Status Code</label>
+                <select class="input" id="rdl-status-code">
+                  <option value="301">301 Permanent</option>
+                  <option value="302">302 Temporary</option>
+                </select>
+              </div>
+              <div style="flex:1;display:flex;align-items:flex-end;gap:8px;padding-bottom:10px">
+                <input type="checkbox" id="rdl-preserve-path" style="width:auto" />
+                <label for="rdl-preserve-path" style="margin:0" data-i18n="proxy.redirectPreservePath">Preserve path</label>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;margin-top:16px">
+              <input type="checkbox" id="rdl-enabled" checked style="width:auto" />
+              <label for="rdl-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
+            </div>
+          </div>
+
+          <div class="prl-tab-panel" id="rdl-panel-cert">
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px" data-i18n="proxy.certCurrent">Current Certificate</div>
+            <div id="rdl-cert-info" style="font-size:13px;color:var(--text-faint)" data-i18n="proxy.certSaveFirst">Save rule first to manage certificate.</div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn sm primary" id="rdl-le-btn" onclick="rdlRequestLE()">
+                <span data-i18n="proxy.requestLE">🔒 Request Let's Encrypt</span>
+              </button>
+              <button class="btn sm danger" id="rdl-delete-cert-btn" onclick="rdlDeleteCert()" data-i18n="proxy.deleteCert">🗑 Delete Certificate</button>
+            </div>
+            <div id="rdl-cert-status" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
+
+            <div style="display:flex;align-items:center;gap:8px;margin-top:16px">
+              <input type="checkbox" id="rdl-force-ssl" checked style="width:auto" />
+              <label for="rdl-force-ssl" style="margin:0" data-i18n="proxy.forceSsl">Force SSL</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <input type="checkbox" id="rdl-http2" style="width:auto" />
+              <label for="rdl-http2" style="margin:0" data-i18n="proxy.http2">HTTP/2 Support</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <input type="checkbox" id="rdl-hsts-enabled" style="width:auto" />
+              <label for="rdl-hsts-enabled" style="margin:0" data-i18n="proxy.hstsEnabled">HSTS Enabled</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <input type="checkbox" id="rdl-hsts-subdomains" style="width:auto" />
+              <label for="rdl-hsts-subdomains" style="margin:0" data-i18n="proxy.hstsSubdomains">HSTS Sub-domains</label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="rdl-save" data-i18n="proxy.save">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 404 Host Modal -->
+    <div class="modal-backdrop" id="modal-404host">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-head">
+          <h3 id="nfh-title" data-i18n="proxy.notFoundAddTitle">Add 404 Host</h3>
+          <button class="modal-close" data-close>&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="prl-tabs">
+            <button class="prl-tab active" data-nfh-tab="general" data-i18n="proxy.tabDetails">Details</button>
+            <button class="prl-tab" data-nfh-tab="cert" data-i18n="proxy.tabSSL">SSL</button>
+          </div>
+
+          <div class="prl-tab-panel active" id="nfh-panel-general">
+            <div class="field">
+              <label data-i18n="proxy.domain">Domain Names</label>
+              <input class="input" id="nfh-domain" placeholder="unused.myserver.com" autocomplete="off" />
+              <input class="input" id="nfh-extra-domains" placeholder="second.myserver.com, third.myserver.com …" autocomplete="off" style="margin-top:6px" />
+              <div class="s-sub" style="margin-top:4px" data-i18n="proxy.extraDomainsHint">Weitere Domains, Komma-getrennt (optional).</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;margin-top:16px">
+              <input type="checkbox" id="nfh-enabled" checked style="width:auto" />
+              <label for="nfh-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
+            </div>
+          </div>
+
+          <div class="prl-tab-panel" id="nfh-panel-cert">
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px" data-i18n="proxy.certCurrent">Current Certificate</div>
+            <div id="nfh-cert-info" style="font-size:13px;color:var(--text-faint)" data-i18n="proxy.certSaveFirst">Save rule first to manage certificate.</div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn sm primary" id="nfh-le-btn" onclick="nfhRequestLE()">
+                <span data-i18n="proxy.requestLE">🔒 Request Let's Encrypt</span>
+              </button>
+              <button class="btn sm danger" id="nfh-delete-cert-btn" onclick="nfhDeleteCert()" data-i18n="proxy.deleteCert">🗑 Delete Certificate</button>
+            </div>
+            <div id="nfh-cert-status" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
+
+            <div style="display:flex;align-items:center;gap:8px;margin-top:16px">
+              <input type="checkbox" id="nfh-http2" style="width:auto" />
+              <label for="nfh-http2" style="margin:0" data-i18n="proxy.http2">HTTP/2 Support</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <input type="checkbox" id="nfh-hsts-enabled" style="width:auto" />
+              <label for="nfh-hsts-enabled" style="margin:0" data-i18n="proxy.hstsEnabled">HSTS Enabled</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <input type="checkbox" id="nfh-hsts-subdomains" style="width:auto" />
+              <label for="nfh-hsts-subdomains" style="margin:0" data-i18n="proxy.hstsSubdomains">HSTS Sub-domains</label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="nfh-save" data-i18n="proxy.save">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stream Modal -->
+    <div class="modal-backdrop" id="modal-stream">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-head">
+          <h3 id="strm-title" data-i18n="proxy.streamAddTitle">Add Stream</h3>
+          <button class="modal-close" data-close>&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label data-i18n="proxy.streamName">Name</label>
+            <input class="input" id="strm-name" placeholder="Minecraft Server" autocomplete="off" />
+          </div>
+
+          <div class="field" style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label data-i18n="proxy.streamListenPort">Listen Port</label>
+              <input class="input" id="strm-listen-port" placeholder="25565" autocomplete="off" inputmode="numeric" />
+            </div>
+            <div style="flex:1">
+              <label data-i18n="proxy.streamProtocol">Protocol</label>
+              <select class="input" id="strm-protocol">
+                <option value="tcp">TCP</option>
+                <option value="udp">UDP</option>
+                <option value="both">TCP + UDP</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label data-i18n="proxy.streamForwardTo">Forward to</label>
+            <div style="display:flex;gap:8px">
+              <input class="input" id="strm-forward-host" placeholder="192.168.1.50" autocomplete="off" style="flex:2" />
+              <input class="input" id="strm-forward-port" placeholder="25565" autocomplete="off" inputmode="numeric" style="flex:1" />
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;margin-top:16px">
+            <input type="checkbox" id="strm-enabled" checked style="width:auto" />
+            <label for="strm-enabled" style="margin:0" data-i18n="proxy.enableNow">Enable rule immediately</label>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Cancel</button>
+          <button class="btn primary" id="strm-save" data-i18n="proxy.save">Save Rule</button>
         </div>
       </div>
     </div>

@@ -35,7 +35,7 @@ document.querySelectorAll('.tab').forEach((t) => {
     if (t.dataset.view === 'store')    renderStore();
     if (t.dataset.view === 'images')   loadImages();
     if (t.dataset.view === 'files')    { loadVolumes(); loadFiles(currentPath); }
-    if (t.dataset.view === 'proxy')    loadProxyRules();
+    if (t.dataset.view === 'proxy')    loadProxyAllViews();
     if (t.dataset.view === 'firewall') loadFirewall();
     if (t.dataset.view === 'vpn')      loadVpn();
   });
@@ -3225,8 +3225,6 @@ document.getElementById('prl-pick-btn').addEventListener('click', () => {
   if (port) document.getElementById('prl-fwd-port').value = port;
 });
 
-document.getElementById('add-proxy-btn').addEventListener('click', () => openProxyModal(null));
-
 document.getElementById('prl-save').addEventListener('click', async () => {
   const domain      = document.getElementById('prl-domain').value.trim();
   const extraDomains = document.getElementById('prl-extra-domains').value.split(',').map((s) => s.trim()).filter(Boolean);
@@ -3337,6 +3335,494 @@ async function prlDeleteCert() {
   } catch(e) { toast(e.message, 'error'); }
   finally { btn.disabled = false; }
 }
+
+// ---------- Reverse Proxy sub-navigation ----------
+function loadProxyAllViews() {
+  loadProxyRules();
+  loadRedirectRules();
+  loadStreamRules();
+  loadNotFoundHosts();
+}
+
+const _proxyAddHandlers = {
+  hosts: () => openProxyModal(null),
+  redirects: () => openRedirectModal(null),
+  streams: () => openStreamModal(null),
+  '404hosts': () => open404Modal(null),
+};
+
+document.querySelectorAll('.proxy-subnav-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.proxy-subnav-tab').forEach((x) => x.classList.remove('active'));
+    document.querySelectorAll('.proxy-subview').forEach((x) => x.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`proxy-subview-${tab.dataset.proxyView}`)?.classList.add('active');
+  });
+});
+
+document.getElementById('add-proxy-btn').addEventListener('click', () => {
+  const activeView = document.querySelector('.proxy-subnav-tab.active')?.dataset.proxyView || 'hosts';
+  (_proxyAddHandlers[activeView] || _proxyAddHandlers.hosts)();
+});
+
+// ---------- Redirection Hosts ----------
+async function loadRedirectRules() {
+  const rules = await api('GET', '/api/proxy/redirects').catch(() => []);
+  const box = document.getElementById('redirect-rules-list');
+  if (!box) return;
+  if (!rules.length) {
+    box.innerHTML = `<div class="empty"><div class="big">↪</div>${t('proxy.redirectEmpty')}</div>`;
+    return;
+  }
+  box.innerHTML = rules.map((r) => {
+    const certType = r.certType || 'self-signed';
+    const certBadgeClass = certType === 'letsencrypt' ? 'le' : certType === 'custom' ? 'custom' : 'self';
+    const certBadgeLabel = certType === 'letsencrypt' ? '🔒 LE' : certType === 'custom' ? '🔑 Custom' : '⚠ Self';
+    const certBadge = `<span class="cert-badge ${certBadgeClass}" data-rdl-cert="${esc(r.id)}" title="Manage certificate">${certBadgeLabel}</span>`;
+    const extraDomains = (r.extraDomains || []);
+    const extraDomainsHtml = extraDomains.length ? `<span class="proxy-extra-domains">+${extraDomains.length} more</span>` : '';
+    return `
+    <div class="proxy-row">
+      <span class="proxy-status-dot ${r.enabled ? '' : 'off'}"></span>
+      <div class="proxy-main">
+        <div class="proxy-domain">${esc(r.domain)}${extraDomainsHtml} ${certBadge}</div>
+        <div class="proxy-target">→ ${r.statusCode} ${esc(r.targetUrl)}</div>
+      </div>
+      <div class="proxy-actions">
+        <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+          <input type="checkbox" ${r.enabled ? 'checked' : ''} data-rdl-toggle="${esc(r.id)}" />
+          <span class="toggle-track"></span>
+        </label>
+        <button class="btn sm ghost" data-rdl-edit="${esc(r.id)}">✎</button>
+        <button class="btn sm danger" data-rdl-del="${esc(r.id)}">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('redirect-rules-list').addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('[data-rdl-del]');
+  if (delBtn) {
+    if (!confirm(t('proxy.deleteConfirm'))) return;
+    await api('DELETE', `/api/proxy/redirects/${delBtn.dataset.rdlDel}`).catch((err) => toast(err.message, 'error'));
+    loadRedirectRules();
+    return;
+  }
+  const editBtn = e.target.closest('[data-rdl-edit]');
+  if (editBtn) { openRedirectModal(editBtn.dataset.rdlEdit); return; }
+  const certBadge = e.target.closest('[data-rdl-cert]');
+  if (certBadge) { openRedirectModal(certBadge.dataset.rdlCert, 'cert'); return; }
+});
+
+document.getElementById('redirect-rules-list').addEventListener('change', async (e) => {
+  const toggle = e.target.closest('[data-rdl-toggle]');
+  if (!toggle) return;
+  await api('PUT', `/api/proxy/redirects/${toggle.dataset.rdlToggle}`, { enabled: toggle.checked })
+    .catch((err) => { toast(err.message, 'error'); toggle.checked = !toggle.checked; });
+  loadRedirectRules();
+});
+
+let _editingRedirectId = null;
+
+document.querySelectorAll('[data-rdl-tab]').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('#modal-redirect-rule .prl-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#modal-redirect-rule .prl-tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`rdl-panel-${tab.dataset.rdlTab}`)?.classList.add('active');
+  });
+});
+
+async function openRedirectModal(id, tab = 'general') {
+  _editingRedirectId = id || null;
+  document.getElementById('rdl-title').textContent = id ? t('proxy.redirectEditTitle') : t('proxy.redirectAddTitle');
+
+  document.querySelectorAll('[data-rdl-tab]').forEach(t => t.classList.toggle('active', t.dataset.rdlTab === tab));
+  document.querySelectorAll('#modal-redirect-rule .prl-tab-panel').forEach(p => p.classList.toggle('active', p.id === `rdl-panel-${tab}`));
+
+  document.getElementById('rdl-domain').value = '';
+  document.getElementById('rdl-extra-domains').value = '';
+  document.getElementById('rdl-target-url').value = '';
+  document.getElementById('rdl-status-code').value = '301';
+  document.getElementById('rdl-preserve-path').checked = false;
+  document.getElementById('rdl-enabled').checked = true;
+  document.getElementById('rdl-force-ssl').checked = true;
+  document.getElementById('rdl-http2').checked = false;
+  document.getElementById('rdl-hsts-enabled').checked = false;
+  document.getElementById('rdl-hsts-subdomains').checked = false;
+  document.getElementById('rdl-cert-info').textContent = id ? 'Loading…' : t('proxy.certSaveFirst');
+  document.getElementById('rdl-cert-status').textContent = '';
+
+  if (id) {
+    api('GET', '/api/proxy/redirects').then(rules => {
+      const r = rules.find(x => x.id === id);
+      if (!r) return;
+      document.getElementById('rdl-domain').value = r.domain;
+      document.getElementById('rdl-extra-domains').value = (r.extraDomains || []).join(', ');
+      document.getElementById('rdl-target-url').value = r.targetUrl || '';
+      document.getElementById('rdl-status-code').value = String(r.statusCode || 301);
+      document.getElementById('rdl-preserve-path').checked = !!r.preservePath;
+      document.getElementById('rdl-enabled').checked = r.enabled;
+      document.getElementById('rdl-force-ssl').checked = r.forceSsl !== false;
+      document.getElementById('rdl-http2').checked = !!r.http2;
+      document.getElementById('rdl-hsts-enabled').checked = !!r.hstsEnabled;
+      document.getElementById('rdl-hsts-subdomains').checked = !!r.hstsSubdomains;
+    });
+    api('GET', `/api/proxy/redirects/${id}/cert`).then(c => {
+      const el = document.getElementById('rdl-cert-info');
+      if (c.expires) {
+        const d = new Date(c.expires);
+        const typeLabel = c.certType === 'letsencrypt' ? "Let's Encrypt" : 'Self-signed';
+        el.innerHTML = `<strong>${typeLabel}</strong> — expires ${d.toLocaleDateString()} <span style="color:${c.daysLeft < 30 ? 'var(--danger)' : 'var(--text-faint)'}">(${c.daysLeft} days)</span>`;
+      } else {
+        el.textContent = 'Self-signed (no expiry info)';
+      }
+    }).catch(() => { document.getElementById('rdl-cert-info').textContent = 'Could not load cert info.'; });
+  }
+
+  openModal('modal-redirect-rule');
+}
+
+document.getElementById('rdl-save').addEventListener('click', async () => {
+  const domain = document.getElementById('rdl-domain').value.trim();
+  const extraDomains = document.getElementById('rdl-extra-domains').value.split(',').map((s) => s.trim()).filter(Boolean);
+  const targetUrl = document.getElementById('rdl-target-url').value.trim();
+  if (!domain || !targetUrl) { toast(t('proxy.requiredFields'), 'error'); return; }
+
+  const payload = {
+    domain, extraDomains, targetUrl,
+    statusCode: parseInt(document.getElementById('rdl-status-code').value, 10),
+    preservePath: document.getElementById('rdl-preserve-path').checked,
+    enabled: document.getElementById('rdl-enabled').checked,
+    forceSsl: document.getElementById('rdl-force-ssl').checked,
+    http2: document.getElementById('rdl-http2').checked,
+    hstsEnabled: document.getElementById('rdl-hsts-enabled').checked,
+    hstsSubdomains: document.getElementById('rdl-hsts-subdomains').checked,
+  };
+
+  const btn = document.getElementById('rdl-save');
+  btn.disabled = true;
+  try {
+    if (_editingRedirectId) {
+      await api('PUT', `/api/proxy/redirects/${_editingRedirectId}`, payload);
+    } else {
+      await api('POST', '/api/proxy/redirects', payload);
+    }
+    toast(t('proxy.saved'));
+    closeModal('modal-redirect-rule');
+    loadRedirectRules();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+async function rdlRequestLE() {
+  if (!_editingRedirectId) return;
+  const btn = document.getElementById('rdl-le-btn');
+  const status = document.getElementById('rdl-cert-status');
+  btn.disabled = true; btn.innerHTML = `${hearthSpinner(14)} Requesting…`;
+  status.textContent = 'Contacting Let\'s Encrypt… this may take up to 60s';
+  status.style.color = 'var(--text-faint)';
+  try {
+    const r = await api('POST', `/api/proxy/redirects/${_editingRedirectId}/cert/letsencrypt`);
+    status.textContent = `✓ Certificate issued! Expires ${new Date(r.expires).toLocaleDateString()} (${r.daysLeft} days)`;
+    status.style.color = 'var(--ok)';
+    document.getElementById('rdl-cert-info').textContent = `Let's Encrypt — expires ${new Date(r.expires).toLocaleDateString()}`;
+    loadRedirectRules();
+  } catch(e) {
+    status.textContent = `✗ ${e.message}`;
+    status.style.color = 'var(--danger)';
+  }
+  finally { btn.disabled = false; btn.innerHTML = `<span>🔒 Request Let's Encrypt</span>`; }
+}
+
+async function rdlDeleteCert() {
+  if (!_editingRedirectId) { toast('Save rule first', 'error'); return; }
+  if (!confirm(t('proxy.deleteCertConfirm'))) return;
+  const btn = document.getElementById('rdl-delete-cert-btn');
+  btn.disabled = true;
+  try {
+    await api('DELETE', `/api/proxy/redirects/${_editingRedirectId}/cert`);
+    toast('Certificate reset to self-signed ✓');
+    document.getElementById('rdl-cert-info').textContent = 'Self-signed (no expiry info)';
+    document.getElementById('rdl-cert-status').textContent = '';
+    loadRedirectRules();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
+// ---------- 404 Hosts ----------
+async function loadNotFoundHosts() {
+  const rules = await api('GET', '/api/proxy/404hosts').catch(() => []);
+  const box = document.getElementById('notfound-rules-list');
+  if (!box) return;
+  if (!rules.length) {
+    box.innerHTML = `<div class="empty"><div class="big">∅</div>${t('proxy.notFoundEmpty')}</div>`;
+    return;
+  }
+  box.innerHTML = rules.map((r) => {
+    const certType = r.certType || 'self-signed';
+    const certBadgeClass = certType === 'letsencrypt' ? 'le' : certType === 'custom' ? 'custom' : 'self';
+    const certBadgeLabel = certType === 'letsencrypt' ? '🔒 LE' : certType === 'custom' ? '🔑 Custom' : '⚠ Self';
+    const certBadge = `<span class="cert-badge ${certBadgeClass}" data-nfh-cert="${esc(r.id)}" title="Manage certificate">${certBadgeLabel}</span>`;
+    const extraDomains = (r.extraDomains || []);
+    const extraDomainsHtml = extraDomains.length ? `<span class="proxy-extra-domains">+${extraDomains.length} more</span>` : '';
+    return `
+    <div class="proxy-row">
+      <span class="proxy-status-dot ${r.enabled ? '' : 'off'}"></span>
+      <div class="proxy-main">
+        <div class="proxy-domain">${esc(r.domain)}${extraDomainsHtml} ${certBadge}</div>
+        <div class="proxy-target">→ 404</div>
+      </div>
+      <div class="proxy-actions">
+        <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+          <input type="checkbox" ${r.enabled ? 'checked' : ''} data-nfh-toggle="${esc(r.id)}" />
+          <span class="toggle-track"></span>
+        </label>
+        <button class="btn sm ghost" data-nfh-edit="${esc(r.id)}">✎</button>
+        <button class="btn sm danger" data-nfh-del="${esc(r.id)}">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('notfound-rules-list').addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('[data-nfh-del]');
+  if (delBtn) {
+    if (!confirm(t('proxy.deleteConfirm'))) return;
+    await api('DELETE', `/api/proxy/404hosts/${delBtn.dataset.nfhDel}`).catch((err) => toast(err.message, 'error'));
+    loadNotFoundHosts();
+    return;
+  }
+  const editBtn = e.target.closest('[data-nfh-edit]');
+  if (editBtn) { open404Modal(editBtn.dataset.nfhEdit); return; }
+  const certBadge = e.target.closest('[data-nfh-cert]');
+  if (certBadge) { open404Modal(certBadge.dataset.nfhCert, 'cert'); return; }
+});
+
+document.getElementById('notfound-rules-list').addEventListener('change', async (e) => {
+  const toggle = e.target.closest('[data-nfh-toggle]');
+  if (!toggle) return;
+  await api('PUT', `/api/proxy/404hosts/${toggle.dataset.nfhToggle}`, { enabled: toggle.checked })
+    .catch((err) => { toast(err.message, 'error'); toggle.checked = !toggle.checked; });
+  loadNotFoundHosts();
+});
+
+let _editing404Id = null;
+
+document.querySelectorAll('[data-nfh-tab]').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('#modal-404host .prl-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#modal-404host .prl-tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`nfh-panel-${tab.dataset.nfhTab}`)?.classList.add('active');
+  });
+});
+
+async function open404Modal(id, tab = 'general') {
+  _editing404Id = id || null;
+  document.getElementById('nfh-title').textContent = id ? t('proxy.notFoundEditTitle') : t('proxy.notFoundAddTitle');
+
+  document.querySelectorAll('[data-nfh-tab]').forEach(t => t.classList.toggle('active', t.dataset.nfhTab === tab));
+  document.querySelectorAll('#modal-404host .prl-tab-panel').forEach(p => p.classList.toggle('active', p.id === `nfh-panel-${tab}`));
+
+  document.getElementById('nfh-domain').value = '';
+  document.getElementById('nfh-extra-domains').value = '';
+  document.getElementById('nfh-enabled').checked = true;
+  document.getElementById('nfh-http2').checked = false;
+  document.getElementById('nfh-hsts-enabled').checked = false;
+  document.getElementById('nfh-hsts-subdomains').checked = false;
+  document.getElementById('nfh-cert-info').textContent = id ? 'Loading…' : t('proxy.certSaveFirst');
+  document.getElementById('nfh-cert-status').textContent = '';
+
+  if (id) {
+    api('GET', '/api/proxy/404hosts').then(rules => {
+      const r = rules.find(x => x.id === id);
+      if (!r) return;
+      document.getElementById('nfh-domain').value = r.domain;
+      document.getElementById('nfh-extra-domains').value = (r.extraDomains || []).join(', ');
+      document.getElementById('nfh-enabled').checked = r.enabled;
+      document.getElementById('nfh-http2').checked = !!r.http2;
+      document.getElementById('nfh-hsts-enabled').checked = !!r.hstsEnabled;
+      document.getElementById('nfh-hsts-subdomains').checked = !!r.hstsSubdomains;
+    });
+    api('GET', `/api/proxy/404hosts/${id}/cert`).then(c => {
+      const el = document.getElementById('nfh-cert-info');
+      if (c.expires) {
+        const d = new Date(c.expires);
+        const typeLabel = c.certType === 'letsencrypt' ? "Let's Encrypt" : 'Self-signed';
+        el.innerHTML = `<strong>${typeLabel}</strong> — expires ${d.toLocaleDateString()} <span style="color:${c.daysLeft < 30 ? 'var(--danger)' : 'var(--text-faint)'}">(${c.daysLeft} days)</span>`;
+      } else {
+        el.textContent = 'Self-signed (no expiry info)';
+      }
+    }).catch(() => { document.getElementById('nfh-cert-info').textContent = 'Could not load cert info.'; });
+  }
+
+  openModal('modal-404host');
+}
+
+document.getElementById('nfh-save').addEventListener('click', async () => {
+  const domain = document.getElementById('nfh-domain').value.trim();
+  const extraDomains = document.getElementById('nfh-extra-domains').value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!domain) { toast(t('proxy.requiredFields'), 'error'); return; }
+
+  const payload = {
+    domain, extraDomains,
+    enabled: document.getElementById('nfh-enabled').checked,
+    http2: document.getElementById('nfh-http2').checked,
+    hstsEnabled: document.getElementById('nfh-hsts-enabled').checked,
+    hstsSubdomains: document.getElementById('nfh-hsts-subdomains').checked,
+  };
+
+  const btn = document.getElementById('nfh-save');
+  btn.disabled = true;
+  try {
+    if (_editing404Id) {
+      await api('PUT', `/api/proxy/404hosts/${_editing404Id}`, payload);
+    } else {
+      await api('POST', '/api/proxy/404hosts', payload);
+    }
+    toast(t('proxy.saved'));
+    closeModal('modal-404host');
+    loadNotFoundHosts();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+async function nfhRequestLE() {
+  if (!_editing404Id) return;
+  const btn = document.getElementById('nfh-le-btn');
+  const status = document.getElementById('nfh-cert-status');
+  btn.disabled = true; btn.innerHTML = `${hearthSpinner(14)} Requesting…`;
+  status.textContent = 'Contacting Let\'s Encrypt… this may take up to 60s';
+  status.style.color = 'var(--text-faint)';
+  try {
+    const r = await api('POST', `/api/proxy/404hosts/${_editing404Id}/cert/letsencrypt`);
+    status.textContent = `✓ Certificate issued! Expires ${new Date(r.expires).toLocaleDateString()} (${r.daysLeft} days)`;
+    status.style.color = 'var(--ok)';
+    document.getElementById('nfh-cert-info').textContent = `Let's Encrypt — expires ${new Date(r.expires).toLocaleDateString()}`;
+    loadNotFoundHosts();
+  } catch(e) {
+    status.textContent = `✗ ${e.message}`;
+    status.style.color = 'var(--danger)';
+  }
+  finally { btn.disabled = false; btn.innerHTML = `<span>🔒 Request Let's Encrypt</span>`; }
+}
+
+async function nfhDeleteCert() {
+  if (!_editing404Id) { toast('Save rule first', 'error'); return; }
+  if (!confirm(t('proxy.deleteCertConfirm'))) return;
+  const btn = document.getElementById('nfh-delete-cert-btn');
+  btn.disabled = true;
+  try {
+    await api('DELETE', `/api/proxy/404hosts/${_editing404Id}/cert`);
+    toast('Certificate reset to self-signed ✓');
+    document.getElementById('nfh-cert-info').textContent = 'Self-signed (no expiry info)';
+    document.getElementById('nfh-cert-status').textContent = '';
+    loadNotFoundHosts();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
+// ---------- Streams ----------
+async function loadStreamRules() {
+  const rules = await api('GET', '/api/proxy/streams').catch(() => []);
+  const box = document.getElementById('stream-rules-list');
+  if (!box) return;
+  if (!rules.length) {
+    box.innerHTML = `<div class="empty"><div class="big">⇄</div>${t('proxy.streamEmpty')}</div>`;
+    return;
+  }
+  box.innerHTML = rules.map((r) => `
+    <div class="stream-row">
+      <span class="proxy-status-dot ${r.enabled ? '' : 'off'}"></span>
+      <div class="proxy-main">
+        <div class="proxy-domain">${esc(r.name || ('Port ' + r.listenPort))} <span class="stream-proto-badge">${esc(r.protocol)}</span></div>
+        <div class="proxy-target">:${r.listenPort} → ${esc(r.forwardHost)}:${r.forwardPort}</div>
+      </div>
+      <div class="proxy-actions">
+        <label class="toggle" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+          <input type="checkbox" ${r.enabled ? 'checked' : ''} data-strm-toggle="${esc(r.id)}" />
+          <span class="toggle-track"></span>
+        </label>
+        <button class="btn sm ghost" data-strm-edit="${esc(r.id)}">✎</button>
+        <button class="btn sm danger" data-strm-del="${esc(r.id)}">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('stream-rules-list').addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('[data-strm-del]');
+  if (delBtn) {
+    if (!confirm(t('proxy.deleteConfirm'))) return;
+    await api('DELETE', `/api/proxy/streams/${delBtn.dataset.strmDel}`).catch((err) => toast(err.message, 'error'));
+    loadStreamRules();
+    return;
+  }
+  const editBtn = e.target.closest('[data-strm-edit]');
+  if (editBtn) { openStreamModal(editBtn.dataset.strmEdit); return; }
+});
+
+document.getElementById('stream-rules-list').addEventListener('change', async (e) => {
+  const toggle = e.target.closest('[data-strm-toggle]');
+  if (!toggle) return;
+  await api('PUT', `/api/proxy/streams/${toggle.dataset.strmToggle}`, { enabled: toggle.checked })
+    .catch((err) => { toast(err.message, 'error'); toggle.checked = !toggle.checked; });
+  loadStreamRules();
+});
+
+let _editingStreamId = null;
+
+async function openStreamModal(id) {
+  _editingStreamId = id || null;
+  document.getElementById('strm-title').textContent = id ? t('proxy.streamEditTitle') : t('proxy.streamAddTitle');
+
+  document.getElementById('strm-name').value = '';
+  document.getElementById('strm-listen-port').value = '';
+  document.getElementById('strm-protocol').value = 'tcp';
+  document.getElementById('strm-forward-host').value = '';
+  document.getElementById('strm-forward-port').value = '';
+  document.getElementById('strm-enabled').checked = true;
+
+  if (id) {
+    const rules = await api('GET', '/api/proxy/streams').catch(() => []);
+    const r = rules.find(x => x.id === id);
+    if (r) {
+      document.getElementById('strm-name').value = r.name || '';
+      document.getElementById('strm-listen-port').value = r.listenPort;
+      document.getElementById('strm-protocol').value = r.protocol;
+      document.getElementById('strm-forward-host').value = r.forwardHost;
+      document.getElementById('strm-forward-port').value = r.forwardPort;
+      document.getElementById('strm-enabled').checked = r.enabled;
+    }
+  }
+
+  openModal('modal-stream');
+}
+
+document.getElementById('strm-save').addEventListener('click', async () => {
+  const name = document.getElementById('strm-name').value.trim();
+  const listenPort = document.getElementById('strm-listen-port').value.trim();
+  const protocol = document.getElementById('strm-protocol').value;
+  const forwardHost = document.getElementById('strm-forward-host').value.trim();
+  const forwardPort = document.getElementById('strm-forward-port').value.trim();
+  if (!listenPort || !forwardHost || !forwardPort) { toast(t('proxy.requiredFields'), 'error'); return; }
+
+  const payload = { name, listenPort, protocol, forwardHost, forwardPort, enabled: document.getElementById('strm-enabled').checked };
+
+  const btn = document.getElementById('strm-save');
+  btn.disabled = true;
+  try {
+    if (_editingStreamId) {
+      await api('PUT', `/api/proxy/streams/${_editingStreamId}`, payload);
+    } else {
+      await api('POST', '/api/proxy/streams', payload);
+    }
+    toast(t('proxy.saved'));
+    closeModal('modal-stream');
+    loadStreamRules();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
 
 // ---------- Traffic Logs ----------
 let _currentLogRuleId = null;

@@ -64,7 +64,8 @@ const PORT        = parseInt(process.env.PORT       || _earlyConfig.configPort  
 const GUEST_PORT  = parseInt(process.env.GUEST_PORT || _earlyConfig.configGuestPort || '3000', 10);
 const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || '443',  10);
 const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || '80',   10);
-const NGINX_PROXY_DIR = '/etc/nginx/hearth-proxy';
+const NGINX_PROXY_DIR   = '/etc/nginx/hearth-proxy';
+const NGINX_STREAMS_DIR = '/etc/nginx/hearth-streams';
 const CERTS_DIR       = '/etc/nginx/hearth-certs';
 const AUTH_DIR        = '/etc/nginx/hearth-auth';
 const NGINX_LOG_DIR   = '/var/log/nginx';
@@ -91,6 +92,9 @@ let runtimeConfig = {
   showOfflineApps: false,
   refreshInterval: 15,
   proxyRules: [],
+  redirectRules: [],
+  notFoundHosts: [],
+  streamRules: [],
   firewallRules: [],
   firewallAliases: [],
   guestHidden: [],
@@ -558,10 +562,14 @@ async function requestLECert(domain, allDomains = [domain]) {
     });
   });
 
-  // Copy certs to hearth-certs dir
+  // Copy certs to hearth-certs dir. nginx's ssl_certificate needs the full
+  // chain (leaf + intermediate), not just the leaf — otherwise strict TLS
+  // clients that don't already have the intermediate cached (e.g. cloudflared)
+  // fail with "unable to get local issuer certificate" even though browsers
+  // tolerate it. --fullchain-file (not --cert-file) writes leaf+intermediate.
   await new Promise((resolve, reject) => {
     const args = [ACME_SH, '--install-cert', '-d', domain,
-      '--cert-file', cert, '--key-file', key,
+      '--fullchain-file', cert, '--key-file', key,
       '--reloadcmd', 'nginx -s reload 2>/dev/null || true'];
     const p = spawn('sh', args, { env, stdio: 'ignore' });
     p.on('close', code => code === 0 ? resolve() : reject(new Error('acme.sh install-cert fehlgeschlagen')));
@@ -570,8 +578,12 @@ async function requestLECert(domain, allDomains = [domain]) {
 
 async function renewCertsIfNeeded() {
   if (!fs.existsSync(ACME_SH)) return;
-  const rules = runtimeConfig.proxyRules || [];
-  for (const r of rules.filter(r => r.certType === 'letsencrypt')) {
+  const all = [
+    ...(runtimeConfig.proxyRules || []),
+    ...(runtimeConfig.redirectRules || []),
+    ...(runtimeConfig.notFoundHosts || []),
+  ];
+  for (const r of all.filter(r => r.certType === 'letsencrypt')) {
     const info = getCertInfo(r.domain);
     if (info?.daysLeft != null && info.daysLeft < 30) {
       console.log(`[CERT] Renewing LE cert for ${r.domain} (${info.daysLeft} days left)`);
@@ -748,7 +760,100 @@ server {
 `;
 }
 
-async function writeProxyConfigs(rules) {
+// Redirection Hosts — same domain/cert machinery as proxy rules, but the
+// location block just returns a redirect instead of proxy_pass-ing anywhere.
+function nginxConfForRedirect(rule) {
+  const { cert, key } = certPaths(rule.domain);
+  const serverNames = allDomainsOf(rule).join(' ');
+  const forceSsl = rule.forceSsl !== false;
+  const http2 = !!rule.http2;
+  const statusCode = [301, 302].includes(+rule.statusCode) ? +rule.statusCode : 301;
+  const targetUrl = rule.targetUrl.replace(/\/$/, '');
+  const redirectTarget = rule.preservePath ? `${targetUrl}$request_uri` : targetUrl;
+
+  const hstsHeader = rule.hstsEnabled
+    ? `\n    add_header Strict-Transport-Security "max-age=31536000${rule.hstsSubdomains ? '; includeSubDomains' : ''}" always;`
+    : '';
+
+  const httpServer = `server {
+    listen ${HTTP_PORT};
+    server_name ${serverNames};
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+    }
+    location / {
+        ${forceSsl ? 'return 301 https://$host$request_uri;' : `return ${statusCode} ${redirectTarget};`}
+    }
+}`;
+
+  return `# Hearth Redirect: ${rule.id} (${serverNames} -> ${rule.targetUrl})
+${httpServer}
+server {
+    listen ${PROXY_PORT} ssl${http2 ? ' http2' : ''};
+    server_name ${serverNames};
+    ssl_certificate     ${cert};
+    ssl_certificate_key ${key};
+    ${hstsHeader}
+    location / {
+        return ${statusCode} ${redirectTarget};
+    }
+}
+`;
+}
+
+// A "404 Host" claims a domain (with its own trusted cert) without proxying
+// anywhere — useful to explicitly serve a clean 404 for a domain instead of
+// falling through to nginx's self-signed `_default` catch-all, which breaks
+// strict TLS clients like cloudflared (see nginxConfForRule's HSTS comment).
+function nginxConfForNotFound(rule) {
+  const { cert, key } = certPaths(rule.domain);
+  const serverNames = allDomainsOf(rule).join(' ');
+  const http2 = !!rule.http2;
+  const hstsHeader = rule.hstsEnabled
+    ? `\n    add_header Strict-Transport-Security "max-age=31536000${rule.hstsSubdomains ? '; includeSubDomains' : ''}" always;`
+    : '';
+
+  return `# Hearth 404 Host: ${rule.id} (${serverNames})
+server {
+    listen ${HTTP_PORT};
+    server_name ${serverNames};
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+    }
+    location / {
+        return 404;
+    }
+}
+server {
+    listen ${PROXY_PORT} ssl${http2 ? ' http2' : ''};
+    server_name ${serverNames};
+    ssl_certificate     ${cert};
+    ssl_certificate_key ${key};
+    ${hstsHeader}
+    location / {
+        return 404;
+    }
+}
+`;
+}
+
+function nginxConfForStream(rule) {
+  const target = `${rule.forwardHost}:${rule.forwardPort}`;
+  const listeners = rule.protocol === 'udp'
+    ? [`listen ${rule.listenPort} udp;`]
+    : rule.protocol === 'both'
+      ? [`listen ${rule.listenPort};`, `listen ${rule.listenPort} udp;`]
+      : [`listen ${rule.listenPort};`];
+  return `# Hearth Stream: ${rule.id} (${rule.name || rule.listenPort})
+${listeners.map(l => `server {\n    ${l}\n    proxy_pass ${target};\n}`).join('\n')}
+`;
+}
+
+async function writeProxyConfigs(
+  rules = runtimeConfig.proxyRules || [],
+  redirects = runtimeConfig.redirectRules || [],
+  notFoundHosts = runtimeConfig.notFoundHosts || [],
+) {
   try {
     fs.mkdirSync(NGINX_PROXY_DIR, { recursive: true });
     for (const f of fs.readdirSync(NGINX_PROXY_DIR)) {
@@ -756,11 +861,33 @@ async function writeProxyConfigs(rules) {
     }
     await ensureDefaultCert();
     await ensureCertsForRules(rules);
+    await ensureCertsForRules(redirects);
+    await ensureCertsForRules(notFoundHosts);
     for (const r of (rules || []).filter((r) => r.enabled)) {
       fs.writeFileSync(path.join(NGINX_PROXY_DIR, `${r.id}.conf`), nginxConfForRule(r));
     }
+    for (const r of (redirects || []).filter((r) => r.enabled)) {
+      fs.writeFileSync(path.join(NGINX_PROXY_DIR, `redirect-${r.id}.conf`), nginxConfForRedirect(r));
+    }
+    for (const r of (notFoundHosts || []).filter((r) => r.enabled)) {
+      fs.writeFileSync(path.join(NGINX_PROXY_DIR, `404host-${r.id}.conf`), nginxConfForNotFound(r));
+    }
   } catch (e) {
     console.warn('[PROXY] Konnte Nginx-Configs nicht schreiben:', e.message);
+  }
+}
+
+async function writeStreamConfigs(streams = runtimeConfig.streamRules || []) {
+  try {
+    fs.mkdirSync(NGINX_STREAMS_DIR, { recursive: true });
+    for (const f of fs.readdirSync(NGINX_STREAMS_DIR)) {
+      fs.unlinkSync(path.join(NGINX_STREAMS_DIR, f));
+    }
+    for (const r of (streams || []).filter((r) => r.enabled)) {
+      fs.writeFileSync(path.join(NGINX_STREAMS_DIR, `stream-${r.id}.conf`), nginxConfForStream(r));
+    }
+  } catch (e) {
+    console.warn('[PROXY] Konnte Stream-Configs nicht schreiben:', e.message);
   }
 }
 
@@ -777,6 +904,7 @@ async function startNginx() {
     return;
   }
   await writeProxyConfigs(runtimeConfig.proxyRules);
+  await writeStreamConfigs(runtimeConfig.streamRules);
   _nginxProc = spawn(nginxBin, ['-g', 'daemon off;'], { stdio: ['ignore', 'pipe', 'pipe'] });
   _nginxProc.stderr.on('data', (d) => {
     const msg = d.toString().trim();
@@ -1583,6 +1711,356 @@ app.delete('/api/proxy/rules/:id/cert', requireAuth, asyncHandler(async (req, re
   await reloadNginx();
   const info = getCertInfo(rule.domain);
   res.json({ ok: true, ...info });
+}));
+
+// ---------------------------------------------------------------------------
+// Redirection Hosts — domain(s) -> a plain redirect, no backend container.
+// Reuses the same cert machinery as proxy rules (self-signed/LE/custom).
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/redirects', requireAuth, (req, res) => {
+  res.json(runtimeConfig.redirectRules || []);
+});
+
+app.post('/api/proxy/redirects', requireAuth, asyncHandler(async (req, res) => {
+  const {
+    domain, extraDomains, targetUrl, statusCode = 301, preservePath = false,
+    enabled = true, cfSync = false, forceSsl = true, http2 = false,
+    hstsEnabled = false, hstsSubdomains = false,
+  } = req.body || {};
+  if (!domain || !targetUrl) return res.status(400).json({ error: 'domain and targetUrl are required' });
+  validateDomain(domain.trim());
+  let url;
+  try { url = new URL(targetUrl.trim()); } catch { const err = new Error('Ungültige Ziel-URL'); err.statusCode = 400; throw err; }
+  if (!['http:', 'https:'].includes(url.protocol)) { const err = new Error('Ziel-URL muss mit http:// oder https:// beginnen'); err.statusCode = 400; throw err; }
+  const extraDomainsClean = normalizeExtraDomains(extraDomains);
+  extraDomainsClean.forEach(validateDomain);
+
+  const redirects = [...(runtimeConfig.redirectRules || [])];
+  const id = Date.now().toString(36);
+  const rule = {
+    id, domain: domain.trim(), extraDomains: extraDomainsClean,
+    targetUrl: targetUrl.trim().replace(/\/$/, ''), statusCode: [301, 302].includes(+statusCode) ? +statusCode : 301,
+    preservePath: !!preservePath, enabled: !!enabled, cfSync: !!cfSync, cfDnsId: null,
+    forceSsl: !!forceSsl, http2: !!http2, hstsEnabled: !!hstsEnabled, hstsSubdomains: !!hstsSubdomains,
+    certType: 'self-signed',
+  };
+  redirects.push(rule);
+  saveConfig({ redirectRules: redirects });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], redirects);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert. Bitte Domain und Ziel-URL prüfen.' });
+  }
+  if (cfSync) cfSyncRule(rule).catch(e => console.warn('[CF]', e.message));
+  res.json({ ok: true, id });
+}));
+
+app.put('/api/proxy/redirects/:id', requireAuth, asyncHandler(async (req, res) => {
+  const {
+    domain, extraDomains, targetUrl, statusCode, preservePath,
+    enabled, cfSync, forceSsl, http2, hstsEnabled, hstsSubdomains,
+  } = req.body || {};
+  const existing = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+
+  const newDomain = domain !== undefined ? domain.trim() : existing.domain;
+  const newTargetUrl = targetUrl !== undefined ? targetUrl.trim().replace(/\/$/, '') : existing.targetUrl;
+  validateDomain(newDomain);
+  try { new URL(newTargetUrl); } catch { const err = new Error('Ungültige Ziel-URL'); err.statusCode = 400; throw err; }
+  const newExtraDomains = extraDomains !== undefined ? normalizeExtraDomains(extraDomains) : (existing.extraDomains || []);
+  newExtraDomains.forEach(validateDomain);
+
+  let updatedRule;
+  const redirects = (runtimeConfig.redirectRules || []).map((r) => {
+    if (r.id !== req.params.id) return r;
+    updatedRule = {
+      ...r,
+      domain: newDomain, extraDomains: newExtraDomains, targetUrl: newTargetUrl,
+      statusCode: statusCode !== undefined ? ([301, 302].includes(+statusCode) ? +statusCode : 301) : r.statusCode,
+      preservePath: preservePath !== undefined ? !!preservePath : r.preservePath,
+      enabled: enabled !== undefined ? !!enabled : r.enabled,
+      cfSync: cfSync !== undefined ? !!cfSync : r.cfSync,
+      forceSsl: forceSsl !== undefined ? !!forceSsl : (r.forceSsl !== false),
+      http2: http2 !== undefined ? !!http2 : !!r.http2,
+      hstsEnabled: hstsEnabled !== undefined ? !!hstsEnabled : !!r.hstsEnabled,
+      hstsSubdomains: hstsSubdomains !== undefined ? !!hstsSubdomains : !!r.hstsSubdomains,
+    };
+    return updatedRule;
+  });
+  saveConfig({ redirectRules: redirects });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], redirects);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert.' });
+  }
+  if (updatedRule?.cfSync) cfSyncRule(updatedRule).catch(e => console.warn('[CF]', e.message));
+  res.json({ ok: true });
+}));
+
+app.delete('/api/proxy/redirects/:id', requireAuth, asyncHandler(async (req, res) => {
+  const toDelete = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
+  const redirects = (runtimeConfig.redirectRules || []).filter((r) => r.id !== req.params.id);
+  saveConfig({ redirectRules: redirects });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], redirects);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
+  }
+  if (toDelete?.cfSync) cfDeleteDnsRecord(toDelete).catch(e => console.warn('[CF]', e.message));
+  res.json({ ok: true });
+}));
+
+app.get('/api/proxy/redirects/:id/cert', requireAuth, (req, res) => {
+  const rule = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const info = getCertInfo(rule.domain) || {};
+  res.json({ ok: true, ...info, certType: rule.certType || 'self-signed' });
+});
+
+app.post('/api/proxy/redirects/:id/cert/letsencrypt', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const { cert, key } = certPaths(rule.domain);
+  try { fs.unlinkSync(cert); fs.unlinkSync(key); } catch (_) {}
+  await requestLECert(rule.domain, allDomainsOf(rule));
+  const redirects = (runtimeConfig.redirectRules || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'letsencrypt' } : r
+  );
+  saveConfig({ redirectRules: redirects });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], redirects);
+  await reloadNginx();
+  const info = getCertInfo(rule.domain);
+  res.json({ ok: true, ...info });
+}));
+
+app.delete('/api/proxy/redirects/:id/cert', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const { dir } = certPaths(rule.domain);
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  const redirects = (runtimeConfig.redirectRules || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'self-signed' } : r
+  );
+  saveConfig({ redirectRules: redirects });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], redirects);
+  await reloadNginx();
+  const info = getCertInfo(rule.domain);
+  res.json({ ok: true, ...info });
+}));
+
+// ---------------------------------------------------------------------------
+// 404 Hosts — claim a domain with a real cert but serve nothing on it.
+// Same cert machinery as proxy/redirect rules.
+// ---------------------------------------------------------------------------
+app.get('/api/proxy/404hosts', requireAuth, (req, res) => {
+  res.json(runtimeConfig.notFoundHosts || []);
+});
+
+app.post('/api/proxy/404hosts', requireAuth, asyncHandler(async (req, res) => {
+  const { domain, extraDomains, enabled = true, http2 = false, hstsEnabled = false, hstsSubdomains = false } = req.body || {};
+  if (!domain) return res.status(400).json({ error: 'domain is required' });
+  validateDomain(domain.trim());
+  const extraDomainsClean = normalizeExtraDomains(extraDomains);
+  extraDomainsClean.forEach(validateDomain);
+
+  const hosts = [...(runtimeConfig.notFoundHosts || [])];
+  const id = Date.now().toString(36);
+  const rule = {
+    id, domain: domain.trim(), extraDomains: extraDomainsClean, enabled: !!enabled,
+    http2: !!http2, hstsEnabled: !!hstsEnabled, hstsSubdomains: !!hstsSubdomains,
+    certType: 'self-signed',
+  };
+  hosts.push(rule);
+  saveConfig({ notFoundHosts: hosts });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], runtimeConfig.redirectRules || [], hosts);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert.' });
+  }
+  res.json({ ok: true, id });
+}));
+
+app.put('/api/proxy/404hosts/:id', requireAuth, asyncHandler(async (req, res) => {
+  const { domain, extraDomains, enabled, http2, hstsEnabled, hstsSubdomains } = req.body || {};
+  const existing = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+
+  const newDomain = domain !== undefined ? domain.trim() : existing.domain;
+  validateDomain(newDomain);
+  const newExtraDomains = extraDomains !== undefined ? normalizeExtraDomains(extraDomains) : (existing.extraDomains || []);
+  newExtraDomains.forEach(validateDomain);
+
+  const hosts = (runtimeConfig.notFoundHosts || []).map((r) => {
+    if (r.id !== req.params.id) return r;
+    return {
+      ...r,
+      domain: newDomain, extraDomains: newExtraDomains,
+      enabled: enabled !== undefined ? !!enabled : r.enabled,
+      http2: http2 !== undefined ? !!http2 : !!r.http2,
+      hstsEnabled: hstsEnabled !== undefined ? !!hstsEnabled : !!r.hstsEnabled,
+      hstsSubdomains: hstsSubdomains !== undefined ? !!hstsSubdomains : !!r.hstsSubdomains,
+    };
+  });
+  saveConfig({ notFoundHosts: hosts });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], runtimeConfig.redirectRules || [], hosts);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert.' });
+  }
+  res.json({ ok: true });
+}));
+
+app.delete('/api/proxy/404hosts/:id', requireAuth, asyncHandler(async (req, res) => {
+  const hosts = (runtimeConfig.notFoundHosts || []).filter((r) => r.id !== req.params.id);
+  saveConfig({ notFoundHosts: hosts });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], runtimeConfig.redirectRules || [], hosts);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
+  }
+  res.json({ ok: true });
+}));
+
+app.get('/api/proxy/404hosts/:id/cert', requireAuth, (req, res) => {
+  const rule = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const info = getCertInfo(rule.domain) || {};
+  res.json({ ok: true, ...info, certType: rule.certType || 'self-signed' });
+});
+
+app.post('/api/proxy/404hosts/:id/cert/letsencrypt', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const { cert, key } = certPaths(rule.domain);
+  try { fs.unlinkSync(cert); fs.unlinkSync(key); } catch (_) {}
+  await requestLECert(rule.domain, allDomainsOf(rule));
+  const hosts = (runtimeConfig.notFoundHosts || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'letsencrypt' } : r
+  );
+  saveConfig({ notFoundHosts: hosts });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], runtimeConfig.redirectRules || [], hosts);
+  await reloadNginx();
+  const info = getCertInfo(rule.domain);
+  res.json({ ok: true, ...info });
+}));
+
+app.delete('/api/proxy/404hosts/:id/cert', requireAuth, asyncHandler(async (req, res) => {
+  const rule = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
+  if (!rule) return res.status(404).json({ ok: false });
+  const { dir } = certPaths(rule.domain);
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  const hosts = (runtimeConfig.notFoundHosts || []).map(r =>
+    r.id === req.params.id ? { ...r, certType: 'self-signed' } : r
+  );
+  saveConfig({ notFoundHosts: hosts });
+  await writeProxyConfigs(runtimeConfig.proxyRules || [], runtimeConfig.redirectRules || [], hosts);
+  await reloadNginx();
+  const info = getCertInfo(rule.domain);
+  res.json({ ok: true, ...info });
+}));
+
+// ---------------------------------------------------------------------------
+// Streams — raw TCP/UDP port forwarding (nginx stream{} module). Requires
+// Hearth to run with network_mode: host so arbitrary listen ports work.
+// ---------------------------------------------------------------------------
+function validatePort(n, label = 'Port') {
+  const p = parseInt(n, 10);
+  if (!Number.isInteger(p) || p < 1 || p > 65535) {
+    const err = new Error(`${label} muss zwischen 1 und 65535 liegen`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return p;
+}
+
+function checkStreamPortFree(listenPort, protocol, streams, excludeId) {
+  const reserved = [PORT, GUEST_PORT, HTTP_PORT, PROXY_PORT];
+  if (reserved.includes(listenPort)) {
+    const err = new Error(`Port ${listenPort} wird bereits von Hearth selbst verwendet`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const collides = (streams || []).some((s) => {
+    if (s.id === excludeId || !s.enabled) return false;
+    if (s.listenPort !== listenPort) return false;
+    return s.protocol === protocol || s.protocol === 'both' || protocol === 'both';
+  });
+  if (collides) {
+    const err = new Error(`Port ${listenPort} wird bereits von einem anderen Stream verwendet`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+app.get('/api/proxy/streams', requireAuth, (req, res) => {
+  res.json(runtimeConfig.streamRules || []);
+});
+
+app.post('/api/proxy/streams', requireAuth, asyncHandler(async (req, res) => {
+  const { name, listenPort, protocol = 'tcp', forwardHost, forwardPort, enabled = true } = req.body || {};
+  if (!forwardHost || !String(forwardHost).trim()) return res.status(400).json({ error: 'forwardHost is required' });
+  if (!['tcp', 'udp', 'both'].includes(protocol)) return res.status(400).json({ error: 'invalid protocol' });
+  const lp = validatePort(listenPort, 'Listen-Port');
+  const fp = validatePort(forwardPort, 'Ziel-Port');
+  const streams = [...(runtimeConfig.streamRules || [])];
+  checkStreamPortFree(lp, protocol, streams, null);
+
+  const id = Date.now().toString(36);
+  const rule = {
+    id, name: (name || '').trim().slice(0, 63), listenPort: lp, protocol,
+    forwardHost: forwardHost.trim(), forwardPort: fp, enabled: !!enabled,
+  };
+  streams.push(rule);
+  saveConfig({ streamRules: streams });
+  await writeStreamConfigs(streams);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gespeichert, Proxy nicht aktualisiert.' });
+  }
+  res.json({ ok: true, id });
+}));
+
+app.put('/api/proxy/streams/:id', requireAuth, asyncHandler(async (req, res) => {
+  const { name, listenPort, protocol, forwardHost, forwardPort, enabled } = req.body || {};
+  const existing = (runtimeConfig.streamRules || []).find(r => r.id === req.params.id);
+  if (!existing) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
+
+  const newProtocol = protocol !== undefined ? protocol : existing.protocol;
+  if (!['tcp', 'udp', 'both'].includes(newProtocol)) return res.status(400).json({ error: 'invalid protocol' });
+  const newListenPort  = listenPort  !== undefined ? validatePort(listenPort, 'Listen-Port') : existing.listenPort;
+  const newForwardPort = forwardPort !== undefined ? validatePort(forwardPort, 'Ziel-Port')  : existing.forwardPort;
+  const newForwardHost = forwardHost !== undefined ? forwardHost.trim() : existing.forwardHost;
+  if (!newForwardHost) return res.status(400).json({ error: 'forwardHost is required' });
+  checkStreamPortFree(newListenPort, newProtocol, runtimeConfig.streamRules || [], req.params.id);
+
+  const streams = (runtimeConfig.streamRules || []).map((r) => {
+    if (r.id !== req.params.id) return r;
+    return {
+      ...r,
+      name: name !== undefined ? (name || '').trim().slice(0, 63) : r.name,
+      listenPort: newListenPort, protocol: newProtocol,
+      forwardHost: newForwardHost, forwardPort: newForwardPort,
+      enabled: enabled !== undefined ? !!enabled : r.enabled,
+    };
+  });
+  saveConfig({ streamRules: streams });
+  await writeStreamConfigs(streams);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Änderung gespeichert, Proxy nicht aktualisiert.' });
+  }
+  res.json({ ok: true });
+}));
+
+app.delete('/api/proxy/streams/:id', requireAuth, asyncHandler(async (req, res) => {
+  const streams = (runtimeConfig.streamRules || []).filter((r) => r.id !== req.params.id);
+  saveConfig({ streamRules: streams });
+  await writeStreamConfigs(streams);
+  const reloadOk = await reloadNginx();
+  if (!reloadOk) {
+    return res.status(500).json({ ok: false, error: 'Nginx-Reload fehlgeschlagen – Regel gelöscht, Proxy nicht aktualisiert.' });
+  }
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------

@@ -6,11 +6,9 @@ services:
         - GIT_SHA=${GIT_SHA:-unknown}
     container_name: hearth
     restart: unless-stopped
-    ports:
-      - "${PORT:-4500}:${PORT:-4500}"         # Admin panel  — keep behind firewall/VPN
-      - "${GUEST_PORT:-3000}:${GUEST_PORT:-3000}" # Guest view   — safe to expose publicly
-      - "${HTTP_PORT:-80}:80"                 # Reverse Proxy — HTTP (ACME challenges + redirect to HTTPS)
-      - "${PROXY_PORT:-443}:443"              # Reverse Proxy — HTTPS
+    # Host networking (matches hearth-firewall below) so Reverse-Proxy Streams
+    # can bind arbitrary raw TCP/UDP ports without pre-declaring them here.
+    network_mode: host
     environment:
       - PORT=${PORT:-4500}
       - GUEST_PORT=${GUEST_PORT:-3000}
