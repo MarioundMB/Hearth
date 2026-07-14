@@ -4500,6 +4500,7 @@ app.post(
         NetworkMode:  hc.NetworkMode  || 'bridge',
       },
     });
+    await reconnectExtraNetworks(newC.id, info.NetworkSettings?.Networks, hc.NetworkMode || 'bridge');
     if (wasRunning) await newC.start();
 
     // Cache invalidieren
@@ -4707,6 +4708,24 @@ async function runHearthSelfUpdate(emit = () => {}) {
 // ---------------------------------------------------------------------------
 // Container Auto-Update — per-container scheduled updates
 // ---------------------------------------------------------------------------
+// A container can be attached to multiple Docker networks (e.g. via a manual
+// `docker network connect`, often done to work around one container being
+// unable to reach another through the host's own published port), but only
+// ONE network can be specified at container-creation time (HostConfig
+// .NetworkMode). Recreating a container for an update previously silently
+// dropped every network beyond that primary one — reconnect the rest here so
+// they survive image updates instead of reverting on every recreate.
+async function reconnectExtraNetworks(containerId, originalNetworks, primaryNetworkMode) {
+  const extra = Object.keys(originalNetworks || {}).filter((n) => n !== primaryNetworkMode);
+  for (const netName of extra) {
+    try {
+      await docker.getNetwork(netName).connect({ Container: containerId });
+    } catch (e) {
+      console.warn(`[UPDATE] Konnte Netzwerk '${netName}' nicht wieder verbinden:`, e.message);
+    }
+  }
+}
+
 async function runContainerAutoUpdate(name) {
   const list = await docker.listContainers({ all: true, filters: { name: [name] } });
   const match = list.find(c => (c.Names || []).some(n => n.replace(/^\//, '') === name));
@@ -4754,6 +4773,7 @@ async function runContainerAutoUpdate(name) {
       NetworkMode:  hc.NetworkMode  || 'bridge',
     },
   });
+  await reconnectExtraNetworks(newC.id, info.NetworkSettings?.Networks, hc.NetworkMode || 'bridge');
   if (wasRunning) await newC.start();
   _updateCache = { ts: 0, data: null };
   return { updated: true, name };
