@@ -4477,6 +4477,34 @@ function _exec(cmd, args) {
   );
 }
 
+// Runs git against a bind-mounted repo via a small dedicated image rather
+// than this container's own `git` binary. If a previous self-update got
+// interrupted before its rebuild finished, the currently-running image can
+// be left stale and missing git entirely — that would otherwise permanently
+// deadlock self-update (can't check for updates without git, and can't fix
+// git without a successful update). -c safe.directory replaces a persisted
+// `git config --global`, since each invocation is a fresh, disposable
+// container that wouldn't retain it anyway.
+async function gitExec(hostRepoPath, args) {
+  await pullImage('alpine/git:latest').catch(() => {});
+  return new Promise((resolve, reject) => {
+    let out = '';
+    const p = _spawn('docker', [
+      'run', '--rm',
+      '-v', `${hostRepoPath}:/app/repo`,
+      'alpine/git:latest',
+      '-c', 'safe.directory=/app/repo',
+      '-C', '/app/repo',
+      ...args,
+    ], { stdio: 'pipe' });
+    p.stdout.on('data', (d) => out += d);
+    p.stderr.on('data', (d) => out += d);
+    p.on('close', (code) => code === 0
+      ? resolve(out.trim())
+      : reject(new Error(out.trim() || `git exited with code ${code}`)));
+  });
+}
+
 async function resolveUpdateBranch(branch, emit = () => {}) {
   if (!branch || branch === 'main') return 'main';
   try {
@@ -4545,15 +4573,14 @@ async function runHearthSelfUpdate(emit = () => {}) {
   if (hasVolume) {
     console.log('[UPDATE] Volume mounted — updating in-place');
     emit('log', 'Änderungen von GitHub laden…');
-    await _exec('git', ['config', '--global', '--add', 'safe.directory', _REPO]).catch(() => {});
-    await _exec('git', ['-C', _REPO, 'fetch', '--quiet']).catch(() => {});
-    const remote = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', `origin/${branch}`]);
-    const local  = await _exec('git', ['-C', _REPO, 'rev-parse', '--short', 'HEAD']);
+    await gitExec(repoHostPath, ['fetch', '--quiet']).catch(() => {});
+    const remote = await gitExec(repoHostPath, ['rev-parse', '--short', `origin/${branch}`]);
+    const local  = await gitExec(repoHostPath, ['rev-parse', '--short', 'HEAD']);
     emit('log', `Lokal: ${local} → Remote: ${remote}`);
     if (local !== remote) {
       emit('log', 'Code wird aktualisiert…');
-      await _exec('git', ['-C', _REPO, 'reset', '--hard', `origin/${branch}`]);
-      await _exec('git', ['-C', _REPO, 'clean', '-fd']).catch(() => {});
+      await gitExec(repoHostPath, ['reset', '--hard', `origin/${branch}`]);
+      await gitExec(repoHostPath, ['clean', '-fd']).catch(() => {});
     }
     const pkg = JSON.parse(fs.readFileSync(path.join(_REPO, 'package.json'), 'utf8'));
     if (pkg.version === VERSION) {
@@ -4567,10 +4594,13 @@ async function runHearthSelfUpdate(emit = () => {}) {
     return { upToDate: false, version: pkg.version };
   }
 
-  // ── PATH B: no bind-mount — clone via named volume + selfImage ────────────
-  // Uses the already-local selfImage (has git). No external image pull needed.
+  // ── PATH B: no bind-mount — clone via named volume ─────────────────────────
+  // Uses a dedicated alpine/git image rather than selfImage — selfImage is
+  // whatever the currently-running container happens to be, which (same as
+  // PATH A) could be a stale image from an interrupted previous update.
   console.log('[UPDATE] No bind-mount — using named-volume fallback');
   emit('log', 'Kein Volume-Mount — klone Repository…');
+  await pullImage('alpine/git:latest').catch(() => {});
 
   // Ensure named volume exists
   await new Promise((resolve, reject) => {
@@ -4581,7 +4611,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
   // Clean up any leftover clone container from a previous failed run
   _spawn('docker', ['rm', '-f', 'hearth-git-clone'], { stdio: 'ignore' });
 
-  // Clone into named volume using selfImage (already local, has git)
+  // Clone into named volume
   emit('log', `Klone Branch '${branch}' von GitHub…`);
   const cloneLog = await new Promise((resolve, reject) => {
     let out = '';
@@ -4590,8 +4620,9 @@ async function runHearthSelfUpdate(emit = () => {}) {
       '--label', 'hearth.hide=true',
       '--label', 'hearth.ephemeral=true',
       '-v', `${UPDATE_VOL}:/dst`,
-      selfImage,
-      'sh', '-c',
+      '--entrypoint', 'sh',
+      'alpine/git:latest',
+      '-c',
       `git config --global --add safe.directory /dst 2>/dev/null; rm -rf /dst/* /dst/.[^.]* 2>/dev/null; git clone --depth=1 --branch ${branch} ${GITHUB_REPO} /dst 2>&1`,
     ], { stdio: 'pipe' });
     p.stdout?.on('data', d => { out += d; });
