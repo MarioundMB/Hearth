@@ -16,6 +16,7 @@ const multer = require('multer');
 const Docker = require('dockerode');
 const http = require('http');
 const https = require('https');
+const dns = require('dns').promises;
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -2137,6 +2138,157 @@ app.get('/api/system/public-ip', requireAuth, asyncHandler(async (req, res) => {
   } catch(e) {
     res.json({ ok: false, error: e.message });
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Setup Assistant — guided checks for Reverse Proxy, Firewall, VPN.
+// Port reachability can't be verified from inside the same network (NAT
+// hairpinning), so external checks go through check-host.net's free public
+// API (multiple international vantage points, no auth required).
+// ---------------------------------------------------------------------------
+function checkHostRequest(pathAndQuery) {
+  return new Promise((resolve, reject) => {
+    https.get({
+      hostname: 'check-host.net',
+      path: pathAndQuery,
+      headers: { 'Accept': 'application/json' },
+      timeout: 8000,
+    }, (r) => {
+      let d = '';
+      r.on('data', (c) => d += c);
+      r.on('end', () => {
+        try { resolve(JSON.parse(d)); } catch (e) { reject(new Error('check-host.net: ungültige Antwort')); }
+      });
+    }).on('error', reject).on('timeout', function () { this.destroy(); reject(new Error('check-host.net: Zeitüberschreitung')); });
+  });
+}
+
+async function checkExternalPort(port, proto = 'tcp') {
+  const ip = await cfGetPublicIp();
+  const type = proto === 'udp' ? 'check-udp' : 'check-tcp';
+  const init = await checkHostRequest(`/${type}?host=${ip}:${port}&max_nodes=3`);
+  if (!init.ok || !init.request_id) throw new Error('check-host.net: Anfrage fehlgeschlagen');
+  // Nodes need a few seconds to actually run the check before results land.
+  await new Promise((r) => setTimeout(r, 6000));
+  const result = await checkHostRequest(`/check-result/${init.request_id}`);
+  let checked = 0, open = 0;
+  for (const nodeRes of Object.values(result || {})) {
+    if (!Array.isArray(nodeRes) || !nodeRes[0]) continue; // node not ready yet
+    checked++;
+    if (!nodeRes[0].error) open++;
+  }
+  return { ip, port, proto, checked, open, ok: checked > 0 && open > 0 };
+}
+
+app.get('/api/setup-assistant/proxy', requireAuth, asyncHandler(async (req, res) => {
+  const checks = [];
+  const nginxRunning = _nginxProc !== null && !_nginxProc.killed;
+  checks.push({ id: 'proxyRunning', status: nginxRunning ? 'ok' : 'error' });
+
+  let ip = null;
+  try { ip = await cfGetPublicIp(); } catch (_) {}
+
+  const [port80, port443] = await Promise.all([
+    ip ? checkExternalPort(80, 'tcp').catch(() => null) : Promise.resolve(null),
+    ip ? checkExternalPort(443, 'tcp').catch(() => null) : Promise.resolve(null),
+  ]);
+  checks.push({ id: 'port80External', status: !ip ? 'warn' : (port80?.ok ? 'ok' : 'error'), data: { ip: ip || '?' } });
+  checks.push({ id: 'port443External', status: !ip ? 'warn' : (port443?.ok ? 'ok' : 'error'), data: { ip: ip || '?' } });
+
+  // UFW allow rules for 80/443
+  let ufwMissing = ['80', '443'];
+  if (await fwAvailable()) {
+    try {
+      const numbered = await fwExec('ufw status numbered');
+      ufwMissing = ['80', '443'].filter((p) => !new RegExp(`\\b${p}\\/tcp\\b[^\\n]*ALLOW`).test(numbered));
+    } catch (_) {}
+  }
+  checks.push({ id: 'ufwPorts', status: ufwMissing.length ? 'warn' : 'ok', data: { detail: ufwMissing.join(', ') } });
+
+  // DNS: do configured domains actually point at this server?
+  const allRules = [
+    ...(runtimeConfig.proxyRules || []),
+    ...(runtimeConfig.redirectRules || []),
+    ...(runtimeConfig.notFoundHosts || []),
+  ].filter((r) => r.enabled);
+  const domains = [...new Set(allRules.flatMap((r) => [r.domain, ...(r.extraDomains || [])]))];
+  const usesCloudflare = !!(runtimeConfig.cfApiToken && runtimeConfig.cfZoneId);
+  const mismatched = [];
+  if (ip && domains.length) {
+    await Promise.all(domains.map(async (d) => {
+      try {
+        const addrs = await dns.resolve4(d);
+        if (!addrs.includes(ip)) mismatched.push(d);
+      } catch (_) { mismatched.push(d); }
+    }));
+  }
+  checks.push({
+    id: 'dnsRecords',
+    status: !domains.length || !mismatched.length ? 'ok' : (usesCloudflare ? 'info' : 'warn'),
+    data: { ip: ip || '?', detail: mismatched.join(', ') },
+  });
+
+  res.json({ checks });
+}));
+
+app.get('/api/setup-assistant/firewall', requireAuth, asyncHandler(async (req, res) => {
+  const checks = [];
+  const available = await fwAvailable();
+  checks.push({ id: 'firewallContainerRunning', status: available ? 'ok' : 'error' });
+
+  if (available) {
+    const numbered = await fwExec('ufw status numbered').catch(() => '');
+    const verbose  = await fwExec('ufw status verbose').catch(() => '');
+    checks.push({ id: 'ufwActive', status: verbose.includes('Status: active') ? 'ok' : 'warn' });
+
+    const sshOk = new RegExp(`\\b22\\/tcp\\b[^\\n]*ALLOW`).test(numbered);
+    checks.push({ id: 'ufwSsh', status: sshOk ? 'ok' : 'warn' });
+
+    const adminLine = numbered.split('\n').find((l) => l.includes(`${PORT}/tcp`) && /ALLOW/.test(l));
+    const adminPublic = !!adminLine && /Anywhere/.test(adminLine);
+    checks.push({ id: 'adminPortExposure', status: adminPublic ? 'warn' : 'ok', data: { port: PORT } });
+  } else {
+    checks.push({ id: 'ufwActive', status: 'error' });
+    checks.push({ id: 'ufwSsh', status: 'error' });
+    checks.push({ id: 'adminPortExposure', status: 'error', data: { port: PORT } });
+  }
+
+  res.json({ checks });
+}));
+
+app.get('/api/setup-assistant/vpn', requireAuth, asyncHandler(async (req, res) => {
+  const checks = [];
+  let running = false;
+  try {
+    const info = await docker.getContainer(VPN_CONTAINER).inspect();
+    running = info.State.Running;
+  } catch (_) {}
+  checks.push({ id: 'vpnContainerRunning', status: running ? 'ok' : 'error' });
+
+  const vpnPort = parseInt(process.env.VPN_PORT || '51820', 10);
+
+  let ufwOk = false;
+  if (await fwAvailable()) {
+    const numbered = await fwExec('ufw status numbered').catch(() => '');
+    ufwOk = new RegExp(`\\b${vpnPort}\\/udp\\b[^\\n]*ALLOW`).test(numbered);
+  }
+  checks.push({ id: 'vpnUfwRule', status: ufwOk ? 'ok' : 'warn', data: { port: vpnPort } });
+
+  let peerCount = 0;
+  if (running) {
+    try {
+      const peerList = await vpnExec('ls /config 2>/dev/null | grep "^peer_" | sed "s/peer_//"');
+      peerCount = peerList.split('\n').filter(Boolean).length;
+    } catch (_) {}
+  }
+  checks.push({ id: 'vpnPeers', status: peerCount > 0 ? 'ok' : 'warn' });
+
+  let ip = null;
+  try { ip = await cfGetPublicIp(); } catch (_) {}
+  const udpCheck = ip ? await checkExternalPort(vpnPort, 'udp').catch(() => null) : null;
+  checks.push({ id: 'vpnPortExternal', status: udpCheck?.ok ? 'ok' : 'warn', data: { ip: ip || '?', port: vpnPort } });
+
+  res.json({ checks });
 }));
 
 // ---------------------------------------------------------------------------

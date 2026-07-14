@@ -526,6 +526,20 @@
       .vpn-peer-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
       .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
 
+      /* ===== Setup Assistant ===== */
+      .setup-section { margin-bottom: 26px; }
+      .setup-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+      .setup-section-head h2 { font-size: 15px; font-weight: 700; }
+      .check-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+      .check-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; line-height: 1.4; }
+      .check-item.ok .check-icon { color: var(--ok); }
+      .check-item.warn .check-icon { color: #ffbb33; }
+      .check-item.error .check-icon { color: var(--danger); }
+      .check-item.info .check-icon { color: #64b5f6; }
+      .check-item.checking .check-icon { color: var(--text-faint); }
+      .check-label { font-weight: 600; font-size: 13.5px; }
+      .check-hint { font-size: 12.5px; color: var(--text-faint); margin-top: 3px; line-height: 1.4; }
+
       /* ===== Reverse Proxy ===== */
       /* Sub-navigation: Proxy Hosts / Redirection Hosts / Streams / 404 Hosts */
       .proxy-subnav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
@@ -1691,6 +1705,7 @@
           <div class="tab" data-view="proxy" data-i18n="proxy.tab">Reverse Proxy</div>
           <div class="tab" data-view="firewall" data-i18n="firewall.tab">Firewall</div>
           <div class="tab" data-view="vpn">VPN</div>
+          <div class="tab" data-view="setup-assistant" data-i18n="setup.tab">Einrichtungshilfe</div>
         </div>
       </div>
     </header>
@@ -2064,6 +2079,39 @@
                   <button class="btn ghost" data-close>Close</button>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- Setup Assistant -->
+          <section class="view" id="view-setup-assistant">
+            <div class="toolbar">
+              <div class="spacer"></div>
+              <button class="btn primary sm" id="setup-run-all-btn" data-i18n="setup.runAll">Alle prüfen</button>
+            </div>
+            <div class="proxy-info-bar"><span data-i18n="setup.intro">Prüft Reverse Proxy, Firewall und VPN auf typische Stolpersteine — inklusive echter Erreichbarkeit von außen über check-host.net.</span></div>
+
+            <div class="setup-section">
+              <div class="setup-section-head">
+                <h2 data-i18n="setup.proxyTitle">Reverse Proxy</h2>
+                <button class="btn sm ghost" data-setup-run="proxy" data-i18n="setup.checkNow">Jetzt prüfen</button>
+              </div>
+              <div class="list" id="setup-checks-proxy"><div class="empty muted" style="font-size:13px" data-i18n="setup.notYetChecked">Noch nicht geprüft.</div></div>
+            </div>
+
+            <div class="setup-section">
+              <div class="setup-section-head">
+                <h2 data-i18n="setup.firewallTitle">Firewall</h2>
+                <button class="btn sm ghost" data-setup-run="firewall" data-i18n="setup.checkNow">Jetzt prüfen</button>
+              </div>
+              <div class="list" id="setup-checks-firewall"><div class="empty muted" style="font-size:13px" data-i18n="setup.notYetChecked">Noch nicht geprüft.</div></div>
+            </div>
+
+            <div class="setup-section">
+              <div class="setup-section-head">
+                <h2 data-i18n="setup.vpnTitle">VPN</h2>
+                <button class="btn sm ghost" data-setup-run="vpn" data-i18n="setup.checkNow">Jetzt prüfen</button>
+              </div>
+              <div class="list" id="setup-checks-vpn"><div class="empty muted" style="font-size:13px" data-i18n="setup.notYetChecked">Noch nicht geprüft.</div></div>
             </div>
           </section>
 

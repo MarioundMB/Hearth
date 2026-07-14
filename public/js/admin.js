@@ -4464,6 +4464,52 @@ async function openVpnQr(name) {
   openModal('modal-vpn-qr');
 }
 
+// ---------- Setup Assistant ----------
+const SETUP_ICONS = { ok: '✓', warn: '⚠', error: '✗', info: 'ℹ', checking: '…' };
+
+function renderSetupChecks(box, checks) {
+  box.innerHTML = checks.map((c) => {
+    const hint = c.status !== 'ok' ? t(`setup.check.${c.id}.hint`, c.data || {}) : '';
+    return `
+    <div class="check-item ${c.status}">
+      <span class="check-icon">${SETUP_ICONS[c.status] || '?'}</span>
+      <div>
+        <div class="check-label">${t(`setup.check.${c.id}.label`)}</div>
+        ${hint ? `<div class="check-hint">${esc(hint)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function runSetupCheck(section) {
+  const box = document.getElementById(`setup-checks-${section}`);
+  const btn = document.querySelector(`[data-setup-run="${section}"]`);
+  if (btn) btn.disabled = true;
+  box.innerHTML = `<div class="check-item checking"><span class="check-icon">…</span><div class="check-label">${t('setup.checking')}</div></div>`;
+  try {
+    const { checks } = await api('GET', `/api/setup-assistant/${section}`);
+    renderSetupChecks(box, checks);
+  } catch (e) {
+    box.innerHTML = `<div class="check-item error"><span class="check-icon">✗</span><div class="check-label">${esc(e.message)}</div></div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+document.querySelectorAll('[data-setup-run]').forEach((btn) => {
+  btn.addEventListener('click', () => runSetupCheck(btn.dataset.setupRun));
+});
+
+document.getElementById('setup-run-all-btn').addEventListener('click', async () => {
+  const allBtn = document.getElementById('setup-run-all-btn');
+  allBtn.disabled = true;
+  try {
+    await Promise.all(['proxy', 'firewall', 'vpn'].map(runSetupCheck));
+  } finally {
+    allBtn.disabled = false;
+  }
+});
+
 // ---------- Init ----------
 
 // Container-Liste: interval aus Einstellungen (Standard 15s)
