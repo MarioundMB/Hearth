@@ -209,29 +209,13 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
     console.warn('[RAID] mdadm startup check skipped:', e.message);
   }
 
-  // `ufw enable` inside hearth-firewall is a no-op once ufw is already marked
-  // active, so if the host's live iptables chains ever get flushed/rebuilt
-  // without ufw's knowledge (docker daemon restarts, network reconfig, host
-  // reboot races), the persisted rules file can silently drift out of sync
-  // with what's actually loaded in the kernel — `ufw status` still reports
-  // everything as ALLOW because it only reads that file, not the live chains.
-  // `ufw reload` unconditionally re-applies the file, so run it once per
-  // Hearth boot as cheap insurance against that class of bug.
-  // `ufw reload` re-applies the rule file but does NOT reliably re-apply
-  // DEFAULT_FORWARD_POLICY from /etc/default/ufw to the live FORWARD chain
-  // (that's normally only set on the enable/disable transition) — without
-  // it, Docker's own inter-container/inter-network routing falls through
-  // to a DROP policy and containers stop reaching each other by IP.
-  try {
-    if (await fwAvailable()) {
-      await fwExec('ufw --force reload');
-      await fwExec('iptables -P FORWARD ACCEPT').catch(() => {});
-      console.log('[FW] ufw reload (boot-time resync)');
-    }
-  } catch (e) {
-    console.warn('[FW] boot-time reload skipped:', e.message);
-  }
+  await resyncFirewall('boot');
 })();
+
+// Self-heals ufw/iptables drift (see resyncFirewall above) regardless of what
+// causes it — Docker daemon restarts, host reboots, package updates — since
+// none of those necessarily coincide with Hearth's own restart.
+setInterval(() => resyncFirewall('periodic').catch(() => {}), 5 * 60 * 1000);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1003,6 +987,31 @@ async function fwAvailable() {
     await docker.getContainer(FW_CONTAINER).inspect();
     return true;
   } catch (_) { return false; }
+}
+
+// Newer Docker versions (28+) reassert `iptables -P FORWARD DROP` themselves
+// on every dockerd startup as part of their own default hardening — this
+// happens independently of ufw and of Hearth's own lifecycle (host reboots,
+// docker.io package updates, a manual `systemctl restart docker`), so a
+// boot-time fix alone only catches it if Hearth itself restarts at the same
+// time. Re-asserting on an interval makes this self-healing regardless of
+// what triggered the drift. Also covers the related case where ufw's rule
+// file and the live kernel chains fall out of sync (`ufw status` only ever
+// reads the file, so it can't detect that on its own).
+let _lastFwResyncOk = null;
+async function resyncFirewall(reason) {
+  if (!(await fwAvailable())) return false;
+  try {
+    await fwExec('ufw --force reload');
+    await fwExec('iptables -P FORWARD ACCEPT').catch(() => {});
+    if (_lastFwResyncOk === false) console.log(`[FW] resync recovered (${reason})`);
+    _lastFwResyncOk = true;
+    return true;
+  } catch (e) {
+    _lastFwResyncOk = false;
+    console.warn(`[FW] resync failed (${reason}):`, e.message);
+    return false;
+  }
 }
 
 function fwError(msg, statusCode = 400) {
