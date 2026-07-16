@@ -1642,7 +1642,7 @@ document.getElementById('modal-security').addEventListener('click', e => {
 });
 // Also load when first opened
 document.querySelectorAll('[onclick*="modal-security"]').forEach(el => {
-  el.addEventListener('click', () => { loadUserList(); loadTotpStatus(); loadPasskeys(); });
+  el.addEventListener('click', () => { loadUserList(); loadTotpStatus(); loadPasskeys(); loadLocalHttpsStatus(); });
 });
 
 // ── WebAuthn helpers ────────────────────────────────────────────────────────
@@ -1739,13 +1739,57 @@ document.getElementById('totp-disable-cancel-btn').addEventListener('click', () 
   document.getElementById('totp-actions').style.display = '';
 });
 
+// ── Local HTTPS (Passkey prerequisite) ────────────────────────────────────
+async function loadLocalHttpsStatus() {
+  const ipInput = document.getElementById('local-https-ip');
+  // Prefill with the IP currently in the address bar, if it looks like one
+  // — that's almost always the IP the admin actually wants a cert for.
+  if (!ipInput.value && /^(\d{1,3}\.){3}\d{1,3}$/.test(location.hostname)) {
+    ipInput.value = location.hostname;
+  }
+  try {
+    const s = await api('GET', '/api/security/local-https');
+    if (s.ip) ipInput.value = s.ip;
+    const result = document.getElementById('local-https-result');
+    if (s.enabled) {
+      result.style.display = '';
+      const url = `https://${s.ip}:${s.port}/admin`;
+      result.innerHTML = `Aktiv: <a href="${esc(url)}" target="_blank" style="color:var(--accent)">${esc(url)}</a>`;
+    } else {
+      result.style.display = 'none';
+    }
+  } catch (_) {}
+}
+
+document.getElementById('local-https-btn').addEventListener('click', async () => {
+  const ip = document.getElementById('local-https-ip').value.trim();
+  if (!ip) { toast('Bitte IP-Adresse eingeben', 'error'); return; }
+  const btn = document.getElementById('local-https-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/security/local-https', { ip });
+    const result = document.getElementById('local-https-result');
+    result.style.display = '';
+    result.innerHTML = `Zertifikat erstellt: <a href="${esc(r.url)}" target="_blank" style="color:var(--accent)">${esc(r.url)}</a> — dort öffnen, Zertifikatswarnung bestätigen, dann hier den Passkey einrichten.`;
+    toast('Zertifikat erstellt');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('passkey-goto-https-btn').addEventListener('click', () => {
+  document.getElementById('sec-local-https-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 // ── Passkeys ────────────────────────────────────────────────────────────────
 async function loadPasskeys() {
   const isSecure = window.isSecureContext && window.PublicKeyCredential;
   const hint = document.getElementById('passkey-unavail-hint');
   const addArea = document.getElementById('passkey-add-area');
   if (!isSecure) {
-    hint.style.display = '';
+    hint.style.display = 'flex';
     addArea.style.display = 'none';
     document.getElementById('passkey-list').innerHTML = '';
     return;

@@ -76,6 +76,11 @@ const PORT        = parseInt(process.env.PORT       || _earlyConfig.configPort  
 const GUEST_PORT  = parseInt(process.env.GUEST_PORT || _earlyConfig.configGuestPort || '3000', 10);
 const PROXY_PORT  = parseInt(process.env.PROXY_PORT  || _earlyConfig.configProxyPort || '443',  10);
 const HTTP_PORT   = parseInt(process.env.HTTP_PORT   || _earlyConfig.configHttpPort  || '80',   10);
+// Optional HTTPS listener for the admin panel itself, using a self-signed
+// cert for the LAN IP — WebAuthn (passkeys) requires a secure context
+// (HTTPS or localhost), which a plain-HTTP LAN-IP admin panel never is.
+const ADMIN_HTTPS_PORT = parseInt(process.env.ADMIN_HTTPS_PORT || _earlyConfig.configAdminHttpsPort || '4501', 10);
+const ADMIN_LOCAL_CERT_KEY = '_admin-local';
 const NGINX_PROXY_DIR   = '/etc/nginx/hearth-proxy';
 const NGINX_STREAMS_DIR = '/etc/nginx/hearth-streams';
 const CERTS_DIR       = '/etc/nginx/hearth-certs';
@@ -586,12 +591,19 @@ function getCertInfo(domain) {
   } catch (_) { return { domain }; }
 }
 
+const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
+
 function generateSelfSignedCert(domain, allDomains = [domain], force = false) {
   return new Promise((resolve, reject) => {
     const { dir, cert, key } = certPaths(domain);
     if (!force && certExists(domain)) { resolve(); return; }
     try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
-    const sanList = (allDomains.length ? allDomains : [domain]).map((d) => `DNS:${d}`).join(',');
+    // Browsers validate IP-based certs against the SAN's IP entries, not
+    // DNS entries — a plain LAN IP like 192.168.0.10 needs `IP:...`, not
+    // `DNS:...`, or WebAuthn's isSecureContext check (and the browser)
+    // won't accept the connection as a valid secure context.
+    const sanList = (allDomains.length ? allDomains : [domain])
+      .map((d) => `${IPV4_RE.test(d) ? 'IP' : 'DNS'}:${d}`).join(',');
     const p = spawn('openssl', [
       'req', '-x509', '-newkey', 'rsa:2048',
       '-keyout', key, '-out', cert,
@@ -3108,6 +3120,53 @@ app.post('/api/2fa/verify', asyncHandler(async (req, res) => {
   req.session.role   = user.role;
   if (remember) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
   res.json({ ok: true, role: user.role });
+}));
+
+// ---------------------------------------------------------------------------
+// Local HTTPS for the admin panel (self-signed, LAN IP) — WebAuthn/Passkeys
+// require a secure context (HTTPS or localhost), which a plain-HTTP admin
+// panel reached via its LAN IP never satisfies, so there'd otherwise be no
+// way to register a passkey without exposing the panel through the
+// Reverse Proxy first — exactly the thing the passkey gate is meant to
+// require before that's allowed.
+// ---------------------------------------------------------------------------
+let _adminHttpsServer = null;
+
+function startAdminHttpsServer() {
+  if (_adminHttpsServer) return true;
+  if (!certExists(ADMIN_LOCAL_CERT_KEY)) return false;
+  const { cert, key } = certPaths(ADMIN_LOCAL_CERT_KEY);
+  try {
+    _adminHttpsServer = https
+      .createServer({ cert: fs.readFileSync(cert), key: fs.readFileSync(key) }, app)
+      .listen(ADMIN_HTTPS_PORT, () => {
+        console.log(`\x1b[32m✓ Admin (HTTPS) https://localhost:${ADMIN_HTTPS_PORT}/admin\x1b[0m`);
+      });
+    return true;
+  } catch (e) {
+    console.warn('[HTTPS] Admin-HTTPS-Server konnte nicht gestartet werden:', e.message);
+    _adminHttpsServer = null;
+    return false;
+  }
+}
+
+app.get('/api/security/local-https', requireAuth, (req, res) => {
+  res.json({
+    enabled: certExists(ADMIN_LOCAL_CERT_KEY),
+    port: ADMIN_HTTPS_PORT,
+    ip: runtimeConfig.localHttpsIp || '',
+  });
+});
+
+app.post('/api/security/local-https', requireAuth, asyncHandler(async (req, res) => {
+  const ip = String(req.body?.ip || '').trim();
+  if (!ip || !/^[a-zA-Z0-9.-]+$/.test(ip)) {
+    return res.status(400).json({ error: 'Gültige IP-Adresse oder Hostname erforderlich' });
+  }
+  await generateSelfSignedCert(ADMIN_LOCAL_CERT_KEY, [ip, 'localhost', '127.0.0.1'], true);
+  saveConfig({ localHttpsIp: ip });
+  const started = startAdminHttpsServer();
+  res.json({ ok: true, port: ADMIN_HTTPS_PORT, url: `https://${ip}:${ADMIN_HTTPS_PORT}/admin`, started });
 }));
 
 // ---------------------------------------------------------------------------
@@ -5782,6 +5841,7 @@ adminHttpServer.listen(PORT, () => {
       }
     }
   }).catch(() => {});
+  startAdminHttpsServer();
 });
 
 // Guest server — safe to expose publicly (admin routes are blocked)
