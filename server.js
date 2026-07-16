@@ -4613,6 +4613,22 @@ function _exec(cmd, args) {
   );
 }
 
+// One-off privileged-free chown: container root can always chown files
+// under its own bind mount regardless of current ownership, so this needs
+// no special privileges beyond the default ones `docker run` already has.
+async function fixRepoOwnership(hostRepoPath, uid, gid) {
+  await new Promise((resolve) => {
+    const p = _spawn('docker', [
+      'run', '--rm',
+      '-v', `${hostRepoPath}:/app/repo`,
+      'alpine:latest',
+      'chown', '-R', `${uid}:${gid}`, '/app/repo',
+    ], { stdio: 'ignore' });
+    p.on('close', () => resolve());
+    p.on('error', () => resolve());
+  });
+}
+
 // Runs git against a bind-mounted repo via a small dedicated image rather
 // than this container's own `git` binary. If a previous self-update got
 // interrupted before its rebuild finished, the currently-running image can
@@ -4621,24 +4637,52 @@ function _exec(cmd, args) {
 // git without a successful update). -c safe.directory replaces a persisted
 // `git config --global`, since each invocation is a fresh, disposable
 // container that wouldn't retain it anyway.
-async function gitExec(hostRepoPath, args) {
+//
+// alpine/git's default image runs as root, so every write (fetch, reset)
+// used to leave new .git/objects owned by root:root on the host — the next
+// git command (from here or run by hand over SSH) would then fail with
+// "insufficient permission for adding an object to repository database".
+// /app/repo inside THIS container is the same bind mount as hostRepoPath,
+// so run the git container as whatever UID:GID already owns it instead of
+// root, which stops new mismatched-ownership objects from being created
+// at all. If a mismatch happens anyway (e.g. left over from before this
+// fix), retry once after realigning ownership rather than surfacing a
+// permission error that would otherwise need a manual SSH fix every time.
+async function gitExec(hostRepoPath, args, _retried = false) {
   await pullImage('alpine/git:latest').catch(() => {});
-  return new Promise((resolve, reject) => {
-    let out = '';
-    const p = _spawn('docker', [
-      'run', '--rm',
-      '-v', `${hostRepoPath}:/app/repo`,
-      'alpine/git:latest',
-      '-c', 'safe.directory=/app/repo',
-      '-C', '/app/repo',
-      ...args,
-    ], { stdio: 'pipe' });
-    p.stdout.on('data', (d) => out += d);
-    p.stderr.on('data', (d) => out += d);
-    p.on('close', (code) => code === 0
-      ? resolve(out.trim())
-      : reject(new Error(out.trim() || `git exited with code ${code}`)));
-  });
+  let owner = null;
+  try {
+    const st = fs.statSync('/app/repo');
+    owner = { uid: st.uid, gid: st.gid };
+  } catch (_) {}
+
+  try {
+    return await new Promise((resolve, reject) => {
+      let out = '';
+      const p = _spawn('docker', [
+        'run', '--rm',
+        ...(owner ? ['--user', `${owner.uid}:${owner.gid}`] : []),
+        '-e', 'HOME=/tmp',
+        '-v', `${hostRepoPath}:/app/repo`,
+        'alpine/git:latest',
+        '-c', 'safe.directory=/app/repo',
+        '-C', '/app/repo',
+        ...args,
+      ], { stdio: 'pipe' });
+      p.stdout.on('data', (d) => out += d);
+      p.stderr.on('data', (d) => out += d);
+      p.on('close', (code) => code === 0
+        ? resolve(out.trim())
+        : reject(new Error(out.trim() || `git exited with code ${code}`)));
+    });
+  } catch (e) {
+    if (!_retried && owner && /permission|read-only|denied/i.test(e.message)) {
+      console.warn('[UPDATE] git permission error, attempting self-heal:', e.message);
+      await fixRepoOwnership(hostRepoPath, owner.uid, owner.gid);
+      return gitExec(hostRepoPath, args, true);
+    }
+    throw e;
+  }
 }
 
 async function resolveUpdateBranch(branch, emit = () => {}) {
