@@ -3203,6 +3203,18 @@ app.post('/api/security/local-https', requireAuth, asyncHandler(async (req, res)
   res.json({ ok: true, port: ADMIN_HTTPS_PORT, url: `https://${host}:${ADMIN_HTTPS_PORT}/admin`, started });
 }));
 
+// Download the cert (not the key) so it can be imported into the OS/browser
+// trust store — once trusted there, the browser accepts it without the
+// per-visit warning, since it's now verifying against a certificate it
+// already knows rather than an unknown one signed by nobody.
+app.get('/api/security/local-https/cert', requireAuth, (req, res) => {
+  if (!certExists(ADMIN_LOCAL_CERT_KEY)) return res.status(404).json({ error: 'Kein Zertifikat vorhanden' });
+  const { cert } = certPaths(ADMIN_LOCAL_CERT_KEY);
+  res.setHeader('Content-Disposition', 'attachment; filename="hearth-local.crt"');
+  res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+  res.sendFile(cert);
+});
+
 // ---------------------------------------------------------------------------
 // Passkeys / WebAuthn
 // ---------------------------------------------------------------------------

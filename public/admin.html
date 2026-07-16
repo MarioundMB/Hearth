@@ -3888,6 +3888,12 @@
                 <button class="btn sm ghost" id="local-https-btn">Zertifikat erstellen</button>
               </div>
               <div id="local-https-result" style="font-size:12px;display:none"></div>
+              <div id="local-https-download-area" style="display:none;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--border)">
+                <div style="font-size:12px;color:var(--text-dim)">
+                  Optional: Zertifikat herunterladen und als vertrauenswürdig installieren, damit die Browser-Warnung verschwindet (pro Gerät einmalig — unter macOS: Datei doppelklicken, in Schlüsselbundverwaltung öffnen, dann auf "Immer vertrauen" setzen).
+                </div>
+                <a class="btn sm ghost" href="/api/security/local-https/cert" download="hearth-local.crt" style="align-self:flex-start">Zertifikat herunterladen</a>
+              </div>
             </div>
           </div>
         </div>

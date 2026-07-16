@@ -1750,12 +1750,15 @@ async function loadLocalHttpsStatus() {
     document.getElementById('local-https-port-hint').textContent = s.port;
     if (!hostInput.value) hostInput.value = s.host || s.suggestedHost || '';
     const result = document.getElementById('local-https-result');
+    const downloadArea = document.getElementById('local-https-download-area');
     if (s.enabled) {
       result.style.display = '';
       const url = `https://${s.host}:${s.port}/admin`;
       result.innerHTML = `Aktiv: <a href="${esc(url)}" target="_blank" style="color:var(--accent)">${esc(url)}</a>`;
+      downloadArea.style.display = 'flex';
     } else {
       result.style.display = 'none';
+      downloadArea.style.display = 'none';
     }
   } catch (_) {}
 }
@@ -1770,6 +1773,7 @@ document.getElementById('local-https-btn').addEventListener('click', async () =>
     const result = document.getElementById('local-https-result');
     result.style.display = '';
     result.innerHTML = `Zertifikat erstellt: <a href="${esc(r.url)}" target="_blank" style="color:var(--accent)">${esc(r.url)}</a> — dort öffnen, Zertifikatswarnung bestätigen, dann hier den Passkey einrichten. Falls eine Firewall aktiv ist: Port ${r.port}/tcp im LAN freigeben, sonst ist die Seite nicht erreichbar (unter Firewall → Regeln, gleiches Muster wie beim Admin-Port).`;
+    document.getElementById('local-https-download-area').style.display = 'flex';
     toast('Zertifikat erstellt');
   } catch (e) {
     toast(e.message, 'error');
