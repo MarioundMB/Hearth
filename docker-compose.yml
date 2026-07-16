@@ -53,6 +53,7 @@ services:
       sh -c "apk add --no-cache ufw iptables ip6tables &&
              ufw --force enable &&
              ufw --force reload &&
+             iptables -P FORWARD ACCEPT &&
              tail -f /dev/null"
     labels:
       - "hearth.self=true"

@@ -217,9 +217,15 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
   // everything as ALLOW because it only reads that file, not the live chains.
   // `ufw reload` unconditionally re-applies the file, so run it once per
   // Hearth boot as cheap insurance against that class of bug.
+  // `ufw reload` re-applies the rule file but does NOT reliably re-apply
+  // DEFAULT_FORWARD_POLICY from /etc/default/ufw to the live FORWARD chain
+  // (that's normally only set on the enable/disable transition) — without
+  // it, Docker's own inter-container/inter-network routing falls through
+  // to a DROP policy and containers stop reaching each other by IP.
   try {
     if (await fwAvailable()) {
       await fwExec('ufw --force reload');
+      await fwExec('iptables -P FORWARD ACCEPT').catch(() => {});
       console.log('[FW] ufw reload (boot-time resync)');
     }
   } catch (e) {
