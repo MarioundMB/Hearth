@@ -591,8 +591,8 @@ function getCertInfo(domain) {
   } catch (_) { return { domain }; }
 }
 
-const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
-
+// IPV4_RE is declared once, further down, and reused here — see its
+// definition for why (IP allowlist validation elsewhere in the file).
 function generateSelfSignedCert(domain, allDomains = [domain], force = false) {
   return new Promise((resolve, reject) => {
     const { dir, cert, key } = certPaths(domain);
