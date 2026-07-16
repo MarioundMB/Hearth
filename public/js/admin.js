@@ -1749,6 +1749,7 @@ async function loadLocalHttpsStatus() {
   }
   try {
     const s = await api('GET', '/api/security/local-https');
+    document.getElementById('local-https-port-hint').textContent = s.port;
     if (s.ip) ipInput.value = s.ip;
     const result = document.getElementById('local-https-result');
     if (s.enabled) {
@@ -1770,7 +1771,7 @@ document.getElementById('local-https-btn').addEventListener('click', async () =>
     const r = await api('POST', '/api/security/local-https', { ip });
     const result = document.getElementById('local-https-result');
     result.style.display = '';
-    result.innerHTML = `Zertifikat erstellt: <a href="${esc(r.url)}" target="_blank" style="color:var(--accent)">${esc(r.url)}</a> — dort öffnen, Zertifikatswarnung bestätigen, dann hier den Passkey einrichten.`;
+    result.innerHTML = `Zertifikat erstellt: <a href="${esc(r.url)}" target="_blank" style="color:var(--accent)">${esc(r.url)}</a> — dort öffnen, Zertifikatswarnung bestätigen, dann hier den Passkey einrichten. Falls eine Firewall aktiv ist: Port ${r.port}/tcp im LAN freigeben, sonst ist die Seite nicht erreichbar (unter Firewall → Regeln, gleiches Muster wie beim Admin-Port).`;
     toast('Zertifikat erstellt');
   } catch (e) {
     toast(e.message, 'error');
