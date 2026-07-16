@@ -225,6 +225,36 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
     console.warn('[RAID] mdadm startup check skipped:', e.message);
   }
 
+  // Auto-install + enable avahi-daemon (mDNS) on the host if missing. This is
+  // what makes `<hostname>.local` (the same hostname the Server-Name setting
+  // already controls) resolvable on the LAN without any manual client setup —
+  // needed because WebAuthn/passkeys reject bare IP addresses as an RP ID
+  // ("effective domain is not a valid domain") regardless of HTTPS, so the
+  // local-HTTPS admin cert only actually works for passkeys against a real
+  // hostname, not the raw LAN IP. Same install pattern as mdadm above, and
+  // every Hearth install gets this automatically — not a one-off server fix.
+  try {
+    const { stdout: active } = await raidExec('systemctl is-active avahi-daemon 2>/dev/null || echo inactive');
+    if (!active.trim().includes('active') || active.includes('inactive')) {
+      const { stdout: pmPath } = await raidExec(
+        'which apt-get 2>/dev/null || which dnf 2>/dev/null || which yum 2>/dev/null || which pacman 2>/dev/null || echo ""'
+      );
+      let cmd = '';
+      if      (pmPath.includes('apt-get')) cmd = 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq avahi-daemon 2>&1';
+      else if (pmPath.includes('dnf'))     cmd = 'dnf install -y -q avahi 2>&1';
+      else if (pmPath.includes('yum'))     cmd = 'yum install -y -q avahi 2>&1';
+      else if (pmPath.includes('pacman'))  cmd = 'pacman -Sy --noconfirm avahi 2>&1';
+      if (cmd) {
+        console.log('[MDNS] avahi-daemon not active — installing on host…');
+        const res = await raidExec(`${cmd} && systemctl enable --now avahi-daemon 2>&1`);
+        if (res.ok) console.log('[MDNS] avahi-daemon installed and started.');
+        else        console.warn('[MDNS] avahi-daemon install failed:', res.stderr || res.stdout);
+      }
+    }
+  } catch (e) {
+    console.warn('[MDNS] avahi-daemon startup check skipped:', e.message);
+  }
+
   await resyncFirewall('boot');
 })();
 
@@ -3154,19 +3184,23 @@ app.get('/api/security/local-https', requireAuth, (req, res) => {
   res.json({
     enabled: certExists(ADMIN_LOCAL_CERT_KEY),
     port: ADMIN_HTTPS_PORT,
-    ip: runtimeConfig.localHttpsIp || '',
+    host: runtimeConfig.localHttpsHost || '',
+    // WebAuthn rejects bare IPs as an RP ID, so passkeys need a real
+    // hostname — <server-name>.local, resolvable via the mDNS (avahi)
+    // Hearth sets up automatically on the host at boot.
+    suggestedHost: `${_readHostHostname()}.local`,
   });
 });
 
 app.post('/api/security/local-https', requireAuth, asyncHandler(async (req, res) => {
-  const ip = String(req.body?.ip || '').trim();
-  if (!ip || !/^[a-zA-Z0-9.-]+$/.test(ip)) {
-    return res.status(400).json({ error: 'Gültige IP-Adresse oder Hostname erforderlich' });
+  const host = String(req.body?.host || '').trim();
+  if (!host || !/^[a-zA-Z0-9.-]+$/.test(host)) {
+    return res.status(400).json({ error: 'Gültiger Hostname oder IP erforderlich' });
   }
-  await generateSelfSignedCert(ADMIN_LOCAL_CERT_KEY, [ip, 'localhost', '127.0.0.1'], true);
-  saveConfig({ localHttpsIp: ip });
+  await generateSelfSignedCert(ADMIN_LOCAL_CERT_KEY, [host, 'localhost', '127.0.0.1'], true);
+  saveConfig({ localHttpsHost: host });
   const started = startAdminHttpsServer();
-  res.json({ ok: true, port: ADMIN_HTTPS_PORT, url: `https://${ip}:${ADMIN_HTTPS_PORT}/admin`, started });
+  res.json({ ok: true, port: ADMIN_HTTPS_PORT, url: `https://${host}:${ADMIN_HTTPS_PORT}/admin`, started });
 }));
 
 // ---------------------------------------------------------------------------

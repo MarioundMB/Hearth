@@ -1744,20 +1744,15 @@ document.getElementById('totp-disable-cancel-btn').addEventListener('click', () 
 
 // ── Local HTTPS (Passkey prerequisite) ────────────────────────────────────
 async function loadLocalHttpsStatus() {
-  const ipInput = document.getElementById('local-https-ip');
-  // Prefill with the IP currently in the address bar, if it looks like one
-  // — that's almost always the IP the admin actually wants a cert for.
-  if (!ipInput.value && /^(\d{1,3}\.){3}\d{1,3}$/.test(location.hostname)) {
-    ipInput.value = location.hostname;
-  }
+  const hostInput = document.getElementById('local-https-host');
   try {
     const s = await api('GET', '/api/security/local-https');
     document.getElementById('local-https-port-hint').textContent = s.port;
-    if (s.ip) ipInput.value = s.ip;
+    if (!hostInput.value) hostInput.value = s.host || s.suggestedHost || '';
     const result = document.getElementById('local-https-result');
     if (s.enabled) {
       result.style.display = '';
-      const url = `https://${s.ip}:${s.port}/admin`;
+      const url = `https://${s.host}:${s.port}/admin`;
       result.innerHTML = `Aktiv: <a href="${esc(url)}" target="_blank" style="color:var(--accent)">${esc(url)}</a>`;
     } else {
       result.style.display = 'none';
@@ -1766,12 +1761,12 @@ async function loadLocalHttpsStatus() {
 }
 
 document.getElementById('local-https-btn').addEventListener('click', async () => {
-  const ip = document.getElementById('local-https-ip').value.trim();
-  if (!ip) { toast('Bitte IP-Adresse eingeben', 'error'); return; }
+  const host = document.getElementById('local-https-host').value.trim();
+  if (!host) { toast('Bitte Hostname eingeben', 'error'); return; }
   const btn = document.getElementById('local-https-btn');
   btn.disabled = true;
   try {
-    const r = await api('POST', '/api/security/local-https', { ip });
+    const r = await api('POST', '/api/security/local-https', { host });
     const result = document.getElementById('local-https-result');
     result.style.display = '';
     result.innerHTML = `Zertifikat erstellt: <a href="${esc(r.url)}" target="_blank" style="color:var(--accent)">${esc(r.url)}</a> — dort öffnen, Zertifikatswarnung bestätigen, dann hier den Passkey einrichten. Falls eine Firewall aktiv ist: Port ${r.port}/tcp im LAN freigeben, sonst ist die Seite nicht erreichbar (unter Firewall → Regeln, gleiches Muster wie beim Admin-Port).`;

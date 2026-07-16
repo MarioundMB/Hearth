@@ -3878,13 +3878,13 @@
           <div class="s-group">
             <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
               <div style="font-size:12px;color:var(--text-dim)">
-                Passkeys funktionieren nur über HTTPS oder localhost — nicht über die reine LAN-IP per HTTP. Erstelle hier ein selbstsigniertes Zertifikat für deine lokale IP, um das Admin-Panel auch per HTTPS im LAN zu erreichen (der Browser zeigt dabei eine Zertifikatswarnung, das ist normal und kann bestätigt werden).
+                Passkeys lehnen reine IP-Adressen grundsätzlich ab (WebAuthn-Vorgabe) — das gilt auch mit HTTPS. Du brauchst einen echten Hostnamen. Hearth richtet dafür automatisch mDNS auf dem Server ein: der unten vorgeschlagene <span class="mono">.local</span>-Name funktioniert damit im LAN ohne weitere Einrichtung (auf Mac/iOS sofort, unter Windows meist auch).
               </div>
               <div style="font-size:12px;color:var(--text-faint)">
-                Nutzt einen eigenen Port (<span class="mono" id="local-https-port-hint">4501</span>) neben dem normalen Admin-Port — falls eine Firewall aktiv ist, muss dieser Port zusätzlich freigegeben werden (im LAN reicht das, keine Freigabe nach außen nötig).
+                Erstellt ein selbstsigniertes Zertifikat für diesen Hostnamen und startet HTTPS auf einem eigenen Port (<span class="mono" id="local-https-port-hint">4501</span>) neben dem normalen Admin-Port. Der Browser zeigt dabei eine Zertifikatswarnung — normal bei selbstsigniert, kann bestätigt werden. Falls eine Firewall aktiv ist, muss dieser Port zusätzlich freigegeben werden (im LAN reicht das, keine Freigabe nach außen nötig).
               </div>
               <div style="display:flex;gap:8px">
-                <input class="input" id="local-https-ip" placeholder="z.B. 192.168.0.10" style="flex:1">
+                <input class="input" id="local-https-host" placeholder="z.B. hearth.local" style="flex:1">
                 <button class="btn sm ghost" id="local-https-btn">Zertifikat erstellen</button>
               </div>
               <div id="local-https-result" style="font-size:12px;display:none"></div>
