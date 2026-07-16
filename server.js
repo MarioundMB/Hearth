@@ -4555,7 +4555,6 @@ app.post(
 
     // Container neu erstellen mit identischer Konfiguration
     if (wasRunning) await c.stop().catch(() => {});
-    await c.remove({ force: true });
 
     const hc = info.HostConfig;
     const cc = info.Config;
@@ -4577,9 +4576,10 @@ app.post(
       ReadOnly: !m.RW,
     }));
 
-    const newC = await docker.createContainer({
+    const name = info.Name.replace(/^\//, '');
+    const newC = await safeRecreateContainer(c, name, {
       Image: image,
-      name:  info.Name.replace(/^\//, ''),
+      name,
       Env:   cc.Env    || [],
       Labels: cc.Labels || {},
       ExposedPorts: exposedPorts,
@@ -4590,9 +4590,8 @@ app.post(
         Privileged:   hc.Privileged   || false,
         NetworkMode:  hc.NetworkMode  || 'bridge',
       },
-    });
+    }, wasRunning);
     await reconnectExtraNetworks(newC.id, info.NetworkSettings?.Networks, hc.NetworkMode || 'bridge');
-    if (wasRunning) await newC.start();
 
     // Cache invalidieren
     _updateCache = { ts: 0, data: null };
@@ -4796,6 +4795,29 @@ async function runHearthSelfUpdate(emit = () => {}) {
   return { upToDate: false, version: newVersion };
 }
 
+// Recreating a container (stop → remove → create) to apply an edit, image
+// update, or tag change used to remove the old container FIRST — if the
+// create step then failed for any reason (bad image ref, port conflict,
+// invalid mount, registry timeout, ...), the container was just gone with
+// no way back. Rename the old one out of the way instead of removing it,
+// so a failed create can be reported as an error while the original
+// container is restored untouched, instead of silently disappearing.
+async function safeRecreateContainer(oldC, originalName, createOpts, wasRunning) {
+  const tempName = `${originalName}-recreate-${Date.now()}`;
+  await oldC.rename({ name: tempName });
+  try {
+    const newC = await docker.createContainer(createOpts);
+    if (wasRunning) await newC.start();
+    await oldC.remove({ force: true }).catch(() => {});
+    return newC;
+  } catch (e) {
+    await docker.getContainer(createOpts.name).remove({ force: true }).catch(() => {});
+    await oldC.rename({ name: originalName }).catch(() => {});
+    if (wasRunning) await oldC.start().catch(() => {});
+    throw e;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Container Auto-Update — per-container scheduled updates
 // ---------------------------------------------------------------------------
@@ -4832,7 +4854,6 @@ async function runContainerAutoUpdate(name) {
   const wasRunning = info.State.Running;
   await pullImage(image);
   if (wasRunning) await c.stop().catch(() => {});
-  await c.remove({ force: true });
 
   const hc = info.HostConfig;
   const cc = info.Config;
@@ -4850,9 +4871,9 @@ async function runContainerAutoUpdate(name) {
     ReadOnly: !m.RW,
   }));
 
-  const newC = await docker.createContainer({
+  const newC = await safeRecreateContainer(c, name, {
     Image: image,
-    name:  info.Name.replace(/^\//, ''),
+    name,
     Env:   cc.Env    || [],
     Labels: cc.Labels || {},
     ExposedPorts: exposedPorts,
@@ -4863,9 +4884,8 @@ async function runContainerAutoUpdate(name) {
       Privileged:   hc.Privileged   || false,
       NetworkMode:  hc.NetworkMode  || 'bridge',
     },
-  });
+  }, wasRunning);
   await reconnectExtraNetworks(newC.id, info.NetworkSettings?.Networks, hc.NetworkMode || 'bridge');
-  if (wasRunning) await newC.start();
   _updateCache = { ts: 0, data: null };
   return { updated: true, name };
 }
@@ -5031,9 +5051,9 @@ app.put(
     const oldC = docker.getContainer(req.params.id);
     const info = await oldC.inspect();
     const wasRunning = info.State.Running;
+    const originalName = info.Name.replace(/^\//, '');
 
     if (wasRunning) await oldC.stop().catch(() => {});
-    await oldC.remove({ force: true });
 
     // Port-Bindings aufbauen (mit automatischer Konflikt-Auflösung)
     const resolvedPorts = await resolvePortConflicts(b.ports);
@@ -5057,7 +5077,10 @@ app.put(
 
     const createOpts = {
       Image: b.image,
-      name: b.name || undefined,
+      // Falls back to the original name (not undefined) — otherwise a
+      // blank name field would let Docker auto-assign a random one,
+      // silently "losing" the container from the user's perspective.
+      name: b.name || originalName,
       Hostname: b.hostname || undefined,
       Env: env,
       Labels: labels,
@@ -5071,8 +5094,7 @@ app.put(
       },
     };
 
-    const newC = await docker.createContainer(createOpts);
-    if (wasRunning) await newC.start();
+    const newC = await safeRecreateContainer(oldC, originalName, createOpts, wasRunning);
     const autoAssigned = resolvedPorts.filter(p => p._autoAssigned).map(p => ({ container: p.container, host: p.host }));
     res.json({ ok: true, id: newC.id, ...(autoAssigned.length ? { autoAssigned } : {}) });
   })
