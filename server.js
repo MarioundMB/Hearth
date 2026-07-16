@@ -4936,7 +4936,15 @@ async function gitExec(hostRepoPath, args, _retried = false) {
   try {
     const st = fs.statSync('/app/repo');
     owner = { uid: st.uid, gid: st.gid };
-  } catch (_) {}
+  } catch (e) {
+    // Not fatal (falls through to running as root, the pre-v1.5.14
+    // behavior) but silently swallowing this previously meant a stat
+    // failure ALSO disabled the self-heal retry below (it required a
+    // successful owner detection first) — logged now so a recurrence is
+    // diagnosable from `docker logs hearth` instead of needing to
+    // reproduce the exact command by hand over SSH again.
+    console.warn('[UPDATE] could not stat /app/repo for UID matching:', e.message);
+  }
 
   try {
     return await new Promise((resolve, reject) => {
@@ -4958,9 +4966,20 @@ async function gitExec(hostRepoPath, args, _retried = false) {
         : reject(new Error(out.trim() || `git exited with code ${code}`)));
     });
   } catch (e) {
-    if (!_retried && owner && /permission|read-only|denied/i.test(e.message)) {
+    // Un-gated on the initial owner detection having succeeded — that was
+    // the actual gap: a stat failure above meant `owner` was null, which
+    // ALSO silently skipped this retry entirely, so a real permission
+    // error just propagated as a hard failure with nothing to fix it or
+    // even explain why. Re-stat fresh here instead of trusting the
+    // earlier value, since the failure itself may be why it was stale.
+    if (!_retried && /permission|read-only|denied/i.test(e.message)) {
       console.warn('[UPDATE] git permission error, attempting self-heal:', e.message);
-      await fixRepoOwnership(hostRepoPath, owner.uid, owner.gid);
+      try {
+        const st = fs.statSync('/app/repo');
+        await fixRepoOwnership(hostRepoPath, st.uid, st.gid);
+      } catch (statErr) {
+        console.warn('[UPDATE] self-heal stat failed:', statErr.message);
+      }
       return gitExec(hostRepoPath, args, true);
     }
     throw e;
