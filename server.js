@@ -255,12 +255,30 @@ function requireAdmin(req, res, next) {
 app.use((req, res, next) => {
   if (!req.fromGuestPort) return next();
 
-  // Block admin pages
-  if (['/admin', '/login', '/setup'].some(p => req.path === p || req.path.startsWith(p + '/'))) {
+  // /setup is a pre-auth first-run flow — never expose it here, regardless
+  // of the admin-access gate below.
+  if (req.path === '/setup' || req.path.startsWith('/setup/')) {
     return res.status(403).send(
       '<!doctype html><html><body style="font-family:sans-serif;padding:40px">' +
       '<h2>Admin access is restricted to the local network.</h2>' +
       '<p>Connect via VPN or access from your local network.</p></body></html>'
+    );
+  }
+
+  // Same bar as exposing the admin port via the Reverse Proxy: only once
+  // every admin account has both a passkey and 2FA enabled is it safe to
+  // let the guest port reach /admin at all — password auth alone isn't
+  // enough for a port meant to be internet-facing. Login itself still goes
+  // through the normal password(+2FA) flow; this just stops blocking the
+  // routes it needs.
+  if (isAdminAccessSecured()) return next();
+
+  // Block admin pages
+  if (['/admin', '/login'].some(p => req.path === p || req.path.startsWith(p + '/'))) {
+    return res.status(403).send(
+      '<!doctype html><html><body style="font-family:sans-serif;padding:40px">' +
+      '<h2>Admin access is restricted to the local network.</h2>' +
+      '<p>Connect via VPN or access from your local network, or enable a passkey + 2FA for every admin account to allow this port too.</p></body></html>'
     );
   }
 
@@ -319,6 +337,19 @@ function mapContainer(c) {
   };
 }
 
+// The guest view is meant for access from outside the LAN, where a raw
+// IP:port URL either doesn't route (port-forwarding rarely covers every
+// app port) or skips straight past the domain/TLS setup already done in
+// the Reverse Proxy. If an enabled proxy rule forwards to this published
+// host port, prefer that public domain over the local IP:port link.
+function findProxyDomainForPort(webPort) {
+  if (!webPort) return null;
+  const rule = (runtimeConfig.proxyRules || []).find(
+    (r) => r.enabled && String(r.forwardPort) === String(webPort)
+  );
+  return rule ? `https://${rule.domain}` : null;
+}
+
 // Build an app tile for the guest view from a mapped container.
 // Always shows the tile even if the container is stopped, as long as
 // we have a URL (from label, active port, or in-memory cache).
@@ -342,7 +373,7 @@ function buildAppTile(c, reqHost) {
 
   const scheme = labels['hearth.scheme'] || 'http';
   let url = labels['hearth.url'];
-  if (!url && webPort) url = `${scheme}://${reqHost}:${webPort}`;
+  if (!url && webPort) url = findProxyDomainForPort(webPort) || `${scheme}://${reqHost}:${webPort}`;
 
   // Cache the URL while container is running; reuse cache when stopped
   if (url && c.state === 'running') _tileUrlCache[c.id] = url;
@@ -458,17 +489,22 @@ function buildTarget(scheme, host, port) {
   return `${s}://${h}:${p}`;
 }
 
+// Shared gate for anything that exposes Hearth's own admin control plane
+// (Docker socket, root file manager, firewall) beyond the LAN — password
+// auth alone isn't an acceptable guard at that level, so every admin
+// account must have both a passkey and TOTP 2FA enabled first.
+function isAdminAccessSecured() {
+  const admins = (runtimeConfig.users || []).filter((u) => u.role === 'admin');
+  return admins.length > 0 && admins.every((u) => u.totp_enabled && (u.passkeys || []).length > 0);
+}
+
 // A Proxy Host / Stream whose target is Hearth's own admin port would expose
-// the full control plane (Docker socket, root file manager, firewall) to
-// the internet. Require every admin account to have both a passkey and TOTP
-// 2FA enabled before such a rule can be created or (re-)enabled — password
-// auth alone isn't an acceptable gate for that level of exposure.
+// the full control plane to the internet. Require the passkey+2FA gate
+// before such a rule can be created or (re-)enabled.
 function assertNoUnsecuredAdminExposure(forwardPort, enabled) {
   if (!enabled) return;
   if (parseInt(forwardPort, 10) !== PORT) return;
-  const admins = (runtimeConfig.users || []).filter((u) => u.role === 'admin');
-  const secured = admins.length > 0 && admins.every((u) => u.totp_enabled && (u.passkeys || []).length > 0);
-  if (secured) return;
+  if (isAdminAccessSecured()) return;
   const err = new Error(
     'Um den Admin-Port öffentlich freizugeben, müssen für alle Admin-Konten sowohl Passkey als auch 2FA aktiviert sein (Einstellungen → Sicherheit).'
   );
