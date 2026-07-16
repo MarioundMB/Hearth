@@ -5057,7 +5057,16 @@ async function runHearthSelfUpdate(emit = () => {}) {
     // "no configuration file provided: not found". That failure was
     // completely invisible before: stdio 'ignore' below discarded it, so
     // self-update just silently did nothing past the git checkout step.
-    const projectDirFlag = repoMount.startsWith('/')
+    //
+    // --project-directory ALSO changes what the build context (`context: .`
+    // in docker-compose.yml) resolves to — but unlike the volume mount
+    // source (just a string handed to the daemon, which reads its OWN
+    // filesystem), the build context is read directly by this compose CLI
+    // process, which can only see /app/repo, not the host path string. The
+    // compose file's context now reads ${HEARTH_BUILD_CONTEXT:-.} specifically
+    // so this can be overridden here without fighting the volume-mount fix.
+    const usingRealHostPath = repoMount.startsWith('/');
+    const projectDirFlag = usingRealHostPath
       ? `-f /app/repo/docker-compose.yml --project-directory ${repoMount} `
       : '';
     // Redirect into the repo checkout (visible on the host afterward,
@@ -5071,6 +5080,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
       '--label', 'hearth.ephemeral=true',
       '-v', '/var/run/docker.sock:/var/run/docker.sock',
       '-v', `${repoMount}:/app/repo`,
+      ...(usingRealHostPath ? ['-e', 'HEARTH_BUILD_CONTEXT=/app/repo'] : []),
       selfImage,
       'sh', '-c',
       `(sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} ${projectDirFlag}up -d --build hearth; docker image prune -f 2>/dev/null; docker builder prune -af 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true) > /app/repo/.hearth-update.log 2>&1`,

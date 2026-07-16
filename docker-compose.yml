@@ -1,7 +1,16 @@
 services:
   hearth:
     build:
-      context: .
+      # Normally resolves to the project directory (.). The self-updater
+      # overrides this to /app/repo: it runs `docker compose` from inside a
+      # container that shares the host's docker.sock, with
+      # --project-directory set to the real HOST path so the volumes
+      # section's `.:/app/repo` resolves correctly for the daemon — but the
+      # build context is read directly by the compose CLI process itself,
+      # which can only see /app/repo (its own bind mount), not the host
+      # path string. Needs its own override since the two can't share one
+      # project-directory value.
+      context: ${HEARTH_BUILD_CONTEXT:-.}
       args:
         - GIT_SHA=${GIT_SHA:-unknown}
     container_name: hearth
