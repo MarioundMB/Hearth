@@ -207,7 +207,11 @@
         const _rm = { de: 'Angemeldet bleiben', en: 'Stay signed in', ro: 'Rămâi conectat', fr: 'Rester connecté', es: 'Permanecer conectado', it: 'Rimani connesso', pl: 'Pozostań zalogowany', nl: 'Aangemeld blijven', pt: 'Manter sessão iniciada' };
         Object.keys(I18N).forEach(lang => { if (!I18N[lang]['login.rememberMe']) I18N[lang]['login.rememberMe'] = _rm[lang] || _rm.en; });
       }
-      api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
+      let _isGuestPort = false;
+      const _langReady = api('GET', '/api/lang').then(d => {
+        applyLang(d.lang);
+        _isGuestPort = !!d.guestPort;
+      }).catch(() => {});
     </script>
     <script>
       // ── WebAuthn helpers ────────────────────────────────────────────────
@@ -227,10 +231,25 @@
       }
 
       // ── Passkey availability ─────────────────────────────────────────────
-      if (window.isSecureContext && window.PublicKeyCredential) {
+      const _secureCtx = window.isSecureContext && window.PublicKeyCredential;
+      if (_secureCtx) {
         document.getElementById('passkey-divider').style.display = '';
         document.getElementById('btn-passkey').style.display = '';
       }
+
+      // On the guest port, password login is disabled entirely — only a
+      // passkey (then a mandatory 2FA step, enforced server-side) gets in.
+      _langReady.then(() => {
+        if (!_isGuestPort) return;
+        document.getElementById('form-password').style.display = 'none';
+        document.getElementById('passkey-divider').style.display = 'none';
+        if (!_secureCtx) {
+          const warn = document.createElement('div');
+          warn.className = 'sub';
+          warn.textContent = 'Passkey-Anmeldung erfordert HTTPS — dieser Zugang ist über eine unverschlüsselte Verbindung nicht möglich.';
+          document.getElementById('step-password').appendChild(warn);
+        }
+      });
 
       // ── Password form ────────────────────────────────────────────────────
       document.getElementById('form-password').addEventListener('submit', async (e) => {
@@ -305,8 +324,14 @@
             clientExtensionResults: assertion.getClientExtensionResults?.() || {},
           };
 
-          await api('POST', '/api/passkey/auth-verify', assertionJSON);
-          location.href = '/admin';
+          const res = await api('POST', '/api/passkey/auth-verify', assertionJSON);
+          if (res.pending === '2fa') {
+            document.getElementById('step-password').style.display = 'none';
+            document.getElementById('step-2fa').style.display = '';
+            document.getElementById('totp-code').focus();
+          } else {
+            location.href = '/admin';
+          }
         } catch (err) {
           if (err?.name !== 'NotAllowedError') toast(err.message || 'Passkey-Anmeldung fehlgeschlagen', 'error');
           btn.disabled = false;

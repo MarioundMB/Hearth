@@ -2861,7 +2861,7 @@ app.post('/api/firewall/import', requireAuth, asyncHandler(async (req, res) => {
 // Einstellungen (Admin)
 // ---------------------------------------------------------------------------
 app.get('/api/lang', (req, res) => {
-  res.json({ lang: runtimeConfig.lang || 'de' });
+  res.json({ lang: runtimeConfig.lang || 'de', guestPort: !!req.fromGuestPort });
 });
 
 function _readHostHostname() {
@@ -3331,6 +3331,15 @@ app.post('/api/passkey/auth-verify', asyncHandler(async (req, res) => {
   saveConfig({ users: runtimeConfig.users });
   delete req.session.webauthn_auth_challenge;
   delete req.session.webauthn_auth_rp_id;
+  // On the guest port, passkey alone isn't the full login — it's meant to
+  // replace the password step, not stand in for both factors. Since
+  // isAdminAccessSecured() already requires every admin to have 2FA before
+  // this port can reach /login at all, matchedUser.totp_enabled will
+  // normally be true here; the check is just a safety net.
+  if (req.fromGuestPort && matchedUser.totp_enabled) {
+    req.session.pending2fa = matchedUser.username;
+    return res.json({ pending: '2fa' });
+  }
   req.session.authed = true;
   req.session.user   = matchedUser.username;
   req.session.role   = matchedUser.role;
