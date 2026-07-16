@@ -1677,10 +1677,16 @@ document.getElementById('tapkey-generate-btn').addEventListener('click', async (
   btn.disabled = true;
   try {
     const r = await api('POST', '/api/security/tap-key', {});
+    const mins = Math.max(0, Math.round((r.expiresAt - Date.now()) / 60000));
+    const h = Math.floor(mins / 60), m = mins % 60;
+    // Don't call loadTapKeyStatus() here — it hides tapkey-code-area as its
+    // very first action (to not leak a *previous* code on a fresh open),
+    // which immediately wiped out the code this same click just displayed.
+    document.getElementById('tapkey-status').textContent = `Aktiver Code — noch gültig für ${h}h ${m}min. Der Code selbst wird aus Sicherheitsgründen nicht erneut angezeigt.`;
+    document.getElementById('tapkey-revoke-btn').style.display = '';
     document.getElementById('tapkey-code-display').value = r.token;
     document.getElementById('tapkey-code-area').style.display = 'flex';
     toast('Code erstellt — jetzt kopieren, er wird nicht erneut angezeigt');
-    loadTapKeyStatus();
   } catch (e) {
     toast(e.message, 'error');
   } finally {
