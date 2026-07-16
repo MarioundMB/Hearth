@@ -5030,7 +5030,21 @@ async function runHearthSelfUpdate(emit = () => {}) {
     // resolution to use the real host path (repoMount) instead — only
     // meaningful when repoMount actually IS a host path (PATH A); the
     // named-volume fallback (PATH B) has no host directory to reference.
-    const projectDirFlag = repoMount.startsWith('/') ? `--project-directory ${repoMount} ` : '';
+    //
+    // --project-directory ALSO changes where compose looks for the compose
+    // file itself, to that same (host-real, container-phantom) path — so
+    // without an explicit -f pointing at the container-local, actually
+    // readable /app/repo/docker-compose.yml, compose fails immediately with
+    // "no configuration file provided: not found". That failure was
+    // completely invisible before: stdio 'ignore' below discarded it, so
+    // self-update just silently did nothing past the git checkout step.
+    const projectDirFlag = repoMount.startsWith('/')
+      ? `-f /app/repo/docker-compose.yml --project-directory ${repoMount} `
+      : '';
+    // Redirect into the repo checkout (visible on the host afterward,
+    // gitignored) instead of discarding output entirely — the previous
+    // silent-failure mode of this exact command is what made this bug take
+    // this long to actually diagnose.
     _spawn('docker', [
       'run', '--rm', '--name', 'hearth-updater',
       '--label', 'hearth.self=true',
@@ -5040,7 +5054,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
       '-v', `${repoMount}:/app/repo`,
       selfImage,
       'sh', '-c',
-      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} ${projectDirFlag}up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -af 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
+      `(sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} ${projectDirFlag}up -d --build hearth; docker image prune -f 2>/dev/null; docker builder prune -af 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true) > /app/repo/.hearth-update.log 2>&1`,
     ], { detached: true, stdio: 'ignore' }).unref();
   }
 
