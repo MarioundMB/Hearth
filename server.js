@@ -1105,6 +1105,67 @@ async function fwAvailable() {
   } catch (_) { return false; }
 }
 
+// network_mode: host means os.networkInterfaces() sees the HOST's real
+// interfaces directly — used to auto-detect the LAN subnet(s) so the admin
+// ports can be locked to them without the admin having to know or supply
+// their own CIDR. Docker's own virtual interfaces are excluded by name
+// (they're not "the LAN" and would produce nonsense 172.x-style rules).
+function _netmaskToCidr(mask) {
+  return mask.split('.').reduce((acc, o) => acc + ((parseInt(o, 10).toString(2).match(/1/g) || []).length), 0);
+}
+function _ipv4NetworkAddress(address, cidr) {
+  const [a, b, c, d] = address.split('.').map(Number);
+  const maskBits = cidr === 0 ? 0 : (~((1 << (32 - cidr)) - 1)) >>> 0;
+  const addrInt  = ((a << 24) | (b << 16) | (c << 8) | d) >>> 0;
+  const netInt   = (addrInt & maskBits) >>> 0;
+  return [(netInt >>> 24) & 255, (netInt >>> 16) & 255, (netInt >>> 8) & 255, netInt & 255].join('.');
+}
+function getLocalLanCidrs() {
+  const nets = os.networkInterfaces();
+  const skip = /^(lo|docker|br-|veth|vxlan|virbr)/;
+  const cidrs = new Set();
+  for (const name of Object.keys(nets)) {
+    if (skip.test(name)) continue;
+    for (const net of nets[name] || []) {
+      if (net.family !== 'IPv4' || net.internal || !net.netmask) continue;
+      const cidr = _netmaskToCidr(net.netmask);
+      if (cidr < 8 || cidr > 30) continue; // sanity bounds — skip anything degenerate
+      cidrs.add(`${_ipv4NetworkAddress(net.address, cidr)}/${cidr}`);
+    }
+  }
+  return [...cidrs];
+}
+
+// Locks a port to the detected LAN subnet(s), replacing ANY existing rule
+// for that exact port (regardless of who created it or how broad it is —
+// a stray "Anywhere" rule alongside a LAN-only one would still let the
+// port through from anywhere, since ufw ALLOW rules for the same port are
+// evaluated as OR'd). Skips entirely if no LAN subnet could be detected,
+// rather than risk locking the admin out with an empty rule set.
+async function enforceLanOnlyPort(port, tag) {
+  const lanCidrs = getLocalLanCidrs();
+  if (!lanCidrs.length) return;
+  const numbered = await fwExec('ufw status numbered').catch(() => '');
+  const lines = numbered.split('\n').filter(l => /^\[/.test(l.trim()));
+  const portRe = new RegExp(`\\b${port}/tcp\\b`);
+  const matching = lines.filter(l => portRe.test(l));
+  const alreadyCorrect =
+    matching.length === lanCidrs.length &&
+    lanCidrs.every((cidr) => matching.some((l) => l.includes(cidr)));
+  if (alreadyCorrect) return;
+
+  const nums = matching
+    .map((l) => parseInt((l.match(/\[\s*(\d+)\]/) || [])[1], 10))
+    .filter(Boolean)
+    .sort((a, b) => b - a);
+  for (const num of nums) {
+    await fwExec(`echo y | ufw delete ${num}`).catch(() => {});
+  }
+  for (const cidr of lanCidrs) {
+    await fwExec(`ufw allow from ${cidr} to any port ${port} proto tcp comment ${tag}`).catch(() => {});
+  }
+}
+
 // Newer Docker versions (28+) reassert `iptables -P FORWARD DROP` themselves
 // on every dockerd startup as part of their own default hardening — this
 // happens independently of ufw and of Hearth's own lifecycle (host reboots,
@@ -1114,12 +1175,19 @@ async function fwAvailable() {
 // what triggered the drift. Also covers the related case where ufw's rule
 // file and the live kernel chains fall out of sync (`ufw status` only ever
 // reads the file, so it can't detect that on its own).
+//
+// Also (re-)enforces the admin ports as LAN-only every cycle — not just at
+// boot — so a rule change made outside Hearth (or a fresh install that
+// never had one at all) gets locked down within one resync interval rather
+// than staying open indefinitely.
 let _lastFwResyncOk = null;
 async function resyncFirewall(reason) {
   if (!(await fwAvailable())) return false;
   try {
     await fwExec('ufw --force reload');
     await fwExec('iptables -P FORWARD ACCEPT').catch(() => {});
+    await enforceLanOnlyPort(PORT, 'hearth-admin-port-lan').catch((e) => console.warn('[FW] admin port lock failed:', e.message));
+    await enforceLanOnlyPort(ADMIN_HTTPS_PORT, 'hearth-admin-https-port-lan').catch((e) => console.warn('[FW] admin https port lock failed:', e.message));
     if (_lastFwResyncOk === false) console.log(`[FW] resync recovered (${reason})`);
     _lastFwResyncOk = true;
     return true;
