@@ -4829,6 +4829,19 @@ async function runHearthSelfUpdate(emit = () => {}) {
   function spawnUpdater(repoMount) {
     // Kill any leftover updater first
     _spawn('docker', ['rm', '-f', 'hearth-updater'], { stdio: 'ignore' });
+    // `docker compose` runs here inside a container that shares the HOST's
+    // docker.sock (Docker-outside-of-Docker) — relative paths in the compose
+    // file's volumes (the `.` in `- .:/app/repo`) resolve against this
+    // container's OWN cwd (/app/repo) by default, but that resolved string
+    // still gets sent to the host daemon AS a host path. The host then
+    // happily creates/mounts a bogus /app/repo directory instead of the
+    // real repo checkout — every subsequent self-update re-detects THAT
+    // wrong path from the recreated container and perpetuates it, which is
+    // why this kept recurring. --project-directory forces relative-path
+    // resolution to use the real host path (repoMount) instead — only
+    // meaningful when repoMount actually IS a host path (PATH A); the
+    // named-volume fallback (PATH B) has no host directory to reference.
+    const projectDirFlag = repoMount.startsWith('/') ? `--project-directory ${repoMount} ` : '';
     _spawn('docker', [
       'run', '--rm', '--name', 'hearth-updater',
       '--label', 'hearth.self=true',
@@ -4838,7 +4851,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
       '-v', `${repoMount}:/app/repo`,
       selfImage,
       'sh', '-c',
-      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -af 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
+      `sleep 3 && git config --global --add safe.directory /app/repo 2>/dev/null; cd /app/repo && docker compose -p ${projectName} ${projectDirFlag}up -d --build hearth 2>&1; docker image prune -f 2>/dev/null; docker builder prune -af 2>/dev/null; docker volume rm hearth-update-src 2>/dev/null; true`,
     ], { detached: true, stdio: 'ignore' }).unref();
   }
 
