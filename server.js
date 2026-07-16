@@ -266,7 +266,11 @@ app.use((req, res, next) => {
 
   // Block all /api/* except the public guest endpoints
   if (req.path.startsWith('/api/')) {
-    const allowed = ['/api/lang', '/api/public/'];
+    // /api/dockerhub/logo is the icon fallback buildAppTile() emits for
+    // containers without a hearth.icon label — unauthenticated on the admin
+    // port too, so it's safe to expose here as well. Without it, guest-view
+    // icons 403 for every app that doesn't set hearth.icon explicitly.
+    const allowed = ['/api/lang', '/api/public/', '/api/dockerhub/logo'];
     if (!allowed.some(a => req.path.startsWith(a))) {
       return res.status(403).json({ error: 'Not available on the guest port.' });
     }
