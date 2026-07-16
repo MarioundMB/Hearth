@@ -1647,6 +1647,62 @@ document.querySelectorAll('[onclick*="modal-security"]').forEach(el => {
 document.querySelectorAll('[onclick*="modal-local-https"]').forEach(el => {
   el.addEventListener('click', () => loadLocalHttpsStatus());
 });
+document.querySelectorAll('[onclick*="modal-tap-key"]').forEach(el => {
+  el.addEventListener('click', () => loadTapKeyStatus());
+});
+
+// ── TAP-Key (setup-access bootstrap code) ──────────────────────────────────
+async function loadTapKeyStatus() {
+  document.getElementById('tapkey-code-area').style.display = 'none';
+  const status = document.getElementById('tapkey-status');
+  const revokeBtn = document.getElementById('tapkey-revoke-btn');
+  try {
+    const s = await api('GET', '/api/security/tap-key');
+    if (s.active) {
+      const mins = Math.max(0, Math.round((s.expiresAt - Date.now()) / 60000));
+      const h = Math.floor(mins / 60), m = mins % 60;
+      status.textContent = `Aktiver Code für "${s.forUsername}" — noch gültig für ${h}h ${m}min. Der Code selbst wird aus Sicherheitsgründen nicht erneut angezeigt.`;
+      revokeBtn.style.display = '';
+    } else {
+      status.textContent = 'Kein aktiver Code.';
+      revokeBtn.style.display = 'none';
+    }
+  } catch (e) {
+    status.textContent = e.message;
+  }
+}
+
+document.getElementById('tapkey-generate-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('tapkey-generate-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/security/tap-key', {});
+    document.getElementById('tapkey-code-display').value = r.token;
+    document.getElementById('tapkey-code-area').style.display = 'flex';
+    toast('Code erstellt — jetzt kopieren, er wird nicht erneut angezeigt');
+    loadTapKeyStatus();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('tapkey-copy-btn').addEventListener('click', () => {
+  const val = document.getElementById('tapkey-code-display').value;
+  if (!val) return;
+  navigator.clipboard.writeText(val).then(() => toast('Code kopiert'));
+});
+
+document.getElementById('tapkey-revoke-btn').addEventListener('click', async () => {
+  try {
+    await api('DELETE', '/api/security/tap-key');
+    toast('Code widerrufen');
+    loadTapKeyStatus();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
 
 // ── WebAuthn helpers ────────────────────────────────────────────────────────
 function _b64uToBuffer(b64u) {

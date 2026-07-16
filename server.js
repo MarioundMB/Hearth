@@ -294,6 +294,22 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// A verified TAP-Key grants req.session.setupAccessUser — a narrow identity
+// that's only accepted by the passkey-registration and 2FA-setup endpoints
+// (via requireAuthOrSetupAccess below), not by requireAuth generally. This
+// is what lets someone bootstrap a passkey+2FA for a brand-new domain (e.g.
+// a Reverse Proxy host they just pointed at the guest port) without first
+// needing a password login there — while still not handing out a real
+// admin session to whoever has the code.
+function requireAuthOrSetupAccess(req, res, next) {
+  if (req.session?.authed) return next();
+  if (req.session?.setupAccessUser) return next();
+  return res.status(401).json({ error: 'Not authenticated' });
+}
+function effectiveUsername(req) {
+  return req.session?.authed ? req.session.user : req.session?.setupAccessUser;
+}
+
 // ── Guest-port isolation ─────────────────────────────────────────────────
 // Requests arriving on GUEST_PORT have req.fromGuestPort = true (set by the
 // guest http.Server wrapper below). Admin routes and API endpoints are blocked
@@ -317,7 +333,12 @@ app.use((req, res, next) => {
   // enough for a port meant to be internet-facing. Login itself still goes
   // through the normal password(+2FA) flow; this just stops blocking the
   // routes it needs.
-  if (isAdminAccessSecured()) return next();
+  // A verified TAP-Key session (see requireAuthOrSetupAccess) is already
+  // narrowly scoped to just the passkey/2FA setup endpoints regardless of
+  // this bypass — a multi-admin setup where only SOME admins have finished
+  // securing their account would otherwise leave isAdminAccessSecured()
+  // false and lock the very flow meant to onboard the rest.
+  if (isAdminAccessSecured() || req.session?.setupAccessUser) return next();
 
   // Block admin pages
   if (['/admin', '/login'].some(p => req.path === p || req.path.startsWith(p + '/'))) {
@@ -334,7 +355,9 @@ app.use((req, res, next) => {
     // containers without a hearth.icon label — unauthenticated on the admin
     // port too, so it's safe to expose here as well. Without it, guest-view
     // icons 403 for every app that doesn't set hearth.icon explicitly.
-    const allowed = ['/api/lang', '/api/public/', '/api/dockerhub/logo'];
+    // /api/setup-access/verify is the TAP-Key check itself — has to be
+    // reachable before setupAccessUser exists to grant it in the first place.
+    const allowed = ['/api/lang', '/api/public/', '/api/dockerhub/logo', '/api/setup-access/verify'];
     if (!allowed.some(a => req.path.startsWith(a))) {
       return res.status(403).json({ error: 'Not available on the guest port.' });
     }
@@ -3085,14 +3108,14 @@ app.post('/api/logout', (req, res) => {
 // 2FA / TOTP
 // ---------------------------------------------------------------------------
 
-app.get('/api/2fa/status', requireAuth, (req, res) => {
-  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+app.get('/api/2fa/status', requireAuthOrSetupAccess, (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === effectiveUsername(req));
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ enabled: !!(user.totp_enabled && user.totp_secret) });
 });
 
-app.post('/api/2fa/setup', requireAuth, asyncHandler(async (req, res) => {
-  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+app.post('/api/2fa/setup', requireAuthOrSetupAccess, asyncHandler(async (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === effectiveUsername(req));
   if (!user) return res.status(404).json({ error: 'User not found' });
   const secret = authenticator.generateSecret();
   const otpauthUrl = authenticator.keyuri(user.username, runtimeConfig.serverName || 'Hearth', secret);
@@ -3101,7 +3124,7 @@ app.post('/api/2fa/setup', requireAuth, asyncHandler(async (req, res) => {
   res.json({ secret, qrDataUrl });
 }));
 
-app.post('/api/2fa/enable', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/2fa/enable', requireAuthOrSetupAccess, asyncHandler(async (req, res) => {
   const { token } = req.body || {};
   if (!token) return res.status(400).json({ error: 'Token required' });
   const secret = req.session.pending_totp_secret;
@@ -3109,13 +3132,24 @@ app.post('/api/2fa/enable', requireAuth, asyncHandler(async (req, res) => {
   if (!authenticator.verify({ token: String(token), secret }))
     return res.status(401).json({ error: 'Invalid token' });
   const users = runtimeConfig.users || [];
-  const user  = users.find(u => u.username === req.session.user);
+  const user  = users.find(u => u.username === effectiveUsername(req));
   if (!user) return res.status(404).json({ error: 'User not found' });
   user.totp_secret  = secret;
   user.totp_enabled = true;
   delete req.session.pending_totp_secret;
   saveConfig({ users });
-  res.json({ ok: true });
+
+  // Setup-access is a one-shot bootstrap: burn it once this account has
+  // both factors, so it can't be reused, and hand the frontend a signal to
+  // redirect to the real login instead of granting a session directly —
+  // that also proves the new passkey+2FA combo actually works end to end.
+  let setupComplete = false;
+  if (req.session.setupAccessUser && (user.passkeys || []).length > 0) {
+    _tapKey = null;
+    delete req.session.setupAccessUser;
+    setupComplete = true;
+  }
+  res.json({ ok: true, setupComplete });
 }));
 
 app.post('/api/2fa/disable', requireAuth, asyncHandler(async (req, res) => {
@@ -3150,6 +3184,72 @@ app.post('/api/2fa/verify', asyncHandler(async (req, res) => {
   req.session.role   = user.role;
   if (remember) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
   res.json({ ok: true, role: user.role });
+}));
+
+// ---------------------------------------------------------------------------
+// TAP-Key — bootstraps passkey+2FA setup for a NEW domain from the guest
+// port, without ever exposing password login there. A passkey is scoped to
+// the exact origin it was created on (WebAuthn's RP ID), so a passkey made
+// on the LAN admin panel can't be used to log into e.g. a Reverse Proxy
+// domain pointed at the guest port — but that domain's /login has password
+// auth hidden by design once secured, so there'd be no way in to register
+// a domain-scoped passkey at all. A TAP-Key, generated from an already-
+// authenticated session, grants a narrow one-time "setup session"
+// (req.session.setupAccessUser, NOT req.session.authed) that only the
+// passkey-registration and 2FA-setup endpoints above accept — nothing else
+// — and is burned the moment that account has both a passkey and 2FA.
+// ---------------------------------------------------------------------------
+let _tapKey = null; // { token, username, createdAt, expiresAt, attempts }
+
+const TAPKEY_CHARS = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford-ish, no 0/O or 1/I/L mixups
+function generateTapKeyToken() {
+  const bytes = crypto.randomBytes(20);
+  let raw = '';
+  for (let i = 0; i < 20; i++) raw += TAPKEY_CHARS[bytes[i] % TAPKEY_CHARS.length];
+  return raw.match(/.{1,4}/g).join('-');
+}
+function normalizeTapKeyInput(s) {
+  return String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+app.get('/api/security/tap-key', requireAdmin, (req, res) => {
+  if (!_tapKey || _tapKey.expiresAt < Date.now()) return res.json({ active: false });
+  res.json({ active: true, expiresAt: _tapKey.expiresAt, forUsername: _tapKey.username });
+});
+
+app.post('/api/security/tap-key', requireAdmin, (req, res) => {
+  const token = generateTapKeyToken();
+  _tapKey = {
+    token,
+    username: req.session.user,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    attempts: 0,
+  };
+  res.json({ token, expiresAt: _tapKey.expiresAt });
+});
+
+app.delete('/api/security/tap-key', requireAdmin, (req, res) => {
+  _tapKey = null;
+  res.json({ ok: true });
+});
+
+app.post('/api/setup-access/verify', asyncHandler(async (req, res) => {
+  if (!_tapKey || _tapKey.expiresAt < Date.now()) {
+    _tapKey = null;
+    return res.status(400).json({ error: 'Kein aktiver Setup-Code.' });
+  }
+  if (_tapKey.attempts >= 10) {
+    _tapKey = null;
+    return res.status(429).json({ error: 'Zu viele Versuche — Code wurde ungültig gemacht.' });
+  }
+  _tapKey.attempts++;
+  const input  = Buffer.from(normalizeTapKeyInput(req.body?.code));
+  const actual = Buffer.from(normalizeTapKeyInput(_tapKey.token));
+  const match  = input.length === actual.length && crypto.timingSafeEqual(input, actual);
+  if (!match) return res.status(401).json({ error: 'Ungültiger Code.' });
+  req.session.setupAccessUser = _tapKey.username;
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
@@ -3232,8 +3332,8 @@ app.get('/api/passkeys', requireAuth, (req, res) => {
   res.json((user.passkeys || []).map(pk => ({ id: pk.id, name: pk.name, createdAt: pk.createdAt, transports: pk.transports })));
 });
 
-app.post('/api/passkey/register-options', requireAuth, asyncHandler(async (req, res) => {
-  const user = (runtimeConfig.users || []).find(u => u.username === req.session.user);
+app.post('/api/passkey/register-options', requireAuthOrSetupAccess, asyncHandler(async (req, res) => {
+  const user = (runtimeConfig.users || []).find(u => u.username === effectiveUsername(req));
   if (!user) return res.status(404).json({ error: 'User not found' });
   const { rpID } = _webauthnOrigin(req);
   const options = await generateRegistrationOptions({
@@ -3250,7 +3350,7 @@ app.post('/api/passkey/register-options', requireAuth, asyncHandler(async (req, 
   res.json(options);
 }));
 
-app.post('/api/passkey/register-verify', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/passkey/register-verify', requireAuthOrSetupAccess, asyncHandler(async (req, res) => {
   const challenge = req.session.webauthn_reg_challenge;
   const rpID      = req.session.webauthn_rp_id;
   if (!challenge || !rpID) return res.status(400).json({ error: 'No pending registration' });
@@ -3265,7 +3365,7 @@ app.post('/api/passkey/register-verify', requireAuth, asyncHandler(async (req, r
   if (!verification.verified) return res.status(400).json({ error: 'Verification failed' });
   const { credentialID, credentialPublicKey, counter, transports } = verification.registrationInfo;
   const users = runtimeConfig.users || [];
-  const user  = users.find(u => u.username === req.session.user);
+  const user  = users.find(u => u.username === effectiveUsername(req));
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (!user.passkeys) user.passkeys = [];
   user.passkeys.push({
@@ -5796,6 +5896,9 @@ app.get('/admin', (req, res) => {
 });
 app.get('/login', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'login.html'))
+);
+app.get('/setup-access', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'setup-access.html'))
 );
 
 // Admin server — keep this behind your firewall / VPN

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hearth · Zugriff einrichten</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/custom.css" />
+    <script src="/js/i18n.js"></script>
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .setup-access {
+        width: 100%;
+        max-width: 420px;
+        padding: 38px 34px;
+        position: relative;
+        z-index: 1;
+      }
+      .setup-access .brand {
+        font-size: 22px;
+        margin-bottom: 4px;
+        gap: 12px;
+      }
+      .setup-access .brand .flame {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+      }
+      .setup-access .sub {
+        color: var(--text-dim);
+        font-size: 14px;
+        margin-bottom: 24px;
+      }
+      .setup-access .btn.primary {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+        margin-top: 6px;
+      }
+      .step { display: none; }
+      .step.active { display: block; }
+      .step-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        margin-bottom: 8px;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-top: 6px;
+        margin-bottom: 4px;
+      }
+      code.secret {
+        display: block;
+        margin-top: 4px;
+        word-break: break-all;
+        font-size: 12px;
+        background: var(--panel);
+        padding: 6px 8px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="setup-access panel">
+      <div class="brand">
+        <img src="/favicon.svg" alt="Hearth" class="flame">
+        <span>Hearth</span>
+      </div>
+
+      <!-- Step 1: TAP-Key code -->
+      <div class="step active" id="step-code">
+        <div class="step-label">Schritt 1 von 3</div>
+        <div class="sub">Gib den Setup-Code ein, den du in den Admin-Einstellungen erhalten hast.</div>
+        <form id="form-code">
+          <div class="field">
+            <label for="code">Setup-Code</label>
+            <input class="input mono" id="code" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off" style="letter-spacing:1px">
+          </div>
+          <button class="btn primary" type="submit">Weiter</button>
+        </form>
+      </div>
+
+      <!-- Step 2: Create passkey -->
+      <div class="step" id="step-passkey">
+        <div class="step-label">Schritt 2 von 3</div>
+        <div class="sub">Erstelle einen Passkey für diese Domain.</div>
+        <div class="field">
+          <label for="passkey-name">Name (z.B. iPhone, MacBook)</label>
+          <input class="input" id="passkey-name" placeholder="Passkey">
+        </div>
+        <button class="btn primary" type="button" id="btn-create-passkey">Passkey erstellen</button>
+      </div>
+
+      <!-- Step 3: 2FA -->
+      <div class="step" id="step-totp">
+        <div class="step-label">Schritt 3 von 3</div>
+        <div class="sub">Richte zusätzlich Zwei-Faktor-Authentifizierung ein.</div>
+        <div class="hint">Scanne den QR-Code mit deiner Authenticator-App und gib danach den angezeigten 6-stelligen Code ein.</div>
+        <img id="totp-qr" src="" alt="QR-Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px;display:block;margin:10px auto">
+        <details style="font-size:11px;color:var(--text-faint);margin-bottom:12px">
+          <summary style="cursor:pointer">Secret manuell eingeben</summary>
+          <code class="secret" id="totp-secret-text"></code>
+        </details>
+        <form id="form-totp">
+          <div class="field">
+            <label for="totp-code">Code aus deiner Authenticator-App</label>
+            <input class="input" id="totp-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="letter-spacing:4px;font-size:16px">
+          </div>
+          <button class="btn primary" type="submit">Abschließen</button>
+        </form>
+      </div>
+
+      <!-- Done -->
+      <div class="step" id="step-done">
+        <div class="sub">Fertig! Du wirst zum Login weitergeleitet…</div>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+    <script src="/js/common.js"></script>
+    <script>
+      api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
+
+      function showStep(id) {
+        document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+      }
+
+      // ── WebAuthn helpers ──────────────────────────────────────────────────
+      function b64uToBuffer(b64u) {
+        const base64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
+        const bin = atob(padded);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        return buf.buffer;
+      }
+      function bufToB64u(buf) {
+        const bytes = new Uint8Array(buf);
+        let str = '';
+        for (const b of bytes) str += String.fromCharCode(b);
+        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      }
+
+      // ── Step 1: code ────────────────────────────────────────────────────
+      document.getElementById('form-code').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api('POST', '/api/setup-access/verify', { code: document.getElementById('code').value.trim() });
+          showStep('step-passkey');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+
+      // ── Step 2: passkey ─────────────────────────────────────────────────
+      document.getElementById('btn-create-passkey').addEventListener('click', async () => {
+        const btn = document.getElementById('btn-create-passkey');
+        if (!window.isSecureContext || !window.PublicKeyCredential) {
+          toast('Passkeys erfordern HTTPS — diese Verbindung ist nicht sicher.', 'error');
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Warte auf Authenticator…';
+        try {
+          const name = document.getElementById('passkey-name').value.trim() || 'Passkey';
+          const options = await api('POST', '/api/passkey/register-options', {});
+          const publicKey = {
+            ...options,
+            challenge: b64uToBuffer(options.challenge),
+            user: { ...options.user, id: b64uToBuffer(options.user.id) },
+            excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuffer(c.id) })),
+          };
+          const credential = await navigator.credentials.create({ publicKey });
+          const regResponse = {
+            id: credential.id,
+            rawId: bufToB64u(credential.rawId),
+            type: credential.type,
+            response: {
+              clientDataJSON: bufToB64u(credential.response.clientDataJSON),
+              attestationObject: bufToB64u(credential.response.attestationObject),
+            },
+            transports: credential.response.getTransports?.() || [],
+            clientExtensionResults: credential.getClientExtensionResults?.() || {},
+            name,
+          };
+          await api('POST', '/api/passkey/register-verify', regResponse);
+          toast('Passkey erstellt');
+          await startTotp();
+          showStep('step-totp');
+        } catch (err) {
+          toast(err.message || 'Passkey-Erstellung fehlgeschlagen', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Passkey erstellen';
+        }
+      });
+
+      // ── Step 3: 2FA ─────────────────────────────────────────────────────
+      async function startTotp() {
+        const { secret, qrDataUrl } = await api('POST', '/api/2fa/setup');
+        document.getElementById('totp-qr').src = qrDataUrl;
+        document.getElementById('totp-secret-text').textContent = secret;
+      }
+
+      document.getElementById('form-totp').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const r = await api('POST', '/api/2fa/enable', { token: document.getElementById('totp-code').value.trim() });
+          if (r.setupComplete) {
+            showStep('step-done');
+            setTimeout(() => { location.href = '/login'; }, 1800);
+          } else {
+            // Shouldn't normally happen (passkey was just created above),
+            // but fall back to the login page rather than leaving a dead end.
+            location.href = '/login';
+          }
+        } catch (err) {
+          toast(err.message, 'error');
+          document.getElementById('totp-code').value = '';
+          document.getElementById('totp-code').focus();
+        }
+      });
+    </script>
+  </body>
+</html>

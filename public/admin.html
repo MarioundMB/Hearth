@@ -2716,6 +2716,16 @@
                 </div>
                 <button class="btn sm ghost" style="flex-shrink:0" onclick="openModal('modal-local-https')">Öffnen</button>
               </div>
+              <div class="s-row">
+                <div class="s-row-l">
+                  <span class="s-icon"><svg class="icon icon-md"><use href="#icon-lock"/></svg></span>
+                  <div>
+                    <div class="s-label">Admin-Zugriff über 3000 freischalten</div>
+                    <div class="s-sub">Einmal-Code zum Einrichten von Passkey + 2FA für eine neue Domain</div>
+                  </div>
+                </div>
+                <button class="btn sm ghost" style="flex-shrink:0" onclick="openModal('modal-tap-key')">Öffnen</button>
+              </div>
             </div>
           </div><!-- /#s-cat-security -->
 
@@ -3893,6 +3903,34 @@
                   Optional: Zertifikat herunterladen und als vertrauenswürdig installieren, damit die Browser-Warnung verschwindet (pro Gerät einmalig — unter macOS: Datei doppelklicken, in Schlüsselbundverwaltung öffnen, dann auf "Immer vertrauen" setzen).
                 </div>
                 <a class="btn sm ghost" href="/api/security/local-https/cert" download="hearth-local.crt" style="align-self:flex-start">Zertifikat herunterladen</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAP-Key (Setup-Code für Passkey+2FA auf einer neuen Domain) ─ -->
+    <div class="modal-backdrop" id="modal-tap-key">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-head">
+          <h3><svg class="icon icon-lg" style="margin-right:6px;vertical-align:-3px"><use href="#icon-lock"/></svg><span>Admin-Zugriff über 3000 freischalten</span></h3>
+          <button class="iconbtn" data-close>✕</button>
+        </div>
+        <div class="modal-body" style="padding:0;max-height:70vh;overflow-y:auto">
+          <div class="s-group">
+            <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:12px;color:var(--text-dim)">
+                Ein Passkey gilt nur für die Domain, mit der er erstellt wurde — auf dem Gäste-Port (3000) gibt es aber kein Passwort-Login mehr, um dort einen neuen Passkey einzurichten. Der TAP-Key ist ein Einmal-Code (24h gültig, nur für dein Konto), mit dem du auf <span class="mono">/setup-access</span> einen Passkey und danach 2FA für die aktuelle Domain einrichten kannst. Der Code verfällt sofort nach erfolgreichem Abschluss.
+              </div>
+              <div id="tapkey-status" style="font-size:12px;color:var(--text-faint)">Lade…</div>
+              <div id="tapkey-code-area" style="display:none;gap:8px;align-items:center">
+                <input class="input mono" id="tapkey-code-display" readonly style="flex:1">
+                <button class="iconbtn" id="tapkey-copy-btn" title="Kopieren">⎘</button>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn sm ghost" id="tapkey-generate-btn">Neuen Code generieren</button>
+                <button class="btn sm ghost" id="tapkey-revoke-btn" style="display:none">Widerrufen</button>
               </div>
             </div>
           </div>
