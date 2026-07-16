@@ -50,15 +50,26 @@ const HEARTH_SHA = (process.env.HEARTH_SHA || 'unknown').slice(0, 7);
 // ---------------------------------------------------------------------------
 // Konfiguration (über Umgebungsvariablen steuerbar – siehe .env.example)
 // ---------------------------------------------------------------------------
-const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || '/mnt/data');
 const DATA_DIR    = process.env.DATA_DIR    || '/srv/hearth-data';
 const DOCKER_SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
-const CONFIG_PATH        = process.env.CONFIG_PATH        || path.join(FILES_ROOT, 'hearth.config.json');
-const NOTIF_ARCHIVE_PATH = process.env.NOTIF_ARCHIVE_PATH || path.join(FILES_ROOT, 'hearth.notifications.json');
+// Deliberately NOT derived from FILES_ROOT (see below) — Hearth's own
+// operational config must live somewhere stable regardless of what the
+// file manager's root is currently set to.
+const CONFIG_PATH        = process.env.CONFIG_PATH        || '/mnt/data/hearth.config.json';
+const NOTIF_ARCHIVE_PATH = process.env.NOTIF_ARCHIVE_PATH || '/mnt/data/hearth.notifications.json';
 
-// Early config read so saved port values can override defaults before server binds
+// Early config read so saved port/files-root values can override defaults before server binds
 let _earlyConfig = {};
 try { if (fs.existsSync(CONFIG_PATH)) _earlyConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (_) {}
+
+// FILES_ROOT prefers the env var (an explicit operator override in .env)
+// but falls back to the durably-persisted config value rather than the
+// hardcoded default. .env-based overrides have proven fragile across
+// self-updates (the updater's git-checkout/compose-project-directory
+// detection can end up stale after a container recreate, silently losing
+// the .env override on the next rebuild) — persisting the choice in
+// hearth.config.json means it survives that regardless of what .env says.
+const FILES_ROOT  = path.resolve(process.env.FILES_ROOT || _earlyConfig.configFilesRoot || '/mnt/data');
 
 const PORT        = parseInt(process.env.PORT       || _earlyConfig.configPort      || '4500', 10);
 // Separate public-facing port for the guest view only (no admin routes)
@@ -2838,6 +2849,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
     configProxyPort: runtimeConfig.configProxyPort || PROXY_PORT,
     dockerSocket: DOCKER_SOCKET,
     filesRoot:   FILES_ROOT,
+    filesRootFull: FILES_ROOT === '/host',
     dataDir:     DATA_DIR,
     version:     VERSION,
     cfApiToken:       runtimeConfig.cfApiToken || '',
@@ -2857,7 +2869,7 @@ app.post(
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
       cfApiToken, cfZoneId, cfTunnelToken, serverPublicIp, configPort, configGuestPort,
-      configHttpPort, configProxyPort,
+      configHttpPort, configProxyPort, filesRootFull,
     } = req.body || {};
     const updates = {};
 
@@ -2898,6 +2910,13 @@ app.post(
     if (configProxyPort !== undefined) {
       const p = parseInt(configProxyPort, 10);
       if (p >= 1 && p <= 65535) updates.configProxyPort = p;
+    }
+    // Only ever toggles between the two paths docker-compose.yml actually
+    // mounts (/mnt/data is always available; /host requires the `- /:/host`
+    // volume, already present unconditionally) — persisted here so it
+    // survives regardless of what .env ends up containing after an update.
+    if (filesRootFull !== undefined) {
+      updates.configFilesRoot = filesRootFull ? '/host' : '/mnt/data';
     }
     if (cfApiToken !== undefined) updates.cfApiToken = (cfApiToken || '').trim();
     if (cfZoneId !== undefined) updates.cfZoneId = (cfZoneId || '').trim();

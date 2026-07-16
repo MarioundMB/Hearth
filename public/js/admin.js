@@ -462,12 +462,17 @@ function populateEditForm(ins) {
     portsBox.appendChild(edPortRow(hp, cp, proto || 'tcp'));
   }
 
-  // Volumes
+  // Volumes — read from the normalized Mounts view, not HostConfig.Binds:
+  // Binds only reflects mounts declared with the legacy `-v` syntax, and
+  // misses anything set up via Compose's long-form `volumes:` (source/
+  // target), which is how CasaOS and most Compose stacks declare them.
+  // Building this list from Binds meant submitting the edit form (even
+  // just to bump an image tag) silently dropped every such mount.
   const volsBox = document.getElementById('cd-vols');
   volsBox.innerHTML = '';
-  for (const bind of ins.HostConfig?.Binds || []) {
-    const [h, c] = bind.split(':');
-    volsBox.appendChild(edVolRow(h, c));
+  for (const m of ins.Mounts || []) {
+    const host = m.Type === 'volume' ? m.Name : m.Source;
+    volsBox.appendChild(edVolRow(host, m.Destination));
   }
 
   // Env
@@ -1228,6 +1233,7 @@ async function loadSettings() {
     if (portSub) portSub.textContent = `Admin :${s.port} · Gäste :${s.guestPort}`;
     document.getElementById('s-docker-socket').textContent = s.dockerSocket;
     document.getElementById('s-filesroot').textContent  = s.filesRoot;
+    document.getElementById('s-filesroot-full').checked = !!s.filesRootFull;
     document.getElementById('s-version').textContent    = `v${s.version}`;
 
     const au = s.autoUpdate ?? { enabled: true, hour: 0, minute: 0 };
@@ -1273,7 +1279,8 @@ document.getElementById('s-save').addEventListener('click', async () => {
     const configPort      = parseInt(document.getElementById('s-port').value, 10) || null;
     const configGuestPort = parseInt(document.getElementById('s-guest-port').value, 10) || null;
     const autoUpdateLinux = { enabled: document.getElementById('s-autoupdate-linux').checked };
-    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, autoUpdateLinux, updateBranch, configPort, configGuestPort });
+    const filesRootFull   = document.getElementById('s-filesroot-full').checked;
+    await api('POST', '/api/settings', { serverName, lang, showOfflineApps, refreshInterval, autoUpdate, autoUpdateLinux, updateBranch, configPort, configGuestPort, filesRootFull });
     closeModal('modal-settings');
     toast(t('toast.settingsSaved'));
     applyRefreshInterval(refreshInterval);

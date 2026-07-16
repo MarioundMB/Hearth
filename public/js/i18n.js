@@ -94,6 +94,10 @@ const I18N = {
     'settings.system': 'System',
     'settings.dockerSocket': 'Docker Socket',
     'settings.filesRoot': 'Dateimanager-Root',
+
+    'settings.filesRootFull': 'Voller Host-Zugriff',
+
+    'settings.filesRootFullHint': 'Dateimanager zeigt das komplette Host-Dateisystem (/) statt nur /mnt/data. Wird dauerhaft gespeichert und übersteht Updates — nach dem Speichern Hearth neu starten, damit es wirkt.',
     'settings.version': 'Version',
     'settings.restart': '⟳ Hearth neu starten',
     'settings.updateAvailable': 'Update verfügbar',
@@ -497,6 +501,10 @@ const I18N = {
     'settings.system': 'System',
     'settings.dockerSocket': 'Docker Socket',
     'settings.filesRoot': 'File Manager Root',
+
+    'settings.filesRootFull': 'Full Host Access',
+
+    'settings.filesRootFullHint': 'File manager shows the entire host filesystem (/) instead of just /mnt/data. Saved permanently and survives updates — restart Hearth after saving for it to take effect.',
     'settings.version': 'Version',
     'settings.restart': '⟳ Restart Hearth',
     'settings.updateAvailable': 'Update available',
@@ -870,6 +878,10 @@ const I18N = {
     'settings.system': 'Sistem',
     'settings.dockerSocket': 'Socket Docker',
     'settings.filesRoot': 'Director rădăcină fișiere',
+
+    'settings.filesRootFull': 'Acces complet la gazdă',
+
+    'settings.filesRootFullHint': 'Managerul de fișiere afișează întregul sistem de fișiere al gazdei (/) în loc de doar /mnt/data. Este salvat permanent și rezistă la actualizări — repornește Hearth după salvare pentru a avea efect.',
     'settings.version': 'Versiune',
     'settings.restart': '⟳ Repornește Hearth',
     'settings.updateAvailable': 'Actualizare disponibilă',
@@ -1201,6 +1213,10 @@ const I18N = {
     'settings.system': 'Système',
     'settings.dockerSocket': 'Socket Docker',
     'settings.filesRoot': 'Racine du gestionnaire de fichiers',
+
+    'settings.filesRootFull': 'Accès complet à l\'hôte',
+
+    'settings.filesRootFullHint': 'Le gestionnaire de fichiers affiche l\'intégralité du système de fichiers hôte (/) au lieu de /mnt/data uniquement. Enregistré de façon permanente et résiste aux mises à jour — redémarrez Hearth après l\'enregistrement pour que cela prenne effet.',
     'settings.version': 'Version',
     'settings.restart': '⟳ Redémarrer Hearth',
     'settings.updateAvailable': 'Mise à jour disponible',
@@ -1532,6 +1548,10 @@ const I18N = {
     'settings.system': 'Sistema',
     'settings.dockerSocket': 'Socket Docker',
     'settings.filesRoot': 'Raíz del gestor de archivos',
+
+    'settings.filesRootFull': 'Acceso completo al host',
+
+    'settings.filesRootFullHint': 'El gestor de archivos muestra todo el sistema de archivos del host (/) en lugar de solo /mnt/data. Se guarda permanentemente y resiste las actualizaciones — reinicia Hearth después de guardar para que surta efecto.',
     'settings.version': 'Versión',
     'settings.restart': '⟳ Reiniciar Hearth',
     'settings.updateAvailable': 'Actualización disponible',
@@ -1863,6 +1883,10 @@ const I18N = {
     'settings.system': 'Sistema',
     'settings.dockerSocket': 'Socket Docker',
     'settings.filesRoot': 'Radice gestione file',
+
+    'settings.filesRootFull': 'Accesso completo all\'host',
+
+    'settings.filesRootFullHint': 'Il gestore file mostra l\'intero filesystem host (/) invece di solo /mnt/data. Salvato in modo permanente e resiste agli aggiornamenti — riavvia Hearth dopo il salvataggio per renderlo effettivo.',
     'settings.version': 'Versione',
     'settings.restart': '⟳ Riavvia Hearth',
     'settings.updateAvailable': 'Aggiornamento disponibile',
@@ -2194,6 +2218,10 @@ const I18N = {
     'settings.system': 'System',
     'settings.dockerSocket': 'Gniazdo Docker',
     'settings.filesRoot': 'Katalog główny menedżera plików',
+
+    'settings.filesRootFull': 'Pełny dostęp do hosta',
+
+    'settings.filesRootFullHint': 'Menedżer plików pokazuje cały system plików hosta (/) zamiast tylko /mnt/data. Zapisywane trwale i przetrwa aktualizacje — po zapisaniu zrestartuj Hearth, aby zaczęło działać.',
     'settings.version': 'Wersja',
     'settings.restart': '⟳ Restartuj Hearth',
     'settings.updateAvailable': 'Dostępna aktualizacja',
@@ -2525,6 +2553,10 @@ const I18N = {
     'settings.system': 'Systeem',
     'settings.dockerSocket': 'Docker socket',
     'settings.filesRoot': 'Bestandsbeheer root',
+
+    'settings.filesRootFull': 'Volledige hosttoegang',
+
+    'settings.filesRootFullHint': 'Bestandsbeheer toont het volledige hostbestandssysteem (/) in plaats van alleen /mnt/data. Wordt permanent opgeslagen en overleeft updates — herstart Hearth na het opslaan om het effect te laten gelden.',
     'settings.version': 'Versie',
     'settings.restart': '⟳ Hearth herstarten',
     'settings.updateAvailable': 'Update beschikbaar',
@@ -2856,6 +2888,10 @@ const I18N = {
     'settings.system': 'Sistema',
     'settings.dockerSocket': 'Socket Docker',
     'settings.filesRoot': 'Raiz do gerenciador de arquivos',
+
+    'settings.filesRootFull': 'Acesso total ao host',
+
+    'settings.filesRootFullHint': 'O gerenciador de arquivos mostra todo o sistema de arquivos do host (/) em vez de apenas /mnt/data. Salvo permanentemente e resiste a atualizações — reinicie o Hearth após salvar para que tenha efeito.',
     'settings.version': 'Versão',
     'settings.restart': '⟳ Reiniciar Hearth',
     'settings.updateAvailable': 'Atualização disponível',
