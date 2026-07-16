@@ -208,6 +208,23 @@ const docker = new Docker({ socketPath: DOCKER_SOCKET });
   } catch (e) {
     console.warn('[RAID] mdadm startup check skipped:', e.message);
   }
+
+  // `ufw enable` inside hearth-firewall is a no-op once ufw is already marked
+  // active, so if the host's live iptables chains ever get flushed/rebuilt
+  // without ufw's knowledge (docker daemon restarts, network reconfig, host
+  // reboot races), the persisted rules file can silently drift out of sync
+  // with what's actually loaded in the kernel — `ufw status` still reports
+  // everything as ALLOW because it only reads that file, not the live chains.
+  // `ufw reload` unconditionally re-applies the file, so run it once per
+  // Hearth boot as cheap insurance against that class of bug.
+  try {
+    if (await fwAvailable()) {
+      await fwExec('ufw --force reload');
+      console.log('[FW] ufw reload (boot-time resync)');
+    }
+  } catch (e) {
+    console.warn('[FW] boot-time reload skipped:', e.message);
+  }
 })();
 
 const app = express();
