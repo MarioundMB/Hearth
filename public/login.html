@@ -262,7 +262,7 @@
           });
           if (res.pending === '2fa') {
             document.getElementById('step-password').style.display = 'none';
-            document.getElementById('step-2fa').style.display = '';
+            document.getElementById('step-2fa').style.display = 'block';
             document.getElementById('totp-code').focus();
           } else {
             location.href = '/admin';
@@ -327,7 +327,7 @@
           const res = await api('POST', '/api/passkey/auth-verify', assertionJSON);
           if (res.pending === '2fa') {
             document.getElementById('step-password').style.display = 'none';
-            document.getElementById('step-2fa').style.display = '';
+            document.getElementById('step-2fa').style.display = 'block';
             document.getElementById('totp-code').focus();
           } else {
             location.href = '/admin';
