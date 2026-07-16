@@ -1642,7 +1642,10 @@ document.getElementById('modal-security').addEventListener('click', e => {
 });
 // Also load when first opened
 document.querySelectorAll('[onclick*="modal-security"]').forEach(el => {
-  el.addEventListener('click', () => { loadUserList(); loadTotpStatus(); loadPasskeys(); loadLocalHttpsStatus(); });
+  el.addEventListener('click', () => { loadUserList(); loadTotpStatus(); loadPasskeys(); });
+});
+document.querySelectorAll('[onclick*="modal-local-https"]').forEach(el => {
+  el.addEventListener('click', () => loadLocalHttpsStatus());
 });
 
 // ── WebAuthn helpers ────────────────────────────────────────────────────────
@@ -1781,7 +1784,9 @@ document.getElementById('local-https-btn').addEventListener('click', async () =>
 });
 
 document.getElementById('passkey-goto-https-btn').addEventListener('click', () => {
-  document.getElementById('sec-local-https-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  closeModal('modal-security');
+  openModal('modal-local-https');
+  loadLocalHttpsStatus();
 });
 
 // ── Passkeys ────────────────────────────────────────────────────────────────
