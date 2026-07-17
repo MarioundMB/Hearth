@@ -1695,9 +1695,24 @@ document.getElementById('tapkey-generate-btn').addEventListener('click', async (
 });
 
 document.getElementById('tapkey-copy-btn').addEventListener('click', () => {
-  const val = document.getElementById('tapkey-code-display').value;
+  const input = document.getElementById('tapkey-code-display');
+  const val = input.value;
   if (!val) return;
-  navigator.clipboard.writeText(val).then(() => toast('Code kopiert'));
+  navigator.clipboard.writeText(val).then(() => {
+    toast('Code kopiert');
+  }).catch(() => {
+    // navigator.clipboard can silently reject in Safari depending on
+    // context — the click still registered, but nothing actually ends up
+    // on the clipboard, which is why pasting elsewhere then does nothing.
+    // Fall back to the older selection-based copy, which works more broadly.
+    input.removeAttribute('readonly');
+    input.focus();
+    input.setSelectionRange(0, val.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    input.setAttribute('readonly', 'readonly');
+    toast(ok ? 'Code kopiert' : 'Kopieren fehlgeschlagen — Code ist markiert, bitte manuell mit Cmd/Strg+C kopieren', ok ? undefined : 'error');
+  });
 });
 
 document.getElementById('tapkey-revoke-btn').addEventListener('click', async () => {
