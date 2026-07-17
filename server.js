@@ -5076,9 +5076,18 @@ async function runHearthSelfUpdate(emit = () => {}) {
     // process, which can only see /app/repo, not the host path string. The
     // compose file's context now reads ${HEARTH_BUILD_CONTEXT:-.} specifically
     // so this can be overridden here without fighting the volume-mount fix.
+    //
+    // --project-directory ALSO changes where compose looks for the top-level
+    // .env file used for ${VAR:-default} substitution in docker-compose.yml
+    // — same container-can't-read-the-host-path problem a third time. When
+    // it can't be found, compose doesn't error, it just silently falls back
+    // to each field's literal default (FILES_ROOT reverting to /mnt instead
+    // of .env's /host is exactly this — confirmed live after the previous
+    // two fixes alone still weren't enough). --env-file points explicitly
+    // at the container-readable copy.
     const usingRealHostPath = repoMount.startsWith('/');
     const projectDirFlag = usingRealHostPath
-      ? `-f /app/repo/docker-compose.yml --project-directory ${repoMount} `
+      ? `--env-file /app/repo/.env -f /app/repo/docker-compose.yml --project-directory ${repoMount} `
       : '';
     // Redirect into the repo checkout (visible on the host afterward,
     // gitignored) instead of discarding output entirely — the previous
