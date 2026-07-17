@@ -197,6 +197,10 @@ const I18N = {
     'btn.open': 'Öffnen',
     // Login
     'login.subtitle': 'Admin-Anmeldung',
+
+    'accessRestricted.title': 'Zugriff gesperrt',
+
+    'accessRestricted.body': 'Der Zugang ist gesperrt, weil noch nicht alle Admin-Konten mit Passkey und Zwei-Faktor-Authentifizierung abgesichert sind — das ist Voraussetzung für einen Port, der von außen erreichbar sein kann. Um den Zugang zu aktivieren, richte das bitte in den Einstellungen unter Sicherheit ein. Alternativ: Verbinde dich über das lokale Netzwerk oder per VPN.',
     'login.username': 'Benutzername',
     'login.password': 'Passwort',
     'login.submit': 'Anmelden',
@@ -601,6 +605,10 @@ const I18N = {
     'status.error':      'Error',
     'btn.open': 'Open',
     'login.subtitle': 'Admin Login',
+
+    'accessRestricted.title': 'Access restricted',
+
+    'accessRestricted.body': 'Access is restricted because not every admin account has a passkey and two-factor authentication set up yet — that\'s required for a port that can be reached from outside. To enable access, set this up in Settings under Security. Alternatively: connect from the local network or via VPN.',
     'login.username': 'Username',
     'login.password': 'Password',
     'login.submit': 'Sign in',
@@ -939,6 +947,10 @@ const I18N = {
     'status.paused': 'Pauzat', 'status.restarting': 'Repornire…', 'status.starting': 'Pornire…', 'status.error': 'Eroare',
     'btn.open': 'Deschide',
     'login.subtitle': 'Autentificare admin',
+
+    'accessRestricted.title': 'Acces restricționat',
+
+    'accessRestricted.body': 'Accesul este restricționat deoarece nu toate conturile de administrator au încă o cheie de acces (passkey) și autentificare cu doi factori configurate — acest lucru este necesar pentru un port care poate fi accesat din exterior. Pentru a activa accesul, configurează acest lucru în Setări, la Securitate. Alternativ: conectează-te din rețeaua locală sau prin VPN.',
     'login.username': 'Nume utilizator',
     'login.password': 'Parolă',
     'login.submit': 'Conectare',
@@ -1274,6 +1286,10 @@ const I18N = {
     'status.paused': 'En pause', 'status.restarting': 'Redémarrage…', 'status.starting': 'Démarrage…', 'status.error': 'Erreur',
     'btn.open': 'Ouvrir',
     'login.subtitle': 'Connexion admin',
+
+    'accessRestricted.title': 'Accès restreint',
+
+    'accessRestricted.body': 'L\'accès est restreint car tous les comptes administrateur n\'ont pas encore de clé d\'accès (passkey) et d\'authentification à deux facteurs configurées — c\'est requis pour un port accessible depuis l\'extérieur. Pour activer l\'accès, configure cela dans Paramètres, sous Sécurité. Alternative : connecte-toi depuis le réseau local ou via VPN.',
     'login.username': 'Nom d\'utilisateur',
     'login.password': 'Mot de passe',
     'login.submit': 'Se connecter',
@@ -1609,6 +1625,10 @@ const I18N = {
     'status.paused': 'Pausado', 'status.restarting': 'Reiniciando…', 'status.starting': 'Iniciando…', 'status.error': 'Error',
     'btn.open': 'Abrir',
     'login.subtitle': 'Inicio de sesión admin',
+
+    'accessRestricted.title': 'Acceso restringido',
+
+    'accessRestricted.body': 'El acceso está restringido porque no todas las cuentas de administrador tienen todavía una clave de acceso (passkey) y autenticación de dos factores configuradas — eso es necesario para un puerto accesible desde el exterior. Para activar el acceso, configúralo en Ajustes, en Seguridad. Alternativa: conéctate desde la red local o por VPN.',
     'login.username': 'Nombre de usuario',
     'login.password': 'Contraseña',
     'login.submit': 'Iniciar sesión',
@@ -1944,6 +1964,10 @@ const I18N = {
     'status.paused': 'In pausa', 'status.restarting': 'Riavvio…', 'status.starting': 'Avvio…', 'status.error': 'Errore',
     'btn.open': 'Apri',
     'login.subtitle': 'Accesso admin',
+
+    'accessRestricted.title': 'Accesso limitato',
+
+    'accessRestricted.body': 'L\'accesso è limitato perché non tutti gli account amministratore hanno ancora una passkey e l\'autenticazione a due fattori configurate — è un requisito per una porta raggiungibile dall\'esterno. Per attivare l\'accesso, configuralo in Impostazioni, sotto Sicurezza. In alternativa: connettiti dalla rete locale o tramite VPN.',
     'login.username': 'Nome utente',
     'login.password': 'Password',
     'login.submit': 'Accedi',
@@ -2279,6 +2303,10 @@ const I18N = {
     'status.paused': 'Wstrzymany', 'status.restarting': 'Restart…', 'status.starting': 'Uruchamia się…', 'status.error': 'Błąd',
     'btn.open': 'Otwórz',
     'login.subtitle': 'Logowanie admin',
+
+    'accessRestricted.title': 'Dostęp zablokowany',
+
+    'accessRestricted.body': 'Dostęp jest zablokowany, ponieważ nie wszystkie konta administratora mają jeszcze skonfigurowany klucz dostępu (passkey) i uwierzytelnianie dwuskładnikowe — jest to wymagane dla portu dostępnego z zewnątrz. Aby aktywować dostęp, skonfiguruj to w Ustawieniach, w sekcji Bezpieczeństwo. Alternatywnie: połącz się z sieci lokalnej lub przez VPN.',
     'login.username': 'Nazwa użytkownika',
     'login.password': 'Hasło',
     'login.submit': 'Zaloguj się',
@@ -2614,6 +2642,10 @@ const I18N = {
     'status.paused': 'Gepauzeerd', 'status.restarting': 'Herstart…', 'status.starting': 'Start…', 'status.error': 'Fout',
     'btn.open': 'Openen',
     'login.subtitle': 'Admin-login',
+
+    'accessRestricted.title': 'Toegang geblokkeerd',
+
+    'accessRestricted.body': 'Toegang is geblokkeerd omdat nog niet alle beheerdersaccounts een passkey en tweefactorauthenticatie hebben ingesteld — dat is vereist voor een poort die van buitenaf bereikbaar kan zijn. Om toegang te activeren, stel dit in bij Instellingen onder Beveiliging. Alternatief: maak verbinding via het lokale netwerk of via VPN.',
     'login.username': 'Gebruikersnaam',
     'login.password': 'Wachtwoord',
     'login.submit': 'Inloggen',
@@ -2949,6 +2981,10 @@ const I18N = {
     'status.paused': 'Pausado', 'status.restarting': 'Reiniciando…', 'status.starting': 'Iniciando…', 'status.error': 'Erro',
     'btn.open': 'Abrir',
     'login.subtitle': 'Login admin',
+
+    'accessRestricted.title': 'Acesso restrito',
+
+    'accessRestricted.body': 'O acesso está restrito porque nem todas as contas de administrador têm ainda uma passkey e autenticação de dois fatores configuradas — isso é necessário para uma porta acessível externamente. Para ativar o acesso, configure isso em Configurações, em Segurança. Alternativa: conecte-se pela rede local ou via VPN.',
     'login.username': 'Nome de usuário',
     'login.password': 'Senha',
     'login.submit': 'Entrar',

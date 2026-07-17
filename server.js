@@ -348,11 +348,7 @@ app.use((req, res, next) => {
     if (_tapKey && _tapKey.expiresAt > Date.now()) {
       return res.redirect('/setup-access');
     }
-    return res.status(403).send(
-      '<!doctype html><html><body style="font-family:sans-serif;padding:40px">' +
-      '<h2>Admin access is restricted to the local network.</h2>' +
-      '<p>Connect via VPN or access from your local network, or enable a passkey + 2FA for every admin account to allow this port too.</p></body></html>'
-    );
+    return res.status(403).sendFile(path.join(__dirname, 'public', 'access-restricted.html'));
   }
 
   // Block all /api/* except the public guest endpoints

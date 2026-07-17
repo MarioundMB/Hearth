@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hearth · Zugriff gesperrt</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/custom.css" />
+    <script src="/js/i18n.js"></script>
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .restricted {
+        width: 100%;
+        max-width: 440px;
+        padding: 38px 34px;
+        position: relative;
+        z-index: 1;
+      }
+      .restricted .brand {
+        font-size: 22px;
+        margin-bottom: 4px;
+        gap: 12px;
+      }
+      .restricted .brand .flame {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+      }
+      .restricted .icon-lock {
+        margin: 22px 0 16px;
+        color: var(--text-faint);
+      }
+      .restricted h1 {
+        font-size: 17px;
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      .restricted .body {
+        color: var(--text-dim);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .back {
+        display: inline-flex;
+        gap: 6px;
+        margin-top: 24px;
+        font-size: 13px;
+        color: var(--text-dim);
+      }
+      .back:hover {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="restricted panel">
+      <div class="brand">
+        <img src="/favicon.svg" alt="Hearth" class="flame">
+        <span>Hearth</span>
+      </div>
+      <svg class="icon-lock" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      <h1 data-i18n="accessRestricted.title">Zugriff gesperrt</h1>
+      <div class="body" data-i18n="accessRestricted.body">
+        Der Zugang ist gesperrt, weil noch nicht alle Admin-Konten mit Passkey und Zwei-Faktor-Authentifizierung abgesichert sind — das ist Voraussetzung für einen Port, der von außen erreichbar sein kann. Um den Zugang zu aktivieren, richte das bitte in den Einstellungen unter Sicherheit ein. Alternativ: Verbinde dich über das lokale Netzwerk oder per VPN.
+      </div>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script>
+      api('GET', '/api/lang').then(d => applyLang(d.lang)).catch(() => {});
+    </script>
+  </body>
+</html>
