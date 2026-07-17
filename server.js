@@ -340,8 +340,14 @@ app.use((req, res, next) => {
   // false and lock the very flow meant to onboard the rest.
   if (isAdminAccessSecured() || req.session?.setupAccessUser) return next();
 
-  // Block admin pages
+  // Block admin pages — but if a TAP-Key is actively waiting to be used,
+  // send visitors straight to where it's actually usable instead of a dead
+  // end that just tells them to go set one up (they may well already have
+  // one, generated from the LAN admin panel, with nowhere obvious to enter it).
   if (['/admin', '/login'].some(p => req.path === p || req.path.startsWith(p + '/'))) {
+    if (_tapKey && _tapKey.expiresAt > Date.now()) {
+      return res.redirect('/setup-access');
+    }
     return res.status(403).send(
       '<!doctype html><html><body style="font-family:sans-serif;padding:40px">' +
       '<h2>Admin access is restricted to the local network.</h2>' +
@@ -355,9 +361,9 @@ app.use((req, res, next) => {
     // containers without a hearth.icon label — unauthenticated on the admin
     // port too, so it's safe to expose here as well. Without it, guest-view
     // icons 403 for every app that doesn't set hearth.icon explicitly.
-    // /api/setup-access/verify is the TAP-Key check itself — has to be
+    // /api/setup-access/* is the TAP-Key check + status — has to be
     // reachable before setupAccessUser exists to grant it in the first place.
-    const allowed = ['/api/lang', '/api/public/', '/api/dockerhub/logo', '/api/setup-access/verify'];
+    const allowed = ['/api/lang', '/api/public/', '/api/dockerhub/logo', '/api/setup-access/'];
     if (!allowed.some(a => req.path.startsWith(a))) {
       return res.status(403).json({ error: 'Not available on the guest port.' });
     }
@@ -3300,6 +3306,15 @@ app.post('/api/security/tap-key', requireAdmin, (req, res) => {
 app.delete('/api/security/tap-key', requireAdmin, (req, res) => {
   _tapKey = null;
   res.json({ ok: true });
+});
+
+// Public/unauthenticated on purpose (no code, username, or expiry — just a
+// bool) so the login page can decide whether to surface the "Zugang
+// aktivieren" entry point at all, and the guest-port block page can redirect
+// straight to /setup-access instead of dead-ending visitors who arrive with
+// a TAP-Key but no way to use it yet.
+app.get('/api/setup-access/status', (req, res) => {
+  res.json({ active: !!(_tapKey && _tapKey.expiresAt > Date.now()) });
 });
 
 app.post('/api/setup-access/verify', asyncHandler(async (req, res) => {

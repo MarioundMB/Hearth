@@ -181,6 +181,8 @@
           </svg>
           Mit Passkey anmelden
         </button>
+
+        <a class="back" id="setup-access-link" href="/setup-access" style="display:none;margin-top:16px">Zugang aktivieren →</a>
       </div>
 
       <!-- Step 2: TOTP Code -->
@@ -211,6 +213,12 @@
       const _langReady = api('GET', '/api/lang').then(d => {
         applyLang(d.lang);
         _isGuestPort = !!d.guestPort;
+      }).catch(() => {});
+
+      // Only shown when a TAP-Key is actually waiting to be used — no
+      // point offering a link to a setup flow that would just fail.
+      api('GET', '/api/setup-access/status').then(d => {
+        if (d.active) document.getElementById('setup-access-link').style.display = '';
       }).catch(() => {});
     </script>
     <script>
