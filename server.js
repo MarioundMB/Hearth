@@ -20,6 +20,7 @@ const dns = require('dns').promises;
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
+const { PassThrough } = require('stream');
 const crypto = require('crypto');
 const os = require('os');
 const { exec, spawn } = require('child_process');
@@ -5928,16 +5929,16 @@ async function vpnAvailable() {
 }
 
 async function vpnExec(cmd) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const c = docker.getContainer(VPN_CONTAINER);
-      const exec = await c.exec({ Cmd: ['sh', '-c', cmd], AttachStdout: true, AttachStderr: true });
-      const stream = await exec.start({});
-      let out = '';
-      stream.on('data', (chunk) => { out += chunk.slice(8).toString('utf8'); });
-      stream.on('end', () => resolve(out.trim()));
-      stream.on('error', reject);
-    } catch (e) { reject(e); }
+  const c = docker.getContainer(VPN_CONTAINER);
+  const exec = await c.exec({ Cmd: ['sh', '-c', cmd], AttachStdout: true, AttachStderr: true });
+  const stream = await exec.start({});
+  const chunks = [];
+  const demuxed = new PassThrough();
+  demuxed.on('data', (d) => chunks.push(d));
+  c.modem.demuxStream(stream, demuxed, demuxed);
+  return new Promise((resolve, reject) => {
+    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8').trim()));
+    stream.on('error', reject);
   });
 }
 
@@ -5948,9 +5949,12 @@ app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
     const running = info.State.Running;
     const wgStatus = running ? await vpnExec('wg show 2>/dev/null') : '';
 
-    // Directory-based peers (linuxserver/wireguard format: /config/peer_<name>/)
+    // Directory-based peers (linuxserver/wireguard names these "peer1", "peer2", ...
+    // for numeric PEERS=<n>, or "peer_<name>" for named PEERS=<name1,name2,...>).
+    // Keep the directory name verbatim — it doubles as the file basename inside it
+    // (peer1/peer1.conf, peer_phone/peer_phone.conf), so we must not reconstruct it.
     const peerList = running
-      ? await vpnExec('ls /config 2>/dev/null | grep "^peer_" | sed "s/peer_//"')
+      ? await vpnExec('ls /config 2>/dev/null | grep "^peer"')
       : '';
     const dirPeers = peerList.split('\n').filter(Boolean);
     const peers = dirPeers.map(name => ({ name }));
@@ -5978,17 +5982,21 @@ app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
 
 // Stream a peer's QR code PNG from the container
 app.get('/api/vpn/peers/:name/qr', requireAuth, asyncHandler(async (req, res) => {
+  // `name` is the exact /config directory name (e.g. "peer1" or "peer_phone"),
+  // which also doubles as the file basename inside it — see /api/vpn/status.
   const name = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
   try {
     const c = docker.getContainer(VPN_CONTAINER);
     // linuxserver/wireguard stores QR as PNG
     const execObj = await c.exec({
-      Cmd: ['cat', `/config/peer_${name}/peer_${name}.png`],
+      Cmd: ['cat', `/config/${name}/${name}.png`],
       AttachStdout: true, AttachStderr: false,
     });
     const stream = await execObj.start({});
     const chunks = [];
-    stream.on('data', (d) => chunks.push(d.slice(8)));
+    const demuxed = new PassThrough();
+    demuxed.on('data', (d) => chunks.push(d));
+    c.modem.demuxStream(stream, demuxed, demuxed);
     stream.on('end', () => {
       const buf = Buffer.concat(chunks);
       if (!buf.length) return res.status(404).json({ error: 'QR not found' });
@@ -6005,8 +6013,11 @@ app.get('/api/vpn/peers/:name/qr', requireAuth, asyncHandler(async (req, res) =>
 app.get('/api/vpn/peers/:name/conf', requireAuth, asyncHandler(async (req, res) => {
   const name = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
   try {
-    const conf = await vpnExec(`cat /config/peer_${name}/peer_${name}.conf`);
-    res.setHeader('Content-Type', 'text/plain');
+    const conf = await vpnExec(`cat /config/${name}/${name}.conf 2>/dev/null`);
+    if (!conf) return res.status(404).json({ error: 'Config not found' });
+    // application/octet-stream (not text/plain) so browsers don't append ".txt"
+    // to the ".conf" filename we set below.
+    res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${name}.conf"`);
     res.send(conf);
   } catch (e) { res.status(500).json({ error: e.message }); }
