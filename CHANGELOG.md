@@ -3,6 +3,23 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.37] - 2026-07-19
+
+### Added
+- VPN: Neuer "+ Client"-Button erstellt einen neuen VPN-Peer live (Keypair-Generierung,
+  freie IP im Subnetz suchen, `wg set` auf die laufende Schnittstelle anwenden — ohne
+  Container-Neustart, bestehende Verbindungen bleiben also aktiv) und persistiert ihn
+  zusätzlich in `wg_confs/wg0.conf`, damit er auch einen Neustart übersteht. Direkt danach
+  öffnet sich das QR-/`.conf`-Modal zur Übergabe an den neuen Client.
+- Frische Installationen starten jetzt mit 0 vorgefertigten Peers statt 1 (`VPN_PEERS`
+  Default in `docker-compose.yml` und `.env.example`) — Clients werden über den neuen
+  Button angelegt statt beim Container-Start vorgeneriert. Bestehende Installationen sind
+  davon nicht betroffen.
+
+### Fixed
+- Setup-Assistent: Der VPN-Peer-Zähler suchte ebenfalls nach dem falschen `peer_`-Verzeichnisformat
+  (gleiche Ursache wie in 1.5.34) und zeigte dadurch fälschlich 0 Peers an.
+
 ## [1.5.36] - 2026-07-19
 
 ### Fixed

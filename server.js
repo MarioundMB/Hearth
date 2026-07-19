@@ -2530,7 +2530,7 @@ app.get('/api/setup-assistant/vpn', requireAuth, asyncHandler(async (req, res) =
   let peerCount = 0;
   if (running) {
     try {
-      const peerList = await vpnExec('ls /config 2>/dev/null | grep "^peer_" | sed "s/peer_//"');
+      const peerList = await vpnExec('ls /config 2>/dev/null | grep "^peer"');
       peerCount = peerList.split('\n').filter(Boolean).length;
     } catch (_) {}
   }
@@ -5978,6 +5978,97 @@ app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
     res.json({ available: true, running: false, error: e.message, peers: [] });
   }
+}));
+
+// Add a new VPN client (peer) live — no hearth-vpn restart, so existing
+// connections keep running. Generates a keypair, picks a free address in
+// the interface's subnet, writes a client .conf (same layout the QR/conf
+// routes already expect: /config/<dirName>/<dirName>.conf), applies it to
+// the running wg0 interface via `wg set`, and appends it to
+// /config/wg_confs/wg0.conf so it survives a container restart too.
+app.post('/api/vpn/peers', requireAuth, asyncHandler(async (req, res) => {
+  const rawName = String(req.body?.name || '').trim();
+  const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!safeName) return res.status(400).json({ error: 'Ungültiger Name' });
+  const dirName = `peer_${safeName}`;
+
+  if (!await vpnAvailable()) return res.status(400).json({ error: 'VPN-Container nicht verfügbar' });
+  const info = await docker.getContainer(VPN_CONTAINER).inspect();
+  if (!info.State.Running) return res.status(400).json({ error: 'VPN-Container läuft nicht' });
+
+  const exists = await vpnExec(`[ -d "/config/${dirName}" ] && echo yes || echo no`);
+  if (exists.trim() === 'yes') return res.status(409).json({ error: `Client "${safeName}" existiert bereits` });
+
+  const wgStatus = await vpnExec('wg show 2>/dev/null');
+  const serverPubKey = wgStatus.match(/public key:\s*(\S+)/i)?.[1];
+  if (!serverPubKey) return res.status(500).json({ error: 'Server-Public-Key nicht lesbar (wg show)' });
+  const listenPort = wgStatus.match(/listening port:\s*(\d+)/i)?.[1] || process.env.VPN_PORT || '51820';
+
+  const env = info.Config?.Env || [];
+  const envVal = (key, fallback) => env.find(e => e.startsWith(`${key}=`))?.slice(key.length + 1) || fallback;
+  const subnetPrefix = envVal('INTERNAL_SUBNET', '10.13.13.0').split('.').slice(0, 3).join('.');
+  const gatewayIp = `${subnetPrefix}.1`;
+
+  // Free address: anything already handed out shows up in `wg show`'s
+  // "allowed ips:" lines, regardless of whether it has a /config dir.
+  const usedOctets = new Set(
+    [...wgStatus.matchAll(/allowed ips:\s*(\d+)\.(\d+)\.(\d+)\.(\d+)/gi)].map(m => parseInt(m[4], 10))
+  );
+  let peerOctet = null;
+  for (let i = 2; i <= 254; i++) { if (!usedOctets.has(i)) { peerOctet = i; break; } }
+  if (!peerOctet) return res.status(500).json({ error: 'Kein freier IP-Slot mehr im VPN-Subnetz' });
+  const peerIp = `${subnetPrefix}.${peerOctet}`;
+
+  // Reuse an existing peer's resolved Endpoint (linuxserver bakes SERVERURL=auto
+  // into a real IP at generation time — the env var itself just says "auto").
+  let endpointHost = null;
+  const existingDirs = (await vpnExec('ls /config 2>/dev/null | grep "^peer"')).split('\n').filter(Boolean);
+  if (existingDirs.length) {
+    const sampleConf = await vpnExec(`cat "/config/${existingDirs[0]}/${existingDirs[0]}.conf" 2>/dev/null`);
+    endpointHost = sampleConf.match(/Endpoint\s*=\s*([^\s:]+):\d+/i)?.[1] || null;
+  }
+  if (!endpointHost) {
+    const serverUrl = envVal('SERVERURL', 'auto');
+    endpointHost = serverUrl !== 'auto' ? serverUrl : await cfGetPublicIp().catch(() => null);
+  }
+  if (!endpointHost) return res.status(500).json({ error: 'Server-Adresse (VPN_HOST) konnte nicht ermittelt werden' });
+
+  const privKey = await vpnExec('wg genkey');
+  const pubKey  = (await vpnExec(`echo '${privKey}' | wg pubkey`)).trim();
+  const psk     = await vpnExec('wg genpsk');
+
+  const confText =
+`[Interface]
+Address = ${peerIp}
+PrivateKey = ${privKey}
+ListenPort = ${listenPort}
+DNS = ${gatewayIp}
+
+[Peer]
+PublicKey = ${serverPubKey}
+PresharedKey = ${psk}
+Endpoint = ${endpointHost}:${listenPort}
+AllowedIPs = 0.0.0.0/0,::/0
+`;
+
+  const confB64 = Buffer.from(confText, 'utf8').toString('base64');
+  await vpnExec(
+    `mkdir -p "/config/${dirName}" && echo '${confB64}' | base64 -d > "/config/${dirName}/${dirName}.conf" && ` +
+    `chmod 600 "/config/${dirName}/${dirName}.conf" && chown -R 1000:1000 "/config/${dirName}"`
+  );
+
+  const pskB64 = Buffer.from(psk, 'utf8').toString('base64');
+  await vpnExec(
+    `echo '${pskB64}' | base64 -d > "/tmp/psk_${dirName}" && ` +
+    `wg set wg0 peer '${pubKey}' preshared-key "/tmp/psk_${dirName}" allowed-ips "${peerIp}/32" && ` +
+    `rm -f "/tmp/psk_${dirName}"`
+  );
+
+  const peerBlock = `\n[Peer]\n# ${dirName}\nPublicKey = ${pubKey}\nPresharedKey = ${psk}\nAllowedIPs = ${peerIp}/32\n`;
+  const peerBlockB64 = Buffer.from(peerBlock, 'utf8').toString('base64');
+  await vpnExec(`echo '${peerBlockB64}' | base64 -d >> /config/wg_confs/wg0.conf`);
+
+  res.json({ name: dirName });
 }));
 
 // Render a peer's QR code as PNG, generated from its .conf (not the

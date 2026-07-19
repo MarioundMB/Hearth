@@ -4590,7 +4590,7 @@ async function loadVpn() {
 
   const list = document.getElementById('vpn-peers-list');
   if (!(data.peers || []).length) {
-    list.innerHTML = '<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>No VPN clients found.<br><span class="muted" style="font-size:13px">Set VPN_PEERS in your .env and restart.</span></div>';
+    list.innerHTML = '<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>No VPN clients yet.<br><span class="muted" style="font-size:13px">Click "+ Client" above to add one.</span></div>';
     return;
   }
 
@@ -4609,6 +4609,19 @@ async function openVpnQr(name) {
   document.getElementById('vpn-qr-download').setAttribute('download', `${name}.conf`);
   openModal('modal-vpn-qr');
 }
+
+document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async () => {
+  const name = prompt('Name für den neuen VPN-Client (z.B. iPhone, Laptop):');
+  if (!name) return;
+  try {
+    const { name: dirName } = await api('POST', '/api/vpn/peers', { name });
+    toast(`Client "${name}" hinzugefügt`);
+    await loadVpn();
+    openVpnQr(dirName);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
 
 // ---------- Setup Assistant ----------
 const SETUP_ICONS = { ok: '✓', warn: '⚠', error: '✗', info: 'ℹ', checking: '…' };
