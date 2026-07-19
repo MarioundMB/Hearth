@@ -3,6 +3,12 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.39] - 2026-07-19
+
+### Fixed
+- VPN: 1.5.38 hatte `#view-vpn { min-height: 100px }` gesetzt statt des gewünschten
+  `padding-bottom: 100px` — korrigiert.
+
 ## [1.5.38] - 2026-07-19
 
 ### Fixed
