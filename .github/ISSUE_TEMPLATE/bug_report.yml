@@ -1,0 +1,39 @@
+name: Bug Report
+description: Something in Hearth isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hearth version
+      description: Found at the bottom of the admin panel, or in package.json
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Host OS / Docker version
+      placeholder: e.g. Ubuntu 22.04, Docker 27.x
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Settings → Update log, or `docker logs hearth`. Please redact any secrets/tokens.
+      render: shell

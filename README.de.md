@@ -14,7 +14,27 @@
 
 ---
 
-Hearth ist ein leichtgewichtiges, selbst gehostetes Docker-Management-Panel — eine saubere, moderne Alternative zu CasaOS oder Portainer für Home-Server und kleine VPS-Umgebungen.
+Hearth ist ein leichtgewichtiges, selbst gehostetes Docker-Management-Panel — eine saubere, moderne Alternative zu CasaOS oder Portainer für Home-Server und kleine VPS-Umgebungen. Container verwalten, Domains über einen eingebauten Reverse Proxy mit SSL routen, die Firewall steuern und per WireGuard-VPN verbinden — alles aus einem Dashboard, ohne mehrere Einzeltools zu kombinieren.
+
+<!--
+  Screenshots: hier Produkt-Screenshots/GIFs ergänzen, sobald verfügbar, z.B.
+  <p align="center"><img src="docs/screenshots/containers.png" alt="Hearth Container-Dashboard" width="80%"/></p>
+  Gute Kandidaten: Container-Dashboard, App-Store, Reverse-Proxy-Tab, Firewall-Tab, Gäste-Ansicht.
+-->
+
+### Inhalt
+
+- [Features](#-features)
+- [Hearth vs. Portainer vs. CasaOS](#-hearth-vs-portainer-vs-casaos)
+- [Installation](#-installation)
+- [Konfiguration](#-konfiguration)
+- [Reverse Proxy](#-reverse-proxy)
+- [Firewall](#-firewall)
+- [Selbst-Update](#-selbst-update)
+- [Gäste-Ansicht Labels](#-gäste-ansicht-labels)
+- [Sicherheitshinweise](#-sicherheitshinweise)
+- [Tech Stack](#-tech-stack)
+- [Mitwirken](#-mitwirken)
 
 ## ✨ Features
 
@@ -31,6 +51,26 @@ Hearth ist ein leichtgewichtiges, selbst gehostetes Docker-Management-Panel — 
 | 🔁 **Selbst-Update** | Eingebauter Updater mit Live-Log — jeder Schritt wird angezeigt |
 | 🔔 **Benachrichtigungen** | Update-Hinweise und Systemereignisse in der Topbar |
 | 🌍 **9 Sprachen** | DE · EN · RO · FR · ES · IT · PL · NL · PT |
+
+---
+
+## 🆚 Hearth vs. Portainer vs. CasaOS
+
+Portainer und CasaOS sind großartige Projekte — Hearth zieht die Grenze nur anders: Netzwerk-Funktionen (Reverse Proxy, Firewall, VPN) sind eingebaut statt ein eigener Extra-Stack.
+
+| | **Hearth** | Portainer CE | CasaOS |
+|---|:---:|:---:|:---:|
+| Container-Verwaltung | ✅ | ✅ | ✅ |
+| Eingebauter Reverse Proxy + SSL | ✅ | ❌ | ❌ |
+| Eingebaute Firewall (UFW) | ✅ | ❌ | ❌ |
+| Eingebautes WireGuard-VPN | ✅ | ❌ | ❌ |
+| Öffentliche Gäste-Ansicht (kein Login) | ✅ | ❌ | ❌ |
+| 1-Klick-App-Store | ✅ (20+ Apps) | ➖ (Templates) | ✅ |
+| Mehrsprachige UI | ✅ (9 Sprachen) | ➖ | ➖ |
+| Frontend | Vanilla JS, kein Build-Schritt | Vue, Build-Schritt | Vue, Build-Schritt |
+| Lizenz | MIT | Zlib | Apache-2.0 |
+
+Kein Ersatz für große Multi-Node-Kubernetes/Swarm-Cluster — Hearth ist für einen einzelnen Home-Server oder kleinen VPS gebaut.
 
 ---
 
@@ -203,6 +243,12 @@ cd ~/hearth && docker compose up -d
 
 ---
 
+## 🤝 Mitwirken
+
+Bug-Reports, Feature-Ideen und Pull Requests sind willkommen — siehe [CONTRIBUTING.md](CONTRIBUTING.md) für die lokale Dev-Umgebung (`docker-compose.local.yml`) und was ein PR enthalten sollte. Sicherheitslücke gefunden? Bitte [SECURITY.md](SECURITY.md) statt eines öffentlichen Issues nutzen.
+
+---
+
 <div align="center">
-  <sub>Mit ❤️ für Home-Server gebaut · <a href="https://github.com/MarioundMB/Hearth/issues">Problem melden</a></sub>
+  <sub>Mit ❤️ für Home-Server gebaut · <a href="https://github.com/MarioundMB/Hearth/issues">Problem melden</a> · Wenn dir Hearth nützt, freuen wir uns über einen ⭐</sub>
 </div>
