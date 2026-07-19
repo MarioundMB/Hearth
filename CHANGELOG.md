@@ -3,6 +3,15 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.35] - 2026-07-19
+
+### Fixed
+- VPN: QR-Code aus 1.5.34 wurde zwar wieder gefunden, aber unscharf angezeigt — das von
+  `linuxserver/wireguard` mitgelieferte PNG ist nur 207×207px und wurde vom Browser auf die
+  220px-Anzeigegröße (bzw. auf Retina-Displays effektiv 440px) hochskaliert. Der QR-Code wird
+  jetzt serverseitig direkt aus dem .conf-Inhalt mit dem bereits vorhandenen `qrcode`-Paket in
+  440×440px erzeugt, statt die kleine mitgelieferte Datei aus dem Container auszulesen.
+
 ## [1.5.34] - 2026-07-19
 
 ### Fixed

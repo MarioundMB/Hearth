@@ -5980,30 +5980,19 @@ app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
   }
 }));
 
-// Stream a peer's QR code PNG from the container
+// Render a peer's QR code as PNG, generated from its .conf (not the
+// linuxserver-baked PNG, which is a fixed ~207x207px and looks blurry
+// once the browser scales it up to the QR modal's display size).
 app.get('/api/vpn/peers/:name/qr', requireAuth, asyncHandler(async (req, res) => {
   // `name` is the exact /config directory name (e.g. "peer1" or "peer_phone"),
   // which also doubles as the file basename inside it — see /api/vpn/status.
   const name = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
   try {
-    const c = docker.getContainer(VPN_CONTAINER);
-    // linuxserver/wireguard stores QR as PNG
-    const execObj = await c.exec({
-      Cmd: ['cat', `/config/${name}/${name}.png`],
-      AttachStdout: true, AttachStderr: false,
-    });
-    const stream = await execObj.start({});
-    const chunks = [];
-    const demuxed = new PassThrough();
-    demuxed.on('data', (d) => chunks.push(d));
-    c.modem.demuxStream(stream, demuxed, demuxed);
-    stream.on('end', () => {
-      const buf = Buffer.concat(chunks);
-      if (!buf.length) return res.status(404).json({ error: 'QR not found' });
-      res.setHeader('Content-Type', 'image/png');
-      res.send(buf);
-    });
-    stream.on('error', (e) => res.status(500).json({ error: e.message }));
+    const conf = await vpnExec(`cat /config/${name}/${name}.conf 2>/dev/null`);
+    if (!conf) return res.status(404).json({ error: 'QR not found' });
+    const buf = await QRCode.toBuffer(conf, { width: 440 });
+    res.setHeader('Content-Type', 'image/png');
+    res.send(buf);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
