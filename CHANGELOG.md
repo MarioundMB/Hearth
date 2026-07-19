@@ -3,6 +3,23 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.40] - 2026-07-19
+
+### Added
+- VPN: Client-Zeilen sind jetzt anklickbar (wie bei Containern) und öffnen ein
+  "Client bearbeiten"-Modal mit QR-Code, .conf-Download, Umbenennen und Löschen an einem Ort,
+  statt einzelner Buttons pro Zeile.
+- Backend: `PATCH /api/vpn/peers/:name` (umbenennen — reines Datei-Rename + Kommentar-Update,
+  keine Neuverbindung nötig) und `DELETE /api/vpn/peers/:name` (live per `wg set ... remove`,
+  Verzeichnis löschen, Eintrag aus `wg0.conf` entfernen).
+
+### Fixed
+- VPN: Die "nächste freie IP"-Suche beim Anlegen eines Clients prüfte nur den *live*
+  `wg show`-Status. Verliert ein Peer aus irgendeinem Grund kurzzeitig seine live Allowed-IP
+  (persistierte `wg0.conf` bleibt davon unberührt), konnte ein neuer Client versehentlich
+  dieselbe IP bekommen — WireGuard entzieht dem älteren Peer dann stillschweigend seine Route.
+  Die Suche prüft jetzt zusätzlich die IPs aus `wg0.conf` gegen.
+
 ## [1.5.39] - 2026-07-19
 
 ### Fixed

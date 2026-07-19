@@ -4595,15 +4595,23 @@ async function loadVpn() {
   }
 
   list.innerHTML = (data.peers || []).map(p => `
-    <div class="vpn-peer-row">
-      <span class="vpn-peer-name" title="${esc(p.name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">📱 ${esc(p.name)}</span>
-      <button class="btn sm ghost" onclick="openVpnQr('${esc(p.name)}')">🔲 QR Code</button>
-      <a class="btn sm ghost" href="/api/vpn/peers/${encodeURIComponent(p.name)}/conf" download>⬇ .conf</a>
+    <div class="vpn-peer-row row-clickable" data-peer-name="${esc(p.name)}">
+      <span class="vpn-peer-name" title="${esc(p.name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">📱 ${esc(p.name)}</span>
+      <span class="row-chevron">›</span>
     </div>`).join('');
 }
 
+document.getElementById('vpn-peers-list').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-peer-name]');
+  if (row) openVpnQr(row.dataset.peerName);
+});
+
+let _vpnCurrentPeer = null;
+
 async function openVpnQr(name) {
+  _vpnCurrentPeer = name;
   document.getElementById('vpn-qr-title').textContent = `VPN Client: ${name}`;
+  document.getElementById('vpn-edit-name').value = name.replace(/^peer_/, '');
   document.getElementById('vpn-qr-png').src = `/api/vpn/peers/${encodeURIComponent(name)}/qr?t=${Date.now()}`;
   document.getElementById('vpn-qr-download').href = `/api/vpn/peers/${encodeURIComponent(name)}/conf`;
   document.getElementById('vpn-qr-download').setAttribute('download', `${name}.conf`);
@@ -4618,6 +4626,32 @@ document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async () 
     toast(`Client "${name}" hinzugefügt`);
     await loadVpn();
     openVpnQr(dirName);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
+document.getElementById('vpn-rename-btn')?.addEventListener('click', async () => {
+  const newName = document.getElementById('vpn-edit-name').value.trim();
+  if (!newName || !_vpnCurrentPeer) return;
+  try {
+    const { name: newDir } = await api('PATCH', `/api/vpn/peers/${encodeURIComponent(_vpnCurrentPeer)}`, { name: newName });
+    toast('Client umbenannt');
+    await loadVpn();
+    openVpnQr(newDir);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
+document.getElementById('vpn-delete-btn')?.addEventListener('click', async () => {
+  if (!_vpnCurrentPeer) return;
+  if (!confirm(`Client "${_vpnCurrentPeer}" wirklich löschen? Der Zugang wird sofort entzogen.`)) return;
+  try {
+    await api('DELETE', `/api/vpn/peers/${encodeURIComponent(_vpnCurrentPeer)}`);
+    toast('Client gelöscht');
+    closeModal('modal-vpn-qr');
+    await loadVpn();
   } catch (e) {
     toast(e.message, 'error');
   }

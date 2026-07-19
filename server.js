@@ -6009,11 +6009,17 @@ app.post('/api/vpn/peers', requireAuth, asyncHandler(async (req, res) => {
   const subnetPrefix = envVal('INTERNAL_SUBNET', '10.13.13.0').split('.').slice(0, 3).join('.');
   const gatewayIp = `${subnetPrefix}.1`;
 
-  // Free address: anything already handed out shows up in `wg show`'s
-  // "allowed ips:" lines, regardless of whether it has a /config dir.
-  const usedOctets = new Set(
-    [...wgStatus.matchAll(/allowed ips:\s*(\d+)\.(\d+)\.(\d+)\.(\d+)/gi)].map(m => parseInt(m[4], 10))
-  );
+  // Free address: cross-check both the live `wg show` state AND the
+  // persisted wg0.conf (AllowedIPs lines). They can diverge — e.g. two
+  // peers assigned the same address will have the live one silently stolen
+  // from whichever peer had it first (wg0.conf still lists both) — so
+  // trusting only one source risks handing out an address that's actually
+  // already claimed according to the other.
+  const wg0Conf = await vpnExec('cat /config/wg_confs/wg0.conf 2>/dev/null');
+  const usedOctets = new Set([
+    ...[...wgStatus.matchAll(/allowed ips:\s*(\d+)\.(\d+)\.(\d+)\.(\d+)/gi)].map(m => parseInt(m[4], 10)),
+    ...[...wg0Conf.matchAll(/^AllowedIPs\s*=\s*(\d+)\.(\d+)\.(\d+)\.(\d+)/gim)].map(m => parseInt(m[4], 10)),
+  ]);
   let peerOctet = null;
   for (let i = 2; i <= 254; i++) { if (!usedOctets.has(i)) { peerOctet = i; break; } }
   if (!peerOctet) return res.status(500).json({ error: 'Kein freier IP-Slot mehr im VPN-Subnetz' });
@@ -6069,6 +6075,59 @@ AllowedIPs = 0.0.0.0/0,::/0
   await vpnExec(`echo '${peerBlockB64}' | base64 -d >> /config/wg_confs/wg0.conf`);
 
   res.json({ name: dirName });
+}));
+
+// Rename a VPN client. Purely a filesystem rename + updating the cosmetic
+// "# <name>" marker comment in wg_confs/wg0.conf — the peer's identity on
+// the wire is its public key, not this label, so nothing needs to be
+// re-applied to the running interface and existing connections are
+// unaffected.
+app.patch('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => {
+  const oldDir = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+  const newSafe = String(req.body?.name || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!newSafe) return res.status(400).json({ error: 'Ungültiger Name' });
+  const newDir = `peer_${newSafe}`;
+  if (newDir === oldDir) return res.json({ name: oldDir });
+
+  const oldExists = (await vpnExec(`test -d "/config/${oldDir}" && echo yes || echo no`)).trim() === 'yes';
+  if (!oldExists) return res.status(404).json({ error: 'Client nicht gefunden' });
+  const newExists = (await vpnExec(`test -d "/config/${newDir}" && echo yes || echo no`)).trim() === 'yes';
+  if (newExists) return res.status(409).json({ error: `Client "${newSafe}" existiert bereits` });
+
+  await vpnExec(
+    `mv "/config/${oldDir}" "/config/${newDir}" && ` +
+    `mv "/config/${newDir}/${oldDir}.conf" "/config/${newDir}/${newDir}.conf" && ` +
+    `sed -i "s/^# ${oldDir}$/# ${newDir}/" /config/wg_confs/wg0.conf`
+  );
+
+  res.json({ name: newDir });
+}));
+
+// Remove a VPN client: pull it off the live interface (no restart needed),
+// delete its /config directory, and drop its block from wg_confs/wg0.conf
+// so it doesn't come back on the next container restart.
+app.delete('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => {
+  const dirName = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
+  const exists = (await vpnExec(`test -d "/config/${dirName}" && echo yes || echo no`)).trim() === 'yes';
+  if (!exists) return res.status(404).json({ error: 'Client nicht gefunden' });
+
+  const conf = await vpnExec(`cat "/config/${dirName}/${dirName}.conf" 2>/dev/null`);
+  const privKey = conf.match(/PrivateKey\s*=\s*(\S+)/i)?.[1];
+  if (privKey) {
+    const pubKey = (await vpnExec(`echo '${privKey}' | wg pubkey`)).trim();
+    await vpnExec(`wg set wg0 peer '${pubKey}' remove`).catch(() => {});
+  }
+
+  await vpnExec(`rm -rf "/config/${dirName}"`);
+
+  const markerLine = (await vpnExec(`grep -n "^# ${dirName}$" /config/wg_confs/wg0.conf | cut -d: -f1`)).trim();
+  if (markerLine) {
+    const start = parseInt(markerLine, 10) - 1;
+    const end = parseInt(markerLine, 10) + 3;
+    await vpnExec(`sed -i "${start},${end}d" /config/wg_confs/wg0.conf`);
+  }
+
+  res.json({ ok: true });
 }));
 
 // Render a peer's QR code as PNG, generated from its .conf (not the

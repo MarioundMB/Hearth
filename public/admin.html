@@ -2022,7 +2022,7 @@
               <div class="list" id="vpn-peers-list"></div>
             </div>
 
-            <!-- QR Modal -->
+            <!-- VPN Client Modal (view QR, rename, delete) -->
             <div class="modal-backdrop" id="modal-vpn-qr">
               <div class="modal" style="max-width:400px">
                 <div class="modal-head">
@@ -2030,6 +2030,13 @@
                   <button class="iconbtn" data-close>✕</button>
                 </div>
                 <div class="modal-body" style="text-align:center">
+                  <div class="field" style="text-align:left;margin-bottom:18px">
+                    <label>Name</label>
+                    <div style="display:flex;gap:8px">
+                      <input class="input" id="vpn-edit-name" style="flex:1" />
+                      <button class="btn sm ghost" id="vpn-rename-btn">Speichern</button>
+                    </div>
+                  </div>
                   <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
                     Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
                   </p>
@@ -2042,7 +2049,10 @@
                 </div>
                 <div class="modal-foot" style="justify-content:space-between">
                   <a id="vpn-qr-download" href="#" download class="btn ghost sm">⬇ Download .conf</a>
-                  <button class="btn ghost" data-close>Close</button>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn sm danger" id="vpn-delete-btn">🗑 Löschen</button>
+                    <button class="btn ghost" data-close>Close</button>
+                  </div>
                 </div>
               </div>
             </div>
