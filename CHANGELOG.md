@@ -3,6 +3,11 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.41] - 2026-07-19
+
+### Changed
+- VPN: `#view-vpn` padding-bottom von 100px auf 260px erhöht.
+
 ## [1.5.40] - 2026-07-19
 
 ### Added
