@@ -3,6 +3,40 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.44] - 2026-07-19
+
+### Added
+- VPN: Neuer "⚙ Einstellungen"-Button im VPN-Tab selbst (nicht im globalen Einstellungen-Modal)
+  für Server-Adresse (VPN_HOST) und Port. Jede Änderung stößt eine kurze Neuerstellung des
+  `hearth-vpn`-Containers an (bestehende Verbindungen werden kurz getrennt) und passt bei einer
+  Port-Änderung zusätzlich die UFW-Regel an.
+- "Server"-Anzeige im VPN-Tab nutzt jetzt die echten, vom Backend aufgelösten Werte statt der
+  alten (kaputten) Heuristik, die aus `wg show` eine "endpoint"-Zeile herauszulesen versuchte.
+
+### Fixed — größeres Redesign der Peer-Persistenz
+- **Peers, die über "+ Client" angelegt wurden, überlebten keinen Container-Neustart** (Host-Reboot,
+  Docker-Update, oder — wie hier beim Testen der Port-Funktion entdeckt — jede Änderung an
+  SERVERURL/SERVERPORT/PEERS). Ursache: Das `linuxserver/wireguard`-Image regeneriert seine
+  `wg_confs/wg0.conf` bei jedem Start komplett neu, ausschließlich basierend auf der `PEERS`-Env-
+  Variable — manuell per `wg set` + Datei-Anhängen hinzugefügte Peers fallen dabei durch und
+  verschwinden aus der aktiven Config (die Dateien bleiben liegen, sind aber nicht mehr aktiv).
+  Add/Rename/Delete laufen jetzt stattdessen über die `PEERS`-Variable + Container-Neuerstellung —
+  der offizielle, vom Image selbst erkannte Mechanismus. Kostet dafür bei jeder Änderung einen
+  kurzen Verbindungsabbruch (wie beim Port), garantiert aber Neustart-Festigkeit.
+- Setup-Assistent: Peer-Zähler hatte denselben veralteten `peer_`-Präfix-Bug wie in 1.5.34, jetzt
+  auch hier korrigiert.
+- Container-Neuerstellung (`recreateVpnContainer`) hatte zwei eigene Bugs, die erst beim Live-Testen
+  auffielen: (1) Die Referenz auf den alten Container nutzte dessen Namen statt der unveränderlichen
+  ID — nach dem Umbenennen zielte ein späterer "lösche den alten"-Aufruf versehentlich auf den
+  bereits fertigen *neuen* Container. (2) Der alte Container wurde vor der Neuerstellung nicht
+  gestoppt, was fehlschlug ("port already allocated"), sobald sich der Port nicht ändert (nur beim
+  ursprünglichen Port-Wechsel-Test unbemerkt geblieben, weil sich der Port dort ja tatsächlich
+  änderte). Beide gefixt und am echten Server verifiziert.
+- Monitoring-Sidebar zeigte den `hearth-cloudflared`-Tunnel-Container fälschlich als "aktiven
+  Nutzer-Container" mit (z. B. "3/3" statt "2/2"), weil ihm (bewusst, wegen einer separaten
+  Namenskollision mit der Self-Update-Erkennung) das `hearth.self`-Label fehlte. Self-Update-Logik
+  schließt "cloudflared" jetzt explizit aus, wodurch das Label sicher ergänzt werden konnte.
+
 ## [1.5.42] - 2026-07-19
 
 ### Fixed

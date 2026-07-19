@@ -4569,8 +4569,11 @@ function fwRenderLogs() {
 }
 
 // ---------- VPN ----------
+let _vpnLastStatus = null;
+
 async function loadVpn() {
   const data = await api('GET', '/api/vpn/status').catch(() => ({ available: false }));
+  _vpnLastStatus = data;
 
   document.getElementById('vpn-unavail').style.display  = data.available ? 'none' : '';
   document.getElementById('vpn-content').style.display  = data.available ? '' : 'none';
@@ -4583,9 +4586,7 @@ async function loadVpn() {
 
   if (!data.available) return;
 
-  // Parse server URL from wg show output or status string
-  const serverLine = (data.status || '').split('\n').find(l => l.includes('endpoint')) || '';
-  document.getElementById('vpn-server').textContent = serverLine || 'Configure VPN_HOST in .env';
+  document.getElementById('vpn-server').textContent = data.host ? `${data.host}:${data.port}` : 'In den VPN-Einstellungen konfigurieren';
   document.getElementById('vpn-peer-count').textContent = (data.peers || []).length + ' configured';
 
   const list = document.getElementById('vpn-peers-list');
@@ -4618,9 +4619,12 @@ async function openVpnQr(name) {
   openModal('modal-vpn-qr');
 }
 
-document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async () => {
-  const name = prompt('Name für den neuen VPN-Client (z.B. iPhone, Laptop):');
+document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async function () {
+  const name = prompt('Name für den neuen VPN-Client (nur Buchstaben/Zahlen, z.B. iPhone, Laptop):');
   if (!name) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
   try {
     const { name: dirName } = await api('POST', '/api/vpn/peers', { name });
     toast(`Client "${name}" hinzugefügt`);
@@ -4628,12 +4632,18 @@ document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async () 
     openVpnQr(dirName);
   } catch (e) {
     toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Client';
   }
 });
 
-document.getElementById('vpn-rename-btn')?.addEventListener('click', async () => {
+document.getElementById('vpn-rename-btn')?.addEventListener('click', async function () {
   const newName = document.getElementById('vpn-edit-name').value.trim();
   if (!newName || !_vpnCurrentPeer) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
   try {
     const { name: newDir } = await api('PATCH', `/api/vpn/peers/${encodeURIComponent(_vpnCurrentPeer)}`, { name: newName });
     toast('Client umbenannt');
@@ -4641,12 +4651,18 @@ document.getElementById('vpn-rename-btn')?.addEventListener('click', async () =>
     openVpnQr(newDir);
   } catch (e) {
     toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Speichern';
   }
 });
 
-document.getElementById('vpn-delete-btn')?.addEventListener('click', async () => {
+document.getElementById('vpn-delete-btn')?.addEventListener('click', async function () {
   if (!_vpnCurrentPeer) return;
-  if (!confirm(`Client "${_vpnCurrentPeer}" wirklich löschen? Der Zugang wird sofort entzogen.`)) return;
+  if (!confirm(`Client "${_vpnCurrentPeer}" wirklich löschen? Der Zugang wird sofort entzogen und der VPN-Container kurz neu gestartet.`)) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
   try {
     await api('DELETE', `/api/vpn/peers/${encodeURIComponent(_vpnCurrentPeer)}`);
     toast('Client gelöscht');
@@ -4654,6 +4670,37 @@ document.getElementById('vpn-delete-btn')?.addEventListener('click', async () =>
     await loadVpn();
   } catch (e) {
     toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🗑 Löschen';
+  }
+});
+
+document.getElementById('vpn-settings-btn')?.addEventListener('click', () => {
+  document.getElementById('vpn-settings-host').value = _vpnLastStatus?.host || '';
+  document.getElementById('vpn-settings-port').value = _vpnLastStatus?.port || 51820;
+  openModal('modal-vpn-settings');
+});
+
+document.getElementById('vpn-settings-save-btn')?.addEventListener('click', async function () {
+  const host = document.getElementById('vpn-settings-host').value.trim();
+  const port = parseInt(document.getElementById('vpn-settings-port').value, 10);
+  if (!host) return toast('Server-Adresse darf nicht leer sein', 'error');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return toast('Ungültiger Port', 'error');
+
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
+  try {
+    await api('POST', '/api/vpn/settings', { host, port });
+    toast('Gespeichert — VPN wurde neu gestartet');
+    closeModal('modal-vpn-settings');
+    await loadVpn();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Speichern';
   }
 });
 

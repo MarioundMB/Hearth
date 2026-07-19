@@ -2715,13 +2715,12 @@ app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, r
     name: CF_TUNNEL_CONTAINER,
     Image: 'cloudflare/cloudflared:latest',
     Cmd: ['tunnel', '--no-autoupdate', 'run', '--token', token],
-    // hearth.self (not just hide) would make this collide with the "find the
-    // main hearth container" lookup in runHearthSelfUpdate() — that lookup
-    // only excludes names containing firewall/vpn/updater, so a second
-    // hearth.self=true container named hearth-cloudflared matched it too,
-    // making self-update try to `git clone` inside cloudflared's distroless
-    // image instead of Hearth's own.
-    Labels: { 'hearth.hide': 'true' },
+    // hearth.self marks this as Hearth-managed infra (excludes it from the
+    // "N containers running" user-app count, same as vpn/firewall). The
+    // self-update "find the main hearth container" lookup would otherwise
+    // match this too (same hearth.self=true + name containing "hearth"), so
+    // its exclusion list explicitly excludes "cloudflared" as well.
+    Labels: { 'hearth.hide': 'true', 'hearth.self': 'true' },
     HostConfig: { RestartPolicy: { Name: 'unless-stopped' }, NetworkMode: 'host' },
   });
   await container.start();
@@ -4691,7 +4690,7 @@ async function _findHostRepo() {
   try {
     const mount = (await docker.getContainer((await docker.listContainers({ all: true })
       .catch(() => []))
-      .find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater')))
+      .find(c => c.Labels?.['hearth.self'] === 'true' && (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater') && !n.includes('cloudflared')))
       ?.Id)?.inspect().catch(() => null))?.Mounts?.find(m => m.Destination === '/app/repo' && m.Type === 'bind');
     if (mount?.Source) candidates.push(`/host${mount.Source}`);
   } catch (_) {}
@@ -5052,7 +5051,7 @@ async function runHearthSelfUpdate(emit = () => {}) {
   const allC = await docker.listContainers({ all: true }).catch(() => []);
   const self  = allC.find(c =>
     c.Labels?.['hearth.self'] === 'true' &&
-    (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater'))
+    (c.Names || []).some(n => n.includes('/hearth') && !n.includes('firewall') && !n.includes('vpn') && !n.includes('updater') && !n.includes('cloudflared'))
   );
   const selfImage   = self?.Image || 'hearth-hearth';
   const projectName = self?.Labels?.['com.docker.compose.project'] || 'hearth';
@@ -5966,6 +5965,83 @@ async function vpnExec(cmd) {
   });
 }
 
+// Recreates hearth-vpn with one or more Env values overridden (e.g. a new
+// SERVERPORT) and/or a new published port — Docker doesn't allow changing
+// port bindings or env on a running container, so this is unavoidable for a
+// port change. Everything else (image, volumes, capabilities, sysctls,
+// labels, restart policy, network) is carried over from the current
+// container's own inspect data rather than hardcoded, so it stays correct
+// even if someone customized their docker-compose.yml.
+async function recreateVpnContainer(envOverrides, newPort) {
+  const byName = docker.getContainer(VPN_CONTAINER);
+  const info = await byName.inspect();
+  // safeRecreateContainer renames this container mid-flight, then later
+  // removes it by re-dialing whatever identifier we handed it — dockerode
+  // Container objects don't re-resolve after a rename, they just keep using
+  // the exact string they were constructed with. Passing the NAME here
+  // would mean that final "remove the old one" call re-resolves "hearth-vpn"
+  // AFTER the new container has already claimed that name, deleting the
+  // wrong (brand new) container instead. Resolve to the immutable container
+  // ID first so the reference stays correct across the rename.
+  const c = docker.getContainer(info.Id);
+  const wasRunning = info.State.Running;
+  const cc = info.Config;
+  const hc = info.HostConfig;
+
+  const env = (cc.Env || []).map((e) => {
+    const key = e.split('=')[0];
+    return Object.prototype.hasOwnProperty.call(envOverrides, key) ? `${key}=${envOverrides[key]}` : e;
+  });
+
+  const mounts = (info.Mounts || []).map((m) => ({
+    Type: m.Type,
+    Source: m.Type === 'volume' ? m.Name : m.Source,
+    Target: m.Destination,
+    ReadOnly: !m.RW,
+  }));
+
+  // docker inspect reports capabilities as "CAP_NET_ADMIN"; container
+  // creation expects them without that prefix (as with `--cap-add`).
+  const capAdd = (hc.CapAdd || []).map((cap) => cap.replace(/^CAP_/, ''));
+
+  const portKey = `${newPort}/udp`;
+
+  // Must stop the old container before creating the new one — renaming
+  // alone doesn't release its port binding, so if the port ISN'T changing
+  // (peer add/rename/delete, or a host-only settings change), the new
+  // container's start() fails with "port is already allocated" against the
+  // still-running old one. Only matters to notice when the port stays the
+  // same, which is why the port-change-only path this was first written
+  // against never hit it.
+  if (wasRunning) await c.stop().catch(() => {});
+
+  const newC = await safeRecreateContainer(c, VPN_CONTAINER, {
+    Image: cc.Image,
+    name: VPN_CONTAINER,
+    Env: env,
+    Labels: cc.Labels || {},
+    ExposedPorts: { [portKey]: {} },
+    HostConfig: {
+      Mounts: mounts,
+      PortBindings: { [portKey]: [{ HostPort: String(newPort) }] },
+      RestartPolicy: hc.RestartPolicy || { Name: 'unless-stopped' },
+      CapAdd: capAdd,
+      Sysctls: hc.Sysctls || {},
+      NetworkMode: hc.NetworkMode || 'bridge',
+    },
+  }, wasRunning);
+
+  // The recreated container needs a few seconds for its own entrypoint
+  // (package install checks, wg-quick up) before `wg`/`sh` are usable —
+  // poll instead of guessing a fixed delay.
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    try { await vpnExec('wg show >/dev/null 2>&1'); return newC; } catch (_) { /* not ready yet */ }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return newC;
+}
+
 app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
   if (!await vpnAvailable()) return res.json({ available: false });
   try {
@@ -5998,119 +6074,127 @@ app.get('/api/vpn/status', requireAuth, asyncHandler(async (req, res) => {
       }
     }
 
-    res.json({ available: true, running, status: wgStatus, peers });
+    const env = info.Config?.Env || [];
+    const envVal = (key, fallback) => env.find(e => e.startsWith(`${key}=`))?.slice(key.length + 1) || fallback;
+    const port = parseInt(envVal('SERVERPORT', '51820'), 10);
+    const host = runtimeConfig.vpnHost || (envVal('SERVERURL', 'auto') !== 'auto' ? envVal('SERVERURL', 'auto') : null);
+
+    res.json({ available: true, running, status: wgStatus, peers, port, host });
   } catch (e) {
     res.json({ available: true, running: false, error: e.message, peers: [] });
   }
 }));
 
-// Add a new VPN client (peer) live — no hearth-vpn restart, so existing
-// connections keep running. Generates a keypair, picks a free address in
-// the interface's subnet, writes a client .conf (same layout the QR/conf
-// routes already expect: /config/<dirName>/<dirName>.conf), applies it to
-// the running wg0 interface via `wg set`, and appends it to
-// /config/wg_confs/wg0.conf so it survives a container restart too.
+// VPN tab settings: server address (used for newly created peers, no
+// restart needed) and port (needs a hearth-vpn recreation, since Docker
+// can't change a running container's published port). Either change also
+// rewrites existing peers' Endpoint line so a fresh QR-scan/download shows
+// the right values — devices that already imported the old config still
+// need to be re-added manually, there's no way around that for a real
+// network-level change.
+// The linuxserver/wireguard entrypoint regenerates wg_confs/wg0.conf from
+// scratch — keeping only whatever's listed in $PEERS — every time it starts
+// and ANY of SERVERURL/SERVERPORT/PEERDNS/PEERS/INTERNAL_SUBNET/ALLOWEDIPS
+// changed since the last boot (tracked in /config/.donoteditthisfile). A
+// peer added by hand-editing wg0.conf (the previous approach here) is
+// invisible to that comparison and silently disappears the next time ANY of
+// those variables changes for an unrelated reason — including SERVERURL
+// re-resolving to a different IP on every boot when it's "auto" and the
+// host's public IP has simply changed. Routing every add/rename/delete
+// through $PEERS instead keeps peers tracked by the mechanism that survives
+// restarts, at the cost of a brief reconnect on every change (same as a
+// port change) instead of none.
+function expandPeersEnv(peersEnv) {
+  const val = String(peersEnv || '').trim();
+  if (!val) return [];
+  if (/^\d+$/.test(val)) return Array.from({ length: parseInt(val, 10) }, (_, i) => String(i + 1));
+  return val.split(',').map((s) => s.trim()).filter(Boolean);
+}
+function peerTokenToDir(token) {
+  return /^\d+$/.test(token) ? `peer${token}` : `peer_${token}`;
+}
+async function applyVpnPeersEnv(tokens, extraEnvOverrides = {}) {
+  const info = await docker.getContainer(VPN_CONTAINER).inspect();
+  const env = info.Config?.Env || [];
+  const currentPort = parseInt(env.find(e => e.startsWith('SERVERPORT='))?.slice('SERVERPORT='.length), 10) || 51820;
+  await recreateVpnContainer({ PEERS: tokens.join(','), ...extraEnvOverrides }, currentPort);
+}
+
+app.post('/api/vpn/settings', requireAuth, asyncHandler(async (req, res) => {
+  const newHost = String(req.body?.host || '').trim();
+  const newPort = parseInt(req.body?.port, 10);
+  if (!newHost) return res.status(400).json({ error: 'Server-Adresse darf nicht leer sein' });
+  if (!Number.isInteger(newPort) || newPort < 1 || newPort > 65535) {
+    return res.status(400).json({ error: 'Ungültiger Port' });
+  }
+  if (!await vpnAvailable()) return res.status(400).json({ error: 'VPN-Container nicht verfügbar' });
+
+  const info = await docker.getContainer(VPN_CONTAINER).inspect();
+  const env = info.Config?.Env || [];
+  const envVal = (key, fallback) => env.find(e => e.startsWith(`${key}=`))?.slice(key.length + 1) || fallback;
+  const currentPort = parseInt(envVal('SERVERPORT', '51820'), 10);
+  const portChanged = newPort !== currentPort;
+
+  // SERVERURL is also one of the tracked variables, so setting an explicit
+  // host (instead of leaving "auto") causes the same brief reconnect as a
+  // port change, even when the port itself doesn't change.
+  await recreateVpnContainer({ SERVERPORT: newPort, SERVERURL: newHost }, newPort);
+
+  if (portChanged) {
+    await fwExec(`echo y | ufw delete allow ${currentPort}/udp`).catch(() => {});
+    await fwExec(`ufw allow ${newPort}/udp comment hearth-vpn-port`).catch(() => {});
+  }
+
+  saveConfig({ vpnHost: newHost });
+  res.json({ ok: true, host: newHost, port: newPort });
+}));
+
+// Add a new VPN client by appending its name to $PEERS and recreating the
+// container — the entrypoint generates its keys/conf itself (since no
+// privatekey-<dir> exists yet for a new name) using the same layout the
+// QR/conf routes already expect: /config/<dirName>/<dirName>.conf.
 app.post('/api/vpn/peers', requireAuth, asyncHandler(async (req, res) => {
   const rawName = String(req.body?.name || '').trim();
-  const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, '');
-  if (!safeName) return res.status(400).json({ error: 'Ungültiger Name' });
-  const dirName = `peer_${safeName}`;
+  // The image's own peer-name check is `[[:alnum:]]+` — no underscore/hyphen —
+  // anything else gets silently skipped during generation, producing no peer
+  // at all with no clear error. Match that constraint here so failures show
+  // up as a clear 400 instead of a client that never appears.
+  const safeName = rawName.replace(/[^a-zA-Z0-9]/g, '');
+  if (!safeName) return res.status(400).json({ error: 'Ungültiger Name (nur Buchstaben und Zahlen)' });
+  const dirName = peerTokenToDir(safeName);
 
   if (!await vpnAvailable()) return res.status(400).json({ error: 'VPN-Container nicht verfügbar' });
   const info = await docker.getContainer(VPN_CONTAINER).inspect();
   if (!info.State.Running) return res.status(400).json({ error: 'VPN-Container läuft nicht' });
 
-  const exists = await vpnExec(`[ -d "/config/${dirName}" ] && echo yes || echo no`);
-  if (exists.trim() === 'yes') return res.status(409).json({ error: `Client "${safeName}" existiert bereits` });
-
-  const wgStatus = await vpnExec('wg show 2>/dev/null');
-  const serverPubKey = wgStatus.match(/public key:\s*(\S+)/i)?.[1];
-  if (!serverPubKey) return res.status(500).json({ error: 'Server-Public-Key nicht lesbar (wg show)' });
-  const listenPort = wgStatus.match(/listening port:\s*(\d+)/i)?.[1] || process.env.VPN_PORT || '51820';
+  const exists = (await vpnExec(`test -d "/config/${dirName}" && echo yes || echo no`)).trim() === 'yes';
+  if (exists) return res.status(409).json({ error: `Client "${safeName}" existiert bereits` });
 
   const env = info.Config?.Env || [];
   const envVal = (key, fallback) => env.find(e => e.startsWith(`${key}=`))?.slice(key.length + 1) || fallback;
-  const subnetPrefix = envVal('INTERNAL_SUBNET', '10.13.13.0').split('.').slice(0, 3).join('.');
-  const gatewayIp = `${subnetPrefix}.1`;
+  const tokens = expandPeersEnv(envVal('PEERS', '0'));
+  tokens.push(safeName);
 
-  // Free address: cross-check both the live `wg show` state AND the
-  // persisted wg0.conf (AllowedIPs lines). They can diverge — e.g. two
-  // peers assigned the same address will have the live one silently stolen
-  // from whichever peer had it first (wg0.conf still lists both) — so
-  // trusting only one source risks handing out an address that's actually
-  // already claimed according to the other.
-  const wg0Conf = await vpnExec('cat /config/wg_confs/wg0.conf 2>/dev/null');
-  const usedOctets = new Set([
-    ...[...wgStatus.matchAll(/allowed ips:\s*(\d+)\.(\d+)\.(\d+)\.(\d+)/gi)].map(m => parseInt(m[4], 10)),
-    ...[...wg0Conf.matchAll(/^AllowedIPs\s*=\s*(\d+)\.(\d+)\.(\d+)\.(\d+)/gim)].map(m => parseInt(m[4], 10)),
-  ]);
-  let peerOctet = null;
-  for (let i = 2; i <= 254; i++) { if (!usedOctets.has(i)) { peerOctet = i; break; } }
-  if (!peerOctet) return res.status(500).json({ error: 'Kein freier IP-Slot mehr im VPN-Subnetz' });
-  const peerIp = `${subnetPrefix}.${peerOctet}`;
+  const extraOverrides = {};
+  if (runtimeConfig.vpnHost) extraOverrides.SERVERURL = runtimeConfig.vpnHost;
+  await applyVpnPeersEnv(tokens, extraOverrides);
 
-  // Reuse an existing peer's resolved Endpoint (linuxserver bakes SERVERURL=auto
-  // into a real IP at generation time — the env var itself just says "auto").
-  let endpointHost = null;
-  const existingDirs = (await vpnExec('ls /config 2>/dev/null | grep "^peer"')).split('\n').filter(Boolean);
-  if (existingDirs.length) {
-    const sampleConf = await vpnExec(`cat "/config/${existingDirs[0]}/${existingDirs[0]}.conf" 2>/dev/null`);
-    endpointHost = sampleConf.match(/Endpoint\s*=\s*([^\s:]+):\d+/i)?.[1] || null;
-  }
-  if (!endpointHost) {
-    const serverUrl = envVal('SERVERURL', 'auto');
-    endpointHost = serverUrl !== 'auto' ? serverUrl : await cfGetPublicIp().catch(() => null);
-  }
-  if (!endpointHost) return res.status(500).json({ error: 'Server-Adresse (VPN_HOST) konnte nicht ermittelt werden' });
-
-  const privKey = await vpnExec('wg genkey');
-  const pubKey  = (await vpnExec(`echo '${privKey}' | wg pubkey`)).trim();
-  const psk     = await vpnExec('wg genpsk');
-
-  const confText =
-`[Interface]
-Address = ${peerIp}
-PrivateKey = ${privKey}
-ListenPort = ${listenPort}
-DNS = ${gatewayIp}
-
-[Peer]
-PublicKey = ${serverPubKey}
-PresharedKey = ${psk}
-Endpoint = ${endpointHost}:${listenPort}
-AllowedIPs = 0.0.0.0/0,::/0
-`;
-
-  const confB64 = Buffer.from(confText, 'utf8').toString('base64');
-  await vpnExec(
-    `mkdir -p "/config/${dirName}" && echo '${confB64}' | base64 -d > "/config/${dirName}/${dirName}.conf" && ` +
-    `chmod 600 "/config/${dirName}/${dirName}.conf" && chown -R 1000:1000 "/config/${dirName}"`
-  );
-
-  const pskB64 = Buffer.from(psk, 'utf8').toString('base64');
-  await vpnExec(
-    `echo '${pskB64}' | base64 -d > "/tmp/psk_${dirName}" && ` +
-    `wg set wg0 peer '${pubKey}' preshared-key "/tmp/psk_${dirName}" allowed-ips "${peerIp}/32" && ` +
-    `rm -f "/tmp/psk_${dirName}"`
-  );
-
-  const peerBlock = `\n[Peer]\n# ${dirName}\nPublicKey = ${pubKey}\nPresharedKey = ${psk}\nAllowedIPs = ${peerIp}/32\n`;
-  const peerBlockB64 = Buffer.from(peerBlock, 'utf8').toString('base64');
-  await vpnExec(`echo '${peerBlockB64}' | base64 -d >> /config/wg_confs/wg0.conf`);
+  const stillMissing = (await vpnExec(`test -f "/config/${dirName}/${dirName}.conf" && echo no || echo yes`).catch(() => 'yes')).trim() === 'yes';
+  if (stillMissing) return res.status(500).json({ error: 'Client wurde angelegt, aber die Config ist noch nicht bereit — bitte kurz warten und Seite neu laden' });
 
   res.json({ name: dirName });
 }));
 
-// Rename a VPN client. Purely a filesystem rename + updating the cosmetic
-// "# <name>" marker comment in wg_confs/wg0.conf — the peer's identity on
-// the wire is its public key, not this label, so nothing needs to be
-// re-applied to the running interface and existing connections are
-// unaffected.
+// Rename a VPN client. Moves its files BEFORE recreating so the entrypoint
+// finds privatekey-<newDir> already there and reuses it instead of
+// generating a fresh keypair — which would silently invalidate every device
+// that already scanned/imported the old config. Also folds it into $PEERS
+// if it wasn't tracked there yet (peers created before this fix).
 app.patch('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => {
   const oldDir = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
-  const newSafe = String(req.body?.name || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
-  if (!newSafe) return res.status(400).json({ error: 'Ungültiger Name' });
-  const newDir = `peer_${newSafe}`;
+  const newSafe = String(req.body?.name || '').trim().replace(/[^a-zA-Z0-9]/g, '');
+  if (!newSafe) return res.status(400).json({ error: 'Ungültiger Name (nur Buchstaben und Zahlen)' });
+  const newDir = peerTokenToDir(newSafe);
   if (newDir === oldDir) return res.json({ name: oldDir });
 
   const oldExists = (await vpnExec(`test -d "/config/${oldDir}" && echo yes || echo no`)).trim() === 'yes';
@@ -6118,18 +6202,27 @@ app.patch('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => 
   const newExists = (await vpnExec(`test -d "/config/${newDir}" && echo yes || echo no`)).trim() === 'yes';
   if (newExists) return res.status(409).json({ error: `Client "${newSafe}" existiert bereits` });
 
-  await vpnExec(
-    `mv "/config/${oldDir}" "/config/${newDir}" && ` +
-    `mv "/config/${newDir}/${oldDir}.conf" "/config/${newDir}/${newDir}.conf" && ` +
-    `sed -i "s/^# ${oldDir}$/# ${newDir}/" /config/wg_confs/wg0.conf`
-  );
+  await vpnExec(`mv "/config/${oldDir}" "/config/${newDir}" && mv "/config/${newDir}/${oldDir}.conf" "/config/${newDir}/${newDir}.conf"`);
+
+  const info = await docker.getContainer(VPN_CONTAINER).inspect();
+  const env = info.Config?.Env || [];
+  const envVal = (key, fallback) => env.find(e => e.startsWith(`${key}=`))?.slice(key.length + 1) || fallback;
+  const currentTokens = expandPeersEnv(envVal('PEERS', '0'));
+  const tokens = currentTokens.some((t) => peerTokenToDir(t) === oldDir)
+    ? currentTokens.map((t) => (peerTokenToDir(t) === oldDir ? newSafe : t))
+    : [...currentTokens, newSafe];
+
+  const extraOverrides = {};
+  if (runtimeConfig.vpnHost) extraOverrides.SERVERURL = runtimeConfig.vpnHost;
+  await applyVpnPeersEnv(tokens, extraOverrides);
 
   res.json({ name: newDir });
 }));
 
-// Remove a VPN client: pull it off the live interface (no restart needed),
-// delete its /config directory, and drop its block from wg_confs/wg0.conf
-// so it doesn't come back on the next container restart.
+// Remove a VPN client: pull it off the live interface immediately (so
+// access is revoked right away rather than waiting for the recreate below),
+// drop it from $PEERS and recreate so it doesn't come back on the next
+// restart, then delete its /config directory.
 app.delete('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => {
   const dirName = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
   const exists = (await vpnExec(`test -d "/config/${dirName}" && echo yes || echo no`)).trim() === 'yes';
@@ -6142,14 +6235,16 @@ app.delete('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) =>
     await vpnExec(`wg set wg0 peer '${pubKey}' remove`).catch(() => {});
   }
 
-  await vpnExec(`rm -rf "/config/${dirName}"`);
+  const info = await docker.getContainer(VPN_CONTAINER).inspect();
+  const env = info.Config?.Env || [];
+  const envVal = (key, fallback) => env.find(e => e.startsWith(`${key}=`))?.slice(key.length + 1) || fallback;
+  const tokens = expandPeersEnv(envVal('PEERS', '0')).filter((t) => peerTokenToDir(t) !== dirName);
 
-  const markerLine = (await vpnExec(`grep -n "^# ${dirName}$" /config/wg_confs/wg0.conf | cut -d: -f1`)).trim();
-  if (markerLine) {
-    const start = parseInt(markerLine, 10) - 1;
-    const end = parseInt(markerLine, 10) + 3;
-    await vpnExec(`sed -i "${start},${end}d" /config/wg_confs/wg0.conf`);
-  }
+  const extraOverrides = {};
+  if (runtimeConfig.vpnHost) extraOverrides.SERVERURL = runtimeConfig.vpnHost;
+  await applyVpnPeersEnv(tokens, extraOverrides);
+
+  await vpnExec(`rm -rf "/config/${dirName}"`).catch(() => {});
 
   res.json({ ok: true });
 }));
