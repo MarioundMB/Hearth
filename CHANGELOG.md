@@ -3,6 +3,19 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.42] - 2026-07-19
+
+### Fixed
+- VPN: Der Admin-Port (4500/4501) war per UFW absichtlich auf das echte LAN beschränkt
+  (`hearth-rule-adminpanel-lan`). Da `hearth-vpn` nicht im Host-Netzwerk läuft, maskiert seine
+  eigene PostUp-Regel jeden VPN-Client auf die eigene Docker-Bridge-IP, bevor der Traffic den
+  Host erreicht — UFW sah also nie die echte LAN-Quelle und blockierte den Zugriff auf den
+  Admin-Port über VPN (andere LAN-Geräte ohne diese Beschränkung blieben erreichbar).
+  `enforceLanOnlyPort` erkennt jetzt automatisch das Docker-Netz von `hearth-vpn` (per Container-
+  Inspektion, nicht hartkodiert) und nimmt dessen Subnetz zusätzlich in die Freigabe auf —
+  betrifft jede Installation mit VPN, nicht nur diesen Server, und heilt sich beim nächsten
+  5-Minuten-Resync oder Neustart automatisch selbst.
+
 ## [1.5.41] - 2026-07-19
 
 ### Changed

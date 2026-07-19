@@ -1139,6 +1139,28 @@ function getLocalLanCidrs() {
   return [...cidrs];
 }
 
+// hearth-vpn isn't on host networking, so its own PostUp rule masquerades
+// every VPN client to the container's own address on Docker's bridge
+// network before that traffic ever reaches the host — getLocalLanCidrs()
+// deliberately excludes docker/br-/veth interfaces, so without this, VPN
+// clients could reach every other LAN device but not Hearth's own admin
+// panel (the one port that's actually LAN-restricted). Detected per-install
+// via the container's actual network rather than hardcoded, since Docker
+// assigns that subnet dynamically. Returns null (no-op for the caller) if
+// the VPN container/network doesn't exist — installs without VPN configured
+// aren't affected.
+async function getVpnBridgeCidr() {
+  try {
+    const info = await docker.getContainer(VPN_CONTAINER).inspect();
+    for (const netName of Object.keys(info.NetworkSettings?.Networks || {})) {
+      const subnet = (await docker.getNetwork(netName).inspect().catch(() => null))
+        ?.IPAM?.Config?.[0]?.Subnet;
+      if (subnet) return subnet;
+    }
+  } catch (_) {}
+  return null;
+}
+
 // Locks a port to the detected LAN subnet(s), replacing ANY existing rule
 // for that exact port (regardless of who created it or how broad it is —
 // a stray "Anywhere" rule alongside a LAN-only one would still let the
@@ -1147,6 +1169,8 @@ function getLocalLanCidrs() {
 // rather than risk locking the admin out with an empty rule set.
 async function enforceLanOnlyPort(port, tag) {
   const lanCidrs = getLocalLanCidrs();
+  const vpnCidr = await getVpnBridgeCidr();
+  if (vpnCidr && !lanCidrs.includes(vpnCidr)) lanCidrs.push(vpnCidr);
   if (!lanCidrs.length) return;
   const numbered = await fwExec('ufw status numbered').catch(() => '');
   const lines = numbered.split('\n').filter(l => /^\[/.test(l.trim()));
