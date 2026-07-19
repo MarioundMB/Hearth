@@ -3,6 +3,15 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.36] - 2026-07-19
+
+### Fixed
+- VPN: QR-Code-Modal war auf kürzeren Fenstern/Bildschirmen abgeschnitten — Titel, QR-Bild,
+  Hinweistext und Footer (Download/Schließen) scrollten gemeinsam mit dem Hintergrund-Overlay,
+  wodurch Footer-Buttons unerreichbar sein konnten. Kopf- und Fußbereich des Modals bleiben jetzt
+  fix sichtbar, nur der QR-Code-Bereich scrollt bei Bedarf, und die Bildgröße schrumpft vorher
+  proaktiv mit der Fensterhöhe (`clamp(140px, 32vh, 220px)`) statt zu überlaufen.
+
 ## [1.5.35] - 2026-07-19
 
 ### Fixed

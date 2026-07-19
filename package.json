@@ -1,6 +1,6 @@
 {
   "name": "hearth",
-  "version": "1.5.35",
+  "version": "1.5.36",
   "description": "Ein leichtgewichtiges, selbst gehostetes Home-Server-Panel zum Verwalten von Docker-Containern, mit Dateimanager und öffentlicher Gäste-Ansicht.",
   "main": "server.js",
   "type": "commonjs",

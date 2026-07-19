@@ -525,6 +525,12 @@
       .vpn-info-val { font-size: 12px; }
       .vpn-peer-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
       .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
+      /* Keep header/footer (incl. Close button) reachable on short windows —
+         only the QR itself scrolls, and shrinks proactively before that. */
+      #modal-vpn-qr .modal { max-height: calc(100vh - 120px); display: flex; flex-direction: column; }
+      #modal-vpn-qr .modal-head, #modal-vpn-qr .modal-foot { flex-shrink: 0; }
+      #modal-vpn-qr .modal-body { overflow-y: auto; min-height: 0; }
+      #vpn-qr-png { width: clamp(140px, 32vh, 220px); height: clamp(140px, 32vh, 220px); }
 
       /* ===== Setup Assistant ===== */
       .setup-section { margin-bottom: 26px; }
@@ -2026,7 +2032,7 @@
                     Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
                   </p>
                   <div id="vpn-qr-img" style="background:white;padding:16px;border-radius:12px;display:inline-block">
-                    <img id="vpn-qr-png" src="" alt="QR Code" style="width:220px;height:220px;display:block" />
+                    <img id="vpn-qr-png" src="" alt="QR Code" style="display:block" />
                   </div>
                   <p style="font-size:11px;color:var(--text-faint);margin-top:12px">
                     Keep this QR code private — it grants full VPN access.
