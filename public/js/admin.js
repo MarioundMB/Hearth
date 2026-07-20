@@ -5182,10 +5182,14 @@ document.querySelectorAll('[data-view]').forEach(btn => {
 // ── Community Tab ────────────────────────────────────────────────────────────
 
 let _communityLoaded = false;
+let _communityLoadedLang = null;
 
 async function loadCommunityTab(force = false) {
-  if (_communityLoaded && !force) return;
+  // Grid content is rendered with t() at build time, not live data-i18n —
+  // a language switch between hub opens needs a re-render, not just a cache hit.
+  if (_communityLoaded && !force && _communityLoadedLang === _lang) return;
   _communityLoaded = true;
+  _communityLoadedLang = _lang;
   await Promise.all([loadCommunityStacks(), loadCommunityThemes()]);
 }
 
