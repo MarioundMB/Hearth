@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c0e0d"/>
+      <stop offset="100%" stop-color="#141714"/>
+    </linearGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Subtle border -->
+  <rect x="1" y="1" width="1278" height="638" fill="none" stroke="#c4f042" stroke-width="1" stroke-opacity="0.15"/>
+
+  <!-- Glow -->
+  <ellipse cx="640" cy="210" rx="300" ry="160" fill="#c4f042" fill-opacity="0.08" filter="url(#blur)"/>
+
+  <!-- Logo icon -->
+  <rect x="580" y="118" width="120" height="120" rx="28" fill="#c4f042"/>
+  <polygon points="640,140 682,224 598,224" fill="#0c0e0d"/>
+
+  <!-- Title -->
+  <text x="640" y="342" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="88" font-weight="800" fill="#ffffff" letter-spacing="-3" text-anchor="middle">Hearth</text>
+
+  <!-- Subtitle -->
+  <text x="640" y="388" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="27" fill="#8a9a8a" letter-spacing="0.2" text-anchor="middle">Self-hosted Docker Management Panel</text>
+
+  <!-- Feature pills -->
+  <g font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="18" font-weight="600" fill="#c4f042" text-anchor="middle">
+    <rect x="145" y="440" width="140" height="44" rx="10" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+    <text x="215" y="468">🐳 Docker</text>
+
+    <rect x="305" y="440" width="210" height="44" rx="10" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+    <text x="410" y="468">🔀 Reverse Proxy</text>
+
+    <rect x="535" y="440" width="160" height="44" rx="10" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+    <text x="615" y="468">🛡 Firewall</text>
+
+    <rect x="715" y="440" width="210" height="44" rx="10" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+    <text x="820" y="468">🔒 WireGuard VPN</text>
+
+    <rect x="945" y="440" width="190" height="44" rx="10" fill="#1e231e" stroke="#2d3a2d" stroke-width="1"/>
+    <text x="1040" y="468">🌍 9 Languages</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="640" y="590" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="20" fill="#5a6a5a" text-anchor="middle">github.com/MarioundMB/Hearth</text>
+</svg>
