@@ -3,6 +3,34 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.48] - 2026-07-20
+
+### Security
+- **Viewer-Rolle konnte volle Admin-Aktionen ausführen** (Broken Access Control): 76 zustandsändernde
+  Routen (Container, Firewall, Reverse Proxy, VPN, Dateimanager, RAID, System-Updates, Terminal-Token
+  u.a.) prüften nur `requireAuth` statt `requireAdmin` — ein als "Viewer" (read-only) angelegter Account
+  konnte z.B. per `PUT /api/containers/:id` einen privilegierten Container mit `/`-Bind-Mount anlegen und
+  damit Root auf dem Host erreichen. Eigene Konto-Aktionen (2FA, Passkeys, eigenes Passwort) bleiben
+  bewusst `requireAuth`.
+- **Stored XSS über das `hearth.url`-Label**: Jeder Container (App-Store, Docker-Hub-Pull, eigenes
+  Compose) konnte `hearth.url="javascript:…"` setzen; `esc()` escaped nur HTML-Sonderzeichen, keine
+  URL-Schemes. Betraf sowohl die Admin-Container-Liste als auch die öffentliche Gäste-Ansicht. Neue
+  `safeUrl()`-Hilfsfunktion in `common.js` lässt nur noch `http(s):`-URLs durch.
+- **Path Traversal in `/api/files/copy`**: Das Ziel wurde nach dem Zusammenbauen nicht erneut durch
+  `safeResolve()` geprüft (anders als bei mkdir/rename) — ein Dateiname wie `../../../../app/server.js`
+  konnte Dateien außerhalb von `DATA_DIR` überschreiben. Gleiches Muster (schwächerer Prefix-Check ohne
+  Trennzeichen) im Upload-Handler behoben.
+- **Shell-Injection über `req.params.num`** in `DELETE /api/firewall/rules/num/:num` (ungeprüft in einen
+  `ufw delete`-Befehl im privilegierten, host-vernetzten Firewall-Container eingesetzt) und über
+  Verzeichnisnamen in `/api/files/volumes` (`df -k "$p"` per `exec` statt `execFile`).
+- **`/admin` und `/admin.html` waren ohne Login erreichbar**: Eine unauthentifizierte Route registrierte
+  sich vor der eigentlich vorgesehenen, session-geprüften `/admin`-Route und machte diese zu totem Code.
+- Login und 2FA-Verify hatten keinerlei Brute-Force-Schutz — jetzt IP-basiertes Rate-Limit (10 Versuche /
+  15 Min). Zusätzlich: Session wird bei Login neu generiert (Session-Fixation), Cookie nutzt
+  `secure: 'auto'`, Cloudflare-Secrets (`cfApiToken`/`cfZoneId`/`cfTunnelToken`) werden in
+  `GET /api/settings` nur noch an Admins ausgeliefert, IP-Allow-/Denylist im Reverse Proxy wird jetzt vor
+  dem Schreiben in die nginx-Config validiert.
+
 ## [1.5.44] - 2026-07-19
 
 ### Added
