@@ -515,6 +515,7 @@
       }
 
       /* ===== VPN ===== */
+      #view-vpn { padding-bottom: 260px; }
       .vpn-status-badge { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 20px; }
       .vpn-status-badge.active   { background: rgba(88,214,141,.15); color: var(--ok); border: 1px solid rgba(88,214,141,.3); }
       .vpn-status-badge.inactive { background: var(--panel-2); color: var(--text-faint); border: 1px solid var(--border); }
@@ -525,6 +526,12 @@
       .vpn-info-val { font-size: 12px; }
       .vpn-peer-row { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
       .vpn-peer-name { font-weight: 700; font-size: 14px; flex: 1; }
+      /* Keep header/footer (incl. Close button) reachable on short windows —
+         only the QR itself scrolls, and shrinks proactively before that. */
+      #modal-vpn-qr .modal { max-height: calc(100vh - 120px); display: flex; flex-direction: column; }
+      #modal-vpn-qr .modal-head, #modal-vpn-qr .modal-foot { flex-shrink: 0; }
+      #modal-vpn-qr .modal-body { overflow-y: auto; min-height: 0; }
+      #vpn-qr-png { width: clamp(140px, 32vh, 220px); height: clamp(140px, 32vh, 220px); }
 
       /* ===== Setup Assistant ===== */
       .setup-section { margin-bottom: 26px; }
@@ -1974,6 +1981,7 @@
           <section class="view" id="view-vpn">
             <div class="toolbar">
               <div class="spacer"></div>
+              <button class="btn sm ghost" id="vpn-settings-btn">⚙ Einstellungen</button>
               <span class="vpn-status-badge" id="vpn-status-badge"></span>
             </div>
 
@@ -2009,12 +2017,13 @@
               <!-- Peer list -->
               <div class="toolbar" style="margin-top:20px">
                 <h2 style="font-size:16px">VPN Clients</h2>
-                <div class="muted" style="font-size:12px">Scan the QR code with the WireGuard app</div>
+                <div class="spacer"></div>
+                <button class="btn sm ghost" id="vpn-add-peer-btn">+ Client</button>
               </div>
               <div class="list" id="vpn-peers-list"></div>
             </div>
 
-            <!-- QR Modal -->
+            <!-- VPN Client Modal (view QR, rename, delete) -->
             <div class="modal-backdrop" id="modal-vpn-qr">
               <div class="modal" style="max-width:400px">
                 <div class="modal-head">
@@ -2022,11 +2031,18 @@
                   <button class="iconbtn" data-close>✕</button>
                 </div>
                 <div class="modal-body" style="text-align:center">
+                  <div class="field" style="text-align:left;margin-bottom:18px">
+                    <label>Name</label>
+                    <div style="display:flex;gap:8px">
+                      <input class="input" id="vpn-edit-name" style="flex:1" />
+                      <button class="btn sm ghost" id="vpn-rename-btn">Speichern</button>
+                    </div>
+                  </div>
                   <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
                     Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
                   </p>
                   <div id="vpn-qr-img" style="background:white;padding:16px;border-radius:12px;display:inline-block">
-                    <img id="vpn-qr-png" src="" alt="QR Code" style="width:220px;height:220px;display:block" />
+                    <img id="vpn-qr-png" src="" alt="QR Code" style="display:block" />
                   </div>
                   <p style="font-size:11px;color:var(--text-faint);margin-top:12px">
                     Keep this QR code private — it grants full VPN access.
@@ -2034,7 +2050,36 @@
                 </div>
                 <div class="modal-foot" style="justify-content:space-between">
                   <a id="vpn-qr-download" href="#" download class="btn ghost sm">⬇ Download .conf</a>
-                  <button class="btn ghost" data-close>Close</button>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn sm danger" id="vpn-delete-btn">🗑 Löschen</button>
+                    <button class="btn ghost" data-close>Close</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- VPN Settings Modal -->
+            <div class="modal-backdrop" id="modal-vpn-settings">
+              <div class="modal" style="max-width:420px">
+                <div class="modal-head">
+                  <h3>VPN-Einstellungen</h3>
+                  <button class="iconbtn" data-close>✕</button>
+                </div>
+                <div class="modal-body">
+                  <div class="field">
+                    <label>Server-Adresse (VPN_HOST)</label>
+                    <input class="input" id="vpn-settings-host" placeholder="z.B. vpn.example.com oder 91.66.194.215" />
+                    <div class="muted" style="font-size:12px;margin-top:4px">Wird in neu erstellte/aktualisierte Client-Configs als Endpoint eingetragen.</div>
+                  </div>
+                  <div class="field">
+                    <label>Port</label>
+                    <input class="input" id="vpn-settings-port" type="number" min="1" max="65535" placeholder="51820" />
+                    <div class="muted" style="font-size:12px;margin-top:4px">⚠ Jede Änderung hier erfordert einen kurzen Neustart des VPN-Containers — bereits verbundene Clients werden kurz getrennt.</div>
+                  </div>
+                </div>
+                <div class="modal-foot" style="justify-content:space-between">
+                  <button class="btn ghost" data-close>Abbrechen</button>
+                  <button class="btn primary sm" id="vpn-settings-save-btn">Speichern</button>
                 </div>
               </div>
             </div>

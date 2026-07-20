@@ -82,7 +82,7 @@ services:
       - TZ=${TZ:-Europe/Berlin}
       - SERVERURL=${VPN_HOST:-auto}       # Your public IP or domain
       - SERVERPORT=${VPN_PORT:-51820}
-      - PEERS=${VPN_PEERS:-1}             # Number of VPN clients to generate
+      - PEERS=${VPN_PEERS:-0}             # Clients are added via the "+ Client" button in the VPN tab
       - PEERDNS=auto
       - INTERNAL_SUBNET=10.13.13.0
       - ALLOWEDIPS=0.0.0.0/0,::/0

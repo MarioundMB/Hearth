@@ -4569,8 +4569,11 @@ function fwRenderLogs() {
 }
 
 // ---------- VPN ----------
+let _vpnLastStatus = null;
+
 async function loadVpn() {
   const data = await api('GET', '/api/vpn/status').catch(() => ({ available: false }));
+  _vpnLastStatus = data;
 
   document.getElementById('vpn-unavail').style.display  = data.available ? 'none' : '';
   document.getElementById('vpn-content').style.display  = data.available ? '' : 'none';
@@ -4583,32 +4586,123 @@ async function loadVpn() {
 
   if (!data.available) return;
 
-  // Parse server URL from wg show output or status string
-  const serverLine = (data.status || '').split('\n').find(l => l.includes('endpoint')) || '';
-  document.getElementById('vpn-server').textContent = serverLine || 'Configure VPN_HOST in .env';
+  document.getElementById('vpn-server').textContent = data.host ? `${data.host}:${data.port}` : 'In den VPN-Einstellungen konfigurieren';
   document.getElementById('vpn-peer-count').textContent = (data.peers || []).length + ' configured';
 
   const list = document.getElementById('vpn-peers-list');
   if (!(data.peers || []).length) {
-    list.innerHTML = '<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>No VPN clients found.<br><span class="muted" style="font-size:13px">Set VPN_PEERS in your .env and restart.</span></div>';
+    list.innerHTML = '<div class="empty" style="padding:20px"><div class="big" style="font-size:32px">📱</div>No VPN clients yet.<br><span class="muted" style="font-size:13px">Click "+ Client" above to add one.</span></div>';
     return;
   }
 
   list.innerHTML = (data.peers || []).map(p => `
-    <div class="vpn-peer-row">
-      <span class="vpn-peer-name" title="${esc(p.name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">📱 ${esc(p.name)}</span>
-      <button class="btn sm ghost" onclick="openVpnQr('${esc(p.name)}')">🔲 QR Code</button>
-      <a class="btn sm ghost" href="/api/vpn/peers/${encodeURIComponent(p.name)}/conf" download>⬇ .conf</a>
+    <div class="vpn-peer-row row-clickable" data-peer-name="${esc(p.name)}">
+      <span class="vpn-peer-name" title="${esc(p.name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">📱 ${esc(p.name)}</span>
+      <span class="row-chevron">›</span>
     </div>`).join('');
 }
 
+document.getElementById('vpn-peers-list').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-peer-name]');
+  if (row) openVpnQr(row.dataset.peerName);
+});
+
+let _vpnCurrentPeer = null;
+
 async function openVpnQr(name) {
+  _vpnCurrentPeer = name;
   document.getElementById('vpn-qr-title').textContent = `VPN Client: ${name}`;
+  document.getElementById('vpn-edit-name').value = name.replace(/^peer_/, '');
   document.getElementById('vpn-qr-png').src = `/api/vpn/peers/${encodeURIComponent(name)}/qr?t=${Date.now()}`;
   document.getElementById('vpn-qr-download').href = `/api/vpn/peers/${encodeURIComponent(name)}/conf`;
   document.getElementById('vpn-qr-download').setAttribute('download', `${name}.conf`);
   openModal('modal-vpn-qr');
 }
+
+document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async function () {
+  const name = prompt('Name für den neuen VPN-Client (nur Buchstaben/Zahlen, z.B. iPhone, Laptop):');
+  if (!name) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
+  try {
+    const { name: dirName } = await api('POST', '/api/vpn/peers', { name });
+    toast(`Client "${name}" hinzugefügt`);
+    await loadVpn();
+    openVpnQr(dirName);
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Client';
+  }
+});
+
+document.getElementById('vpn-rename-btn')?.addEventListener('click', async function () {
+  const newName = document.getElementById('vpn-edit-name').value.trim();
+  if (!newName || !_vpnCurrentPeer) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
+  try {
+    const { name: newDir } = await api('PATCH', `/api/vpn/peers/${encodeURIComponent(_vpnCurrentPeer)}`, { name: newName });
+    toast('Client umbenannt');
+    await loadVpn();
+    openVpnQr(newDir);
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Speichern';
+  }
+});
+
+document.getElementById('vpn-delete-btn')?.addEventListener('click', async function () {
+  if (!_vpnCurrentPeer) return;
+  if (!confirm(`Client "${_vpnCurrentPeer}" wirklich löschen? Der Zugang wird sofort entzogen und der VPN-Container kurz neu gestartet.`)) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
+  try {
+    await api('DELETE', `/api/vpn/peers/${encodeURIComponent(_vpnCurrentPeer)}`);
+    toast('Client gelöscht');
+    closeModal('modal-vpn-qr');
+    await loadVpn();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🗑 Löschen';
+  }
+});
+
+document.getElementById('vpn-settings-btn')?.addEventListener('click', () => {
+  document.getElementById('vpn-settings-host').value = _vpnLastStatus?.host || '';
+  document.getElementById('vpn-settings-port').value = _vpnLastStatus?.port || 51820;
+  openModal('modal-vpn-settings');
+});
+
+document.getElementById('vpn-settings-save-btn')?.addEventListener('click', async function () {
+  const host = document.getElementById('vpn-settings-host').value.trim();
+  const port = parseInt(document.getElementById('vpn-settings-port').value, 10);
+  if (!host) return toast('Server-Adresse darf nicht leer sein', 'error');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return toast('Ungültiger Port', 'error');
+
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Starte VPN neu…';
+  try {
+    await api('POST', '/api/vpn/settings', { host, port });
+    toast('Gespeichert — VPN wurde neu gestartet');
+    closeModal('modal-vpn-settings');
+    await loadVpn();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Speichern';
+  }
+});
 
 // ---------- Setup Assistant ----------
 const SETUP_ICONS = { ok: '✓', warn: '⚠', error: '✗', info: 'ℹ', checking: '…' };
