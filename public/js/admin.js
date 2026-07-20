@@ -5196,14 +5196,14 @@ async function loadCommunityStacks(force = false) {
     const url = force ? '/api/community/stacks?refresh=1' : '/api/community/stacks';
     const stacks = await api('GET', url);
     const existingIds = new Set(_stacksData.map(s => s.id));
-    if (!stacks.length) { grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Keine Community-Stacks gefunden.</span>'; return; }
+    if (!stacks.length) { grid.innerHTML = `<span style="font-size:13px;color:var(--text-faint)">${t('community.noStacks')}</span>`; return; }
     grid.innerHTML = stacks.map(stack => {
       const already = existingIds.has(stack.id);
       const chips = (stack.services || []).map(s =>
         `<span class="stack-svc-chip${s.optional ? ' optional' : ''}">${esc(s.name)}</span>`
       ).join('');
-      const tagBadges = (stack.tags || []).map(t =>
-        `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--panel-2);border:1px solid var(--border);color:var(--text-faint)">${esc(t)}</span>`
+      const tagBadges = (stack.tags || []).map(tag =>
+        `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--panel-2);border:1px solid var(--border);color:var(--text-faint)">${esc(tag)}</span>`
       ).join('');
       return `
         <div class="stack-store-card">
@@ -5211,7 +5211,7 @@ async function loadCommunityStacks(force = false) {
             <div class="stack-store-icon">${stack.icon || '📦'}</div>
             <div>
               <div class="stack-store-title">${esc(stack.name)}</div>
-              <div style="font-size:11px;color:var(--text-faint);margin-top:2px">by ${esc(stack.author || 'community')}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:2px">${esc(t('community.by', { author: stack.author || 'community' }))}</div>
             </div>
           </div>
           <div class="stack-store-desc">${esc(stack.description || '')}</div>
@@ -5219,8 +5219,8 @@ async function loadCommunityStacks(force = false) {
           <div class="stack-store-services">${chips}</div>
           <div style="margin-top:6px">
             ${already
-              ? `<span style="font-size:12px;color:var(--text-faint)">✓ Bereits importiert</span>`
-              : `<button class="btn sm primary" onclick="importCommunityStack(${esc(JSON.stringify(stack))})">Importieren</button>`}
+              ? `<span style="font-size:12px;color:var(--text-faint)">${t('community.alreadyImported')}</span>`
+              : `<button class="btn sm primary" onclick="importCommunityStack(${esc(JSON.stringify(stack))})">${t('community.import')}</button>`}
           </div>
         </div>`;
     }).join('');
@@ -5232,7 +5232,7 @@ async function loadCommunityStacks(force = false) {
 async function importCommunityStack(stackDef) {
   try {
     await api('POST', '/api/stacks/custom', { json: stackDef });
-    toast(`"${stackDef.name}" importiert`);
+    toast(t('community.stackImportedToast', { name: stackDef.name }));
     await refreshCustomStacksCache();
     _stacksData = await api('GET', '/api/stacks');
     renderStackGroups();
@@ -5270,19 +5270,25 @@ async function loadCommunityThemes(force = false) {
   grid.innerHTML = hearthLoading();
   try {
     const url = force ? '/api/community/themes?refresh=1' : '/api/community/themes';
-    const themes = await api('GET', url);
-    if (!themes.length) { grid.innerHTML = '<span style="font-size:13px;color:var(--text-faint)">Keine Themes gefunden.</span>'; return; }
+    const [themes, activeTheme] = await Promise.all([
+      api('GET', url),
+      api('GET', '/api/theme').catch(() => null),
+    ]);
+    if (!themes.length) { grid.innerHTML = `<span style="font-size:13px;color:var(--text-faint)">${t('community.noThemes')}</span>`; return; }
+    const activeId = activeTheme?.id;
     grid.innerHTML = themes.map(theme => `
       <div style="background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:10px">
         <div style="display:flex;align-items:flex-start;gap:12px">
           ${_themePreviewHtml(theme)}
           <div style="min-width:0">
             <div style="font-size:13px;font-weight:600;margin-bottom:2px">${esc(theme.name)}</div>
-            <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">by ${esc(theme.author || 'community')}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">${esc(t('community.by', { author: theme.author || 'community' }))}</div>
             <div style="font-size:12px;color:var(--text-dim);line-height:1.4">${esc(theme.description || '')}</div>
           </div>
         </div>
-        <button class="btn sm ghost" onclick="applyCommunityTheme(${esc(JSON.stringify(theme))})">Anwenden</button>
+        ${theme.id && theme.id === activeId
+          ? `<span style="font-size:12px;color:var(--ok,#2ecc71)">${t('community.active')}</span>`
+          : `<button class="btn sm ghost" onclick="applyCommunityTheme(${esc(JSON.stringify(theme))})">${t('community.apply')}</button>`}
       </div>`).join('');
   } catch (e) {
     grid.innerHTML = `<span style="font-size:13px;color:var(--danger,#e74c3c)">${esc(e.message)}</span>`;
@@ -5302,9 +5308,10 @@ function _applyThemeCss(css) {
 async function applyCommunityTheme(theme) {
   try {
     await api('POST', '/api/theme', { css: theme.css, id: theme.id, name: theme.name });
-    toast(`Theme "${theme.name}" angewendet`);
+    toast(t('community.themeAppliedToast', { name: theme.name }));
     loadThemeStatus();
     _applyThemeCss(theme.css);
+    loadCommunityThemes();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -5359,9 +5366,9 @@ document.getElementById('btn-contrib-submit').addEventListener('click', () => {
     const name = document.getElementById('contrib-stack-name').value.trim();
     const desc = document.getElementById('contrib-stack-desc').value.trim();
     const json = document.getElementById('contrib-stack-json').value.trim();
-    if (!name || !json) { toast('Bitte Name und JSON ausfüllen', 'error'); return; }
+    if (!name || !json) { toast(t('community.fillNameJson'), 'error'); return; }
     let parsed;
-    try { parsed = JSON.parse(json); } catch { toast('Ungültiges JSON', 'error'); return; }
+    try { parsed = JSON.parse(json); } catch { toast(t('community.invalidJson'), 'error'); return; }
     const body = `## Community Stack Submission\n\n**Name:** ${name}\n**Description:** ${desc}\n\n\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\`\n\n---\n*Submitted via Hearth*`;
     window.open(
       `https://github.com/MarioundMB/Hearth/issues/new?title=${encodeURIComponent('[Community Stack] ' + name)}&body=${encodeURIComponent(body)}&labels=community-stack`,
@@ -5372,7 +5379,7 @@ document.getElementById('btn-contrib-submit').addEventListener('click', () => {
     const desc   = document.getElementById('contrib-theme-desc').value.trim();
     const author = document.getElementById('contrib-theme-author').value.trim();
     const css    = document.getElementById('contrib-theme-css').value.trim();
-    if (!name || !css) { toast('Bitte Name und CSS ausfüllen', 'error'); return; }
+    if (!name || !css) { toast(t('community.fillNameCss'), 'error'); return; }
     const body = `## Community Theme Submission\n\n**Name:** ${name}\n**Description:** ${desc}\n**Author:** ${author || 'anonymous'}\n\n\`\`\`css\n${css}\n\`\`\`\n\n---\n*Submitted via Hearth*`;
     window.open(
       `https://github.com/MarioundMB/Hearth/issues/new?title=${encodeURIComponent('[Community Theme] ' + name)}&body=${encodeURIComponent(body)}&labels=community-theme`,
@@ -5389,10 +5396,10 @@ async function loadThemeStatus() {
     const nameEl  = document.getElementById('theme-active-name');
     const resetBtn = document.getElementById('theme-reset-btn');
     if (theme) {
-      nameEl.textContent = theme.name + (theme.sourceUrl ? ' (via URL)' : '');
+      nameEl.textContent = theme.name + (theme.sourceUrl ? ' ' + t('theme.viaUrl') : '');
       resetBtn.style.display = '';
     } else {
-      nameEl.textContent = 'Standard (kein Custom Theme)';
+      nameEl.textContent = t('theme.default');
       resetBtn.style.display = 'none';
     }
   } catch (_) {}
@@ -5408,14 +5415,15 @@ async function loadSettingsThemePicker() {
         <span style="width:14px;height:14px;border-radius:3px;background:${esc(t.preview || '#333')};display:inline-block;flex-shrink:0;border:1px solid var(--border)"></span>
         ${esc(t.name)}
       </button>`).join('');
-  } catch (_) { list.innerHTML = '<span style="font-size:12px;color:var(--text-faint)">Nicht verfügbar</span>'; }
+  } catch (_) { list.innerHTML = `<span style="font-size:12px;color:var(--text-faint)">${t('theme.notAvailable')}</span>`; }
 }
 
 document.getElementById('theme-reset-btn').addEventListener('click', async () => {
   await api('DELETE', '/api/theme');
-  toast('Theme zurückgesetzt');
+  toast(t('theme.resetToast'));
   loadThemeStatus();
   _applyThemeCss('');
+  loadCommunityThemes();
 });
 
 document.getElementById('theme-css-toggle').addEventListener('click', () => {

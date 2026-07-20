@@ -4189,8 +4189,8 @@
             🌐 Community Hub
           </span>
           <div class="spacer"></div>
-          <button class="btn primary sm" id="btn-contribute">+ Beitragen</button>
-          <button class="btn sm ghost" id="community-refresh-btn"><svg class="hearth-spin" width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg> Aktualisieren</button>
+          <button class="btn primary sm" id="btn-contribute" data-i18n="community.contribute">+ Beitragen</button>
+          <button class="btn sm ghost" id="community-refresh-btn"><svg class="hearth-spin" width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg> <span data-i18n="nav.refresh">Aktualisieren</span></button>
           <button class="btn sm ghost" onclick="closeCommunityHub()" style="font-size:16px;padding:5px 10px">✕</button>
         </div>
 
@@ -4199,7 +4199,7 @@
           <div style="margin-bottom:36px">
             <div class="store-category-title" style="font-size:14px;margin-bottom:14px">
               📦 Community Stacks
-              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">Importiere &amp; deploye community-gepflegte Stack-Definitionen</span>
+              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px" data-i18n="community.stacksDesc">Importiere &amp; deploye community-gepflegte Stack-Definitionen</span>
             </div>
             <div id="community-stacks-grid" class="stack-store-grid">
               <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
@@ -4210,7 +4210,7 @@
           <div>
             <div class="store-category-title" style="font-size:14px;margin-bottom:14px">
               🎨 Community Themes
-              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">CSS-Themes für Hearth direkt anwenden</span>
+              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px" data-i18n="community.themesDesc">CSS-Themes für Hearth direkt anwenden</span>
             </div>
             <div id="community-themes-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
               <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
@@ -4256,42 +4256,54 @@
       .community-hub-body {
         padding-top: 4px;
       }
+      @media (max-width: 640px) {
+        .community-hub-inner {
+          padding: 0 14px 40px;
+        }
+        .community-hub-header {
+          flex-wrap: wrap;
+          row-gap: 8px;
+        }
+        .community-hub-header > span {
+          flex: 1 1 100%;
+        }
+      }
     </style>
 
     <!-- Contribute Modal -->
     <div class="modal-backdrop" id="modal-contribute" onclick="if(event.target===this)closeModal('modal-contribute')">
       <div class="modal" style="max-width:560px">
         <div class="modal-head">
-          <span>An Community beitragen</span>
+          <span data-i18n="community.contributeTitle">An Community beitragen</span>
           <button class="close" onclick="closeModal('modal-contribute')">✕</button>
         </div>
         <div class="modal-body" style="padding:0">
           <div style="padding:16px 22px 0">
-            <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Teile deine Stacks oder Themes mit der Hearth-Community über ein GitHub-Issue.</p>
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px" data-i18n="community.contributeDesc">Teile deine Stacks oder Themes mit der Hearth-Community über ein GitHub-Issue.</p>
             <div style="display:flex;gap:8px;margin-bottom:18px">
-              <button class="btn sm" id="contrib-type-stack" onclick="setContribType('stack')">📦 Stack einreichen</button>
-              <button class="btn sm ghost" id="contrib-type-theme" onclick="setContribType('theme')">🎨 Theme einreichen</button>
+              <button class="btn sm" id="contrib-type-stack" onclick="setContribType('stack')" data-i18n="community.submitStack">📦 Stack einreichen</button>
+              <button class="btn sm ghost" id="contrib-type-theme" onclick="setContribType('theme')" data-i18n="community.submitTheme">🎨 Theme einreichen</button>
             </div>
           </div>
 
           <!-- Stack form -->
           <div id="contrib-stack-form" style="padding:0 22px 4px">
             <div class="field">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Aus eigenen Stacks laden</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.loadFromOwn">Aus eigenen Stacks laden</label>
               <select class="input" id="contrib-stack-select" style="margin-top:5px">
-                <option value="">— Eigenen Stack auswählen (optional) —</option>
+                <option value="" data-i18n="community.selectOwnStack">— Eigenen Stack auswählen (optional) —</option>
               </select>
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Name *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.stackName">Name *</label>
               <input class="input" id="contrib-stack-name" placeholder="z.B. Nextcloud Suite" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Beschreibung</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.description">Beschreibung</label>
               <input class="input" id="contrib-stack-desc" placeholder="Was macht dieser Stack?" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Stack-Definition (JSON) *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.stackJson">Stack-Definition (JSON) *</label>
               <textarea class="input" id="contrib-stack-json" rows="9" style="margin-top:5px;font-family:var(--font-mono);font-size:12px;resize:vertical" placeholder='{"id": "my-stack", "name": "My Stack", "services": [...]}'></textarea>
             </div>
           </div>
@@ -4299,28 +4311,28 @@
           <!-- Theme form -->
           <div id="contrib-theme-form" style="display:none;padding:0 22px 4px">
             <div class="field">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Theme-Name *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.themeName">Theme-Name *</label>
               <input class="input" id="contrib-theme-name" placeholder="z.B. Catppuccin Latte" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Beschreibung</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.description">Beschreibung</label>
               <input class="input" id="contrib-theme-desc" placeholder="Kurze Beschreibung des Themes" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Autor (GitHub-Username)</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.themeAuthor">Autor (GitHub-Username)</label>
               <input class="input" id="contrib-theme-author" placeholder="z.B. octocat" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">CSS *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.themeCss">CSS *</label>
               <textarea class="input" id="contrib-theme-css" rows="11" style="margin-top:5px;font-family:var(--font-mono);font-size:12px;resize:vertical" placeholder=":root {&#10;  --accent: #89b4fa;&#10;  --bg: #1e1e2e;&#10;  --panel: #181825;&#10;}"></textarea>
             </div>
           </div>
         </div>
         <div class="modal-foot">
-          <span style="font-size:12px;color:var(--text-faint)">Öffnet ein vorausgefülltes GitHub-Issue</span>
+          <span style="font-size:12px;color:var(--text-faint)" data-i18n="community.opensGithubIssue">Öffnet ein vorausgefülltes GitHub-Issue</span>
           <div class="spacer"></div>
-          <button class="btn" onclick="closeModal('modal-contribute')">Abbrechen</button>
-          <button class="btn primary" id="btn-contrib-submit">GitHub-Issue öffnen ↗</button>
+          <button class="btn" onclick="closeModal('modal-contribute')" data-i18n="modal.cancel">Abbrechen</button>
+          <button class="btn primary" id="btn-contrib-submit" data-i18n="community.openGithubIssue">GitHub-Issue öffnen ↗</button>
         </div>
       </div>
     </div>
