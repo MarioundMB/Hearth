@@ -26,7 +26,7 @@ function appCard(app) {
   const cardClass  = isRunning ? 'running' : 'offline';
 
   return `
-    <a class="app-card ${cardClass}" href="${esc(app.url)}" target="_blank" rel="noopener"
+    <a class="app-card ${cardClass}" href="${esc(safeUrl(app.url))}" target="_blank" rel="noopener"
        ${!isRunning ? 'tabindex="-1"' : ''}>
       <div class="app-body">
         ${appIcon(app)}

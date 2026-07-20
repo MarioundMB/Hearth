@@ -68,6 +68,18 @@ function esc(s) {
   );
 }
 
+// Only http(s) URLs are safe to place in an href — container labels like
+// hearth.url are attacker-controlled (any image can set them), and esc()
+// alone doesn't stop a "javascript:" URI from executing in our origin.
+function safeUrl(u) {
+  try {
+    const parsed = new URL(String(u ?? ''), location.href);
+    return ['http:', 'https:'].includes(parsed.protocol) ? String(u) : '#';
+  } catch (_) {
+    return '#';
+  }
+}
+
 // ── Hearth Mini-Spinner ─────────────────────────────────────────────────────
 // Returns an inline SVG with the looping running-light triangle.
 // size: pixel size (default 22). Works wherever innerHTML is set.

@@ -251,7 +251,7 @@ function containerRow(c) {
     (ports.length > 4 ? `<span class="port" style="opacity:.6">+${ports.length - 4}</span>` : '');
   const webUrl = getContainerWebUrl(c);
   const openBtn = webUrl
-    ? `<a href="${esc(webUrl)}" target="_blank" rel="noopener"
+    ? `<a href="${esc(safeUrl(webUrl))}" target="_blank" rel="noopener"
          class="btn sm ghost row-open-btn" title="Open in new tab"
          onclick="event.stopPropagation()">↗</a>`
     : '';
@@ -342,7 +342,7 @@ function openContainerDetail(id, name) {
   const openBtn = document.getElementById('cd-open-btn');
   const webUrl  = getContainerWebUrl(c);
   openBtn.style.display = webUrl ? '' : 'none';
-  openBtn.onclick = () => window.open(webUrl, '_blank');
+  openBtn.onclick = () => window.open(safeUrl(webUrl), '_blank');
 
   // Edit-View ausblenden
   document.getElementById('cd-info-view').style.display  = '';

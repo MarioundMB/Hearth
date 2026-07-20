@@ -23,7 +23,7 @@ const fsp = require('fs/promises');
 const { PassThrough } = require('stream');
 const crypto = require('crypto');
 const os = require('os');
-const { exec, spawn } = require('child_process');
+const { exec, execFile, spawn } = require('child_process');
 const bcrypt = require('bcryptjs');
 const BCRYPT_ROUNDS = 12;
 const { authenticator } = require('otplib');
@@ -279,10 +279,43 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
+      // 'auto' marks the cookie Secure only on an actual HTTPS connection
+      // (direct via the local-HTTPS admin server, or via the reverse proxy's
+      // X-Forwarded-Proto — trust proxy is enabled above) — plain 'true'
+      // would break login entirely on the default plain-HTTP admin port.
+      secure: 'auto',
       maxAge: 1000 * 60 * 60 * 12, // 12 Stunden
     },
   })
 );
+
+// Simple in-memory brute-force throttle for /api/login and /api/2fa/verify —
+// keyed by IP, not per-account, so it can't be used to lock a known admin
+// username out by spraying wrong passwords from one address.
+const _loginAttempts = new Map(); // ip -> { count, firstAttempt }
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+function _isRateLimited(ip) {
+  const rec = _loginAttempts.get(ip);
+  if (!rec) return false;
+  if (Date.now() - rec.firstAttempt > LOGIN_WINDOW_MS) { _loginAttempts.delete(ip); return false; }
+  return rec.count >= LOGIN_MAX_ATTEMPTS;
+}
+function _registerFailedAttempt(ip) {
+  const now = Date.now();
+  const rec = _loginAttempts.get(ip);
+  if (!rec || now - rec.firstAttempt > LOGIN_WINDOW_MS) {
+    _loginAttempts.set(ip, { count: 1, firstAttempt: now });
+  } else {
+    rec.count++;
+  }
+  if (_loginAttempts.size > 5000) {
+    for (const [k, v] of _loginAttempts) { if (now - v.firstAttempt > LOGIN_WINDOW_MS) _loginAttempts.delete(k); }
+  }
+}
+function _clearRateLimit(ip) {
+  _loginAttempts.delete(ip);
+}
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.authed) return next();
@@ -818,12 +851,14 @@ function nginxConfForRule(rule) {
   const forceSsl = rule.forceSsl !== false;
   const http2 = !!rule.http2;
 
-  // IP access control
+  // IP access control — validated here (not just at rule-save time) since
+  // this is the actual point where values reach the nginx config file,
+  // regardless of which route wrote the rule.
   const ipLines = [];
-  (rule.ipDenylist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
+  (rule.ipDenylist || '').split(',').map(s => s.trim()).filter(s => IPV4_RE.test(s) || IPV6_RE.test(s)).forEach(ip => {
     ipLines.push(`    deny ${ip};`);
   });
-  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(Boolean).forEach(ip => {
+  (rule.ipAllowlist || '').split(',').map(s => s.trim()).filter(s => IPV4_RE.test(s) || IPV6_RE.test(s)).forEach(ip => {
     ipLines.push(`    allow ${ip};`);
   });
   if ((rule.ipAllowlist || '').trim().length > 0) {
@@ -1793,7 +1828,7 @@ app.get('/api/proxy/status', requireAuth, (req, res) => {
   res.json({ running: nginxRunning, port: PROXY_PORT, rules: (runtimeConfig.proxyRules || []).length });
 });
 
-app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/rules', requireAdmin, asyncHandler(async (req, res) => {
   const {
     domain, extraDomains, forwardScheme, forwardHost, forwardPort,
     locations, enabled = true, cfSync = false,
@@ -1838,7 +1873,7 @@ app.post('/api/proxy/rules', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true, id });
 }));
 
-app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/proxy/rules/:id', requireAdmin, asyncHandler(async (req, res) => {
   const {
     domain, extraDomains, forwardScheme, forwardHost, forwardPort,
     locations, enabled, cfSync,
@@ -1903,7 +1938,7 @@ app.put('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.delete('/api/proxy/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/rules/:id', requireAdmin, asyncHandler(async (req, res) => {
   const toDelete = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   const rules = (runtimeConfig.proxyRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ proxyRules: rules });
@@ -1929,7 +1964,7 @@ app.get('/api/proxy/rules/:id/cert', requireAuth, (req, res) => {
 });
 
 const certUpload = multer({ dest: os.tmpdir(), limits: { fileSize: 1024 * 1024 } });
-app.post('/api/proxy/rules/:id/cert/upload', requireAuth, certUpload.fields([
+app.post('/api/proxy/rules/:id/cert/upload', requireAdmin, certUpload.fields([
   { name: 'cert', maxCount: 1 },
   { name: 'key',  maxCount: 1 },
 ]), asyncHandler(async (req, res) => {
@@ -1953,7 +1988,7 @@ app.post('/api/proxy/rules/:id/cert/upload', requireAuth, certUpload.fields([
   res.json({ ok: true });
 }));
 
-app.post('/api/proxy/rules/:id/cert/letsencrypt', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/rules/:id/cert/letsencrypt', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   if (!rule) return res.status(404).json({ ok: false });
   // Remove existing cert so it can be replaced
@@ -1973,7 +2008,7 @@ app.post('/api/proxy/rules/:id/cert/letsencrypt', requireAuth, asyncHandler(asyn
 // Delete the current certificate and fall back to a fresh self-signed one —
 // there was previously no way to get unstuck from a broken/unwanted cert
 // short of editing files on disk by hand.
-app.delete('/api/proxy/rules/:id/cert', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/rules/:id/cert', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.id);
   if (!rule) return res.status(404).json({ ok: false });
   const { dir } = certPaths(rule.domain);
@@ -1996,7 +2031,7 @@ app.get('/api/proxy/redirects', requireAuth, (req, res) => {
   res.json(runtimeConfig.redirectRules || []);
 });
 
-app.post('/api/proxy/redirects', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/redirects', requireAdmin, asyncHandler(async (req, res) => {
   const {
     domain, extraDomains, targetUrl, statusCode = 301, preservePath = false,
     enabled = true, cfSync = false, forceSsl = true, http2 = false,
@@ -2030,7 +2065,7 @@ app.post('/api/proxy/redirects', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true, id });
 }));
 
-app.put('/api/proxy/redirects/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/proxy/redirects/:id', requireAdmin, asyncHandler(async (req, res) => {
   const {
     domain, extraDomains, targetUrl, statusCode, preservePath,
     enabled, cfSync, forceSsl, http2, hstsEnabled, hstsSubdomains,
@@ -2072,7 +2107,7 @@ app.put('/api/proxy/redirects/:id', requireAuth, asyncHandler(async (req, res) =
   res.json({ ok: true });
 }));
 
-app.delete('/api/proxy/redirects/:id', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/redirects/:id', requireAdmin, asyncHandler(async (req, res) => {
   const toDelete = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
   const redirects = (runtimeConfig.redirectRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ redirectRules: redirects });
@@ -2092,7 +2127,7 @@ app.get('/api/proxy/redirects/:id/cert', requireAuth, (req, res) => {
   res.json({ ok: true, ...info, certType: rule.certType || 'self-signed' });
 });
 
-app.post('/api/proxy/redirects/:id/cert/letsencrypt', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/redirects/:id/cert/letsencrypt', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
   if (!rule) return res.status(404).json({ ok: false });
   const { cert, key } = certPaths(rule.domain);
@@ -2108,7 +2143,7 @@ app.post('/api/proxy/redirects/:id/cert/letsencrypt', requireAuth, asyncHandler(
   res.json({ ok: true, ...info });
 }));
 
-app.delete('/api/proxy/redirects/:id/cert', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/redirects/:id/cert', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.redirectRules || []).find(r => r.id === req.params.id);
   if (!rule) return res.status(404).json({ ok: false });
   const { dir } = certPaths(rule.domain);
@@ -2131,7 +2166,7 @@ app.get('/api/proxy/404hosts', requireAuth, (req, res) => {
   res.json(runtimeConfig.notFoundHosts || []);
 });
 
-app.post('/api/proxy/404hosts', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/404hosts', requireAdmin, asyncHandler(async (req, res) => {
   const { domain, extraDomains, enabled = true, http2 = false, hstsEnabled = false, hstsSubdomains = false } = req.body || {};
   if (!domain) return res.status(400).json({ error: 'domain is required' });
   validateDomain(domain.trim());
@@ -2155,7 +2190,7 @@ app.post('/api/proxy/404hosts', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true, id });
 }));
 
-app.put('/api/proxy/404hosts/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/proxy/404hosts/:id', requireAdmin, asyncHandler(async (req, res) => {
   const { domain, extraDomains, enabled, http2, hstsEnabled, hstsSubdomains } = req.body || {};
   const existing = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
   if (!existing) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
@@ -2185,7 +2220,7 @@ app.put('/api/proxy/404hosts/:id', requireAuth, asyncHandler(async (req, res) =>
   res.json({ ok: true });
 }));
 
-app.delete('/api/proxy/404hosts/:id', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/404hosts/:id', requireAdmin, asyncHandler(async (req, res) => {
   const hosts = (runtimeConfig.notFoundHosts || []).filter((r) => r.id !== req.params.id);
   saveConfig({ notFoundHosts: hosts });
   await writeProxyConfigs(runtimeConfig.proxyRules || [], runtimeConfig.redirectRules || [], hosts);
@@ -2203,7 +2238,7 @@ app.get('/api/proxy/404hosts/:id/cert', requireAuth, (req, res) => {
   res.json({ ok: true, ...info, certType: rule.certType || 'self-signed' });
 });
 
-app.post('/api/proxy/404hosts/:id/cert/letsencrypt', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/404hosts/:id/cert/letsencrypt', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
   if (!rule) return res.status(404).json({ ok: false });
   const { cert, key } = certPaths(rule.domain);
@@ -2219,7 +2254,7 @@ app.post('/api/proxy/404hosts/:id/cert/letsencrypt', requireAuth, asyncHandler(a
   res.json({ ok: true, ...info });
 }));
 
-app.delete('/api/proxy/404hosts/:id/cert', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/404hosts/:id/cert', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.notFoundHosts || []).find(r => r.id === req.params.id);
   if (!rule) return res.status(404).json({ ok: false });
   const { dir } = certPaths(rule.domain);
@@ -2271,7 +2306,7 @@ app.get('/api/proxy/streams', requireAuth, (req, res) => {
   res.json(runtimeConfig.streamRules || []);
 });
 
-app.post('/api/proxy/streams', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/proxy/streams', requireAdmin, asyncHandler(async (req, res) => {
   const { name, listenPort, protocol = 'tcp', forwardHost, forwardPort, enabled = true } = req.body || {};
   if (!forwardHost || !String(forwardHost).trim()) return res.status(400).json({ error: 'forwardHost is required' });
   if (!['tcp', 'udp', 'both'].includes(protocol)) return res.status(400).json({ error: 'invalid protocol' });
@@ -2296,7 +2331,7 @@ app.post('/api/proxy/streams', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true, id });
 }));
 
-app.put('/api/proxy/streams/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/proxy/streams/:id', requireAdmin, asyncHandler(async (req, res) => {
   const { name, listenPort, protocol, forwardHost, forwardPort, enabled } = req.body || {};
   const existing = (runtimeConfig.streamRules || []).find(r => r.id === req.params.id);
   if (!existing) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
@@ -2330,7 +2365,7 @@ app.put('/api/proxy/streams/:id', requireAuth, asyncHandler(async (req, res) => 
   res.json({ ok: true });
 }));
 
-app.delete('/api/proxy/streams/:id', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/proxy/streams/:id', requireAdmin, asyncHandler(async (req, res) => {
   const streams = (runtimeConfig.streamRules || []).filter((r) => r.id !== req.params.id);
   saveConfig({ streamRules: streams });
   await writeStreamConfigs(streams);
@@ -2637,7 +2672,7 @@ async function cfDeleteDnsRecord(rule) {
 }
 
 // Cloudflare – verify credentials
-app.post('/api/cloudflare/verify', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/cloudflare/verify', requireAdmin, asyncHandler(async (req, res) => {
   const result = await cfFetch('/user/tokens/verify');
   if (result.success) {
     res.json({ ok: true, message: result.result?.status || 'active' });
@@ -2647,7 +2682,7 @@ app.post('/api/cloudflare/verify', requireAuth, asyncHandler(async (req, res) =>
 }));
 
 // Cloudflare – manual DNS sync for one rule
-app.post('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/cloudflare/dns-sync/:ruleId', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.ruleId);
   if (!rule) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
   const ip = await cfGetPublicIp();
@@ -2671,7 +2706,7 @@ app.post('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (re
 }));
 
 // Cloudflare – delete DNS record for one rule
-app.delete('/api/cloudflare/dns-sync/:ruleId', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/cloudflare/dns-sync/:ruleId', requireAdmin, asyncHandler(async (req, res) => {
   const rule = (runtimeConfig.proxyRules || []).find(r => r.id === req.params.ruleId);
   if (!rule) return res.status(404).json({ ok: false, error: 'Regel nicht gefunden' });
   await cfDeleteDnsRecord(rule);
@@ -2695,7 +2730,7 @@ app.get('/api/cloudflare/tunnel/status', requireAuth, asyncHandler(async (req, r
   }
 }));
 
-app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/cloudflare/tunnel/start', requireAdmin, asyncHandler(async (req, res) => {
   const token = runtimeConfig.cfTunnelToken;
   if (!token) return res.status(400).json({ ok: false, error: 'Kein Tunnel-Token konfiguriert' });
   try {
@@ -2727,7 +2762,7 @@ app.post('/api/cloudflare/tunnel/start', requireAuth, asyncHandler(async (req, r
   res.json({ ok: true });
 }));
 
-app.post('/api/cloudflare/tunnel/stop', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/cloudflare/tunnel/stop', requireAdmin, asyncHandler(async (req, res) => {
   try {
     const c = docker.getContainer(CF_TUNNEL_CONTAINER);
     await c.stop();
@@ -2769,7 +2804,7 @@ app.get('/api/firewall/status', requireAuth, asyncHandler(async (req, res) => {
   }
 }));
 
-app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/firewall/rules', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { action, port, proto = 'any', from = 'any', to = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
   if (!action || !port) return res.status(400).json({ error: 'action and port are required' });
@@ -2785,7 +2820,7 @@ app.post('/api/firewall/rules', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true, id, rules });
 }));
 
-app.put('/api/firewall/rules/reorder', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/firewall/rules/reorder', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { ids } = req.body || {};
   if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
@@ -2796,7 +2831,7 @@ app.put('/api/firewall/rules/reorder', requireAuth, asyncHandler(async (req, res
   res.json({ ok: true, warnings });
 }));
 
-app.put('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/firewall/rules/:id', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { action, port, proto = 'any', from = 'any', to = 'any', direction = 'in', iface = '', comment = '' } = req.body || {};
   if (!isValidEndpoint(from)) return res.status(400).json({ error: `Invalid source: ${from}` });
@@ -2811,7 +2846,7 @@ app.put('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) =>
   res.json({ ok: true, warnings });
 }));
 
-app.patch('/api/firewall/rules/:id/toggle', requireAuth, asyncHandler(async (req, res) => {
+app.patch('/api/firewall/rules/:id/toggle', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const rules = runtimeConfig.firewallRules || [];
   const rule = rules.find(r => r.id === req.params.id);
@@ -2822,7 +2857,7 @@ app.patch('/api/firewall/rules/:id/toggle', requireAuth, asyncHandler(async (req
   res.json({ ok: true, enabled: rule.enabled !== false, warnings });
 }));
 
-app.delete('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/firewall/rules/:id', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const rules = (runtimeConfig.firewallRules || []).filter(r => r.id !== req.params.id);
   saveConfig({ firewallRules: rules });
@@ -2831,13 +2866,15 @@ app.delete('/api/firewall/rules/:id', requireAuth, asyncHandler(async (req, res)
 }));
 
 // Legacy: delete by UFW rule number (expert mode + auto-rules)
-app.delete('/api/firewall/rules/num/:num', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/firewall/rules/num/:num', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
-  const result = await fwExec(`echo y | ufw delete ${req.params.num}`);
+  const num = parseInt(req.params.num, 10);
+  if (!Number.isInteger(num) || num < 1) return res.status(400).json({ error: 'Invalid rule number' });
+  const result = await fwExec(`echo y | ufw delete ${num}`);
   res.json({ ok: true, result });
 }));
 
-app.post('/api/firewall/toggle', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/firewall/toggle', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { enable } = req.body || {};
   const result = await fwExec(enable ? 'ufw --force enable' : 'ufw disable');
@@ -2878,7 +2915,7 @@ function _fwCleanAliasInput(body, existingKind) {
   return { name, kind, members };
 }
 
-app.post('/api/firewall/aliases', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/firewall/aliases', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { name, kind, members } = _fwCleanAliasInput(req.body);
   const aliases = runtimeConfig.firewallAliases || [];
@@ -2890,7 +2927,7 @@ app.post('/api/firewall/aliases', requireAuth, asyncHandler(async (req, res) => 
   res.json({ ok: true, id, aliases: runtimeConfig.firewallAliases });
 }));
 
-app.put('/api/firewall/aliases/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/firewall/aliases/:id', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const aliases = runtimeConfig.firewallAliases || [];
   const idx = aliases.findIndex(a => a.id === req.params.id);
@@ -2905,7 +2942,7 @@ app.put('/api/firewall/aliases/:id', requireAuth, asyncHandler(async (req, res) 
   res.json({ ok: true, warnings });
 }));
 
-app.delete('/api/firewall/aliases/:id', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/firewall/aliases/:id', requireAdmin, asyncHandler(async (req, res) => {
   const aliases = runtimeConfig.firewallAliases || [];
   const alias = aliases.find(a => a.id === req.params.id);
   if (!alias) return res.status(404).json({ error: 'Alias not found' });
@@ -2933,7 +2970,7 @@ app.get('/api/firewall/export', requireAuth, asyncHandler(async (req, res) => {
   });
 }));
 
-app.post('/api/firewall/import', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/firewall/import', requireAdmin, asyncHandler(async (req, res) => {
   if (!await fwAvailable()) return res.status(503).json({ error: 'Firewall container not available' });
   const { mode = 'replace', rules = [], aliases = [] } = req.body || {};
   if (!Array.isArray(rules) || !Array.isArray(aliases)) {
@@ -2989,6 +3026,7 @@ function _readHostHostname() {
 
 app.get('/api/settings', requireAuth, (req, res) => {
   const sysHostname = _readHostHostname();
+  const isAdmin = req.session?.role === 'admin';
   res.json({
     serverName: runtimeConfig.serverName,
     hostname: sysHostname,
@@ -3011,9 +3049,10 @@ app.get('/api/settings', requireAuth, (req, res) => {
     filesRootFull: FILES_ROOT === '/host',
     dataDir:     DATA_DIR,
     version:     VERSION,
-    cfApiToken:       runtimeConfig.cfApiToken || '',
-    cfZoneId:         runtimeConfig.cfZoneId || '',
-    cfTunnelToken:    runtimeConfig.cfTunnelToken || '',
+    // Secrets — only ever sent to admins, never to viewer-role accounts.
+    cfApiToken:       isAdmin ? (runtimeConfig.cfApiToken || '') : '',
+    cfZoneId:         isAdmin ? (runtimeConfig.cfZoneId || '') : '',
+    cfTunnelToken:    isAdmin ? (runtimeConfig.cfTunnelToken || '') : '',
     serverPublicIp:   runtimeConfig.serverPublicIp || '',
     autoUpdateLinux:        runtimeConfig.autoUpdateLinux ?? { enabled: false },
     notifArchiveMax:        runtimeConfig.notifArchiveMax  || 500,
@@ -3023,7 +3062,7 @@ app.get('/api/settings', requireAuth, (req, res) => {
 
 app.post(
   '/api/settings',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const {
       serverName, lang, showOfflineApps, refreshInterval, autoUpdate, updateBranch,
@@ -3106,19 +3145,19 @@ app.post(
   })
 );
 
-app.post('/api/system/restart', requireAuth, (req, res) => {
+app.post('/api/system/restart', requireAdmin, (req, res) => {
   res.json({ ok: true });
   setTimeout(() => process.exit(0), 400);
 });
 
-app.post('/api/system/reboot', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/system/reboot', requireAdmin, asyncHandler(async (req, res) => {
   res.json({ ok: true });
   setTimeout(() => {
     exec('docker run --rm --privileged --pid=host alpine sh -c "nsenter -t 1 -m -u -n -i -- reboot" 2>&1', () => {});
   }, 500);
 }));
 
-app.post('/api/system/shutdown', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/system/shutdown', requireAdmin, asyncHandler(async (req, res) => {
   res.json({ ok: true });
   setTimeout(() => {
     exec('docker run --rm --privileged --pid=host alpine sh -c "nsenter -t 1 -m -u -n -i -- halt -p" 2>&1', () => {});
@@ -3126,7 +3165,7 @@ app.post('/api/system/shutdown', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // Terminal: issue a one-time token the WebSocket handshake validates
-app.post('/api/terminal/token', requireAuth, (req, res) => {
+app.post('/api/terminal/token', requireAdmin, (req, res) => {
   const { username } = req.body || {};
   if (!username || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username)) {
     return res.status(400).json({ error: 'Ungültiger Benutzername' });
@@ -3172,13 +3211,17 @@ app.post('/api/setup', asyncHandler(async (req, res) => {
 // Auth-Routen
 // ---------------------------------------------------------------------------
 app.post('/api/login', asyncHandler(async (req, res) => {
+  if (_isRateLimited(req.ip)) {
+    return res.status(429).json({ error: 'Too many attempts — try again in a few minutes' });
+  }
   const { username, password, rememberMe } = req.body || {};
   const users = runtimeConfig.users || [];
   const user  = users.find(u => u.username === username);
-  if (!user) return res.status(401).json({ error: 'Invalid username or password' });
+  if (!user) { _registerFailedAttempt(req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
 
   const passOk = await bcrypt.compare(String(password || ''), user.password);
-  if (!passOk) return res.status(401).json({ error: 'Invalid username or password' });
+  if (!passOk) { _registerFailedAttempt(req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
+  _clearRateLimit(req.ip);
 
   if (user.totp_enabled && user.totp_secret) {
     req.session.pending2fa = username;
@@ -3186,12 +3229,13 @@ app.post('/api/login', asyncHandler(async (req, res) => {
     return res.json({ pending: '2fa' });
   }
 
-  req.session.authed = true;
-  req.session.user   = username;
-  req.session.role   = user.role;
-  delete req.session.pending2fa;
-  if (rememberMe) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
-  res.json({ ok: true, role: user.role });
+  req.session.regenerate(() => {
+    req.session.authed = true;
+    req.session.user   = username;
+    req.session.role   = user.role;
+    if (rememberMe) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
+    res.json({ ok: true, role: user.role });
+  });
 }));
 
 app.post('/api/logout', (req, res) => {
@@ -3262,22 +3306,28 @@ app.post('/api/2fa/disable', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/2fa/verify', asyncHandler(async (req, res) => {
+  if (_isRateLimited(req.ip)) {
+    return res.status(429).json({ error: 'Too many attempts — try again in a few minutes' });
+  }
   const pendingUser = req.session.pending2fa;
   if (!pendingUser) return res.status(400).json({ error: 'No pending 2FA login' });
   const { token } = req.body || {};
   if (!token) return res.status(400).json({ error: 'Token required' });
   const user = (runtimeConfig.users || []).find(u => u.username === pendingUser);
   if (!user || !user.totp_enabled) return res.status(400).json({ error: 'Invalid state' });
-  if (!authenticator.verify({ token: String(token), secret: user.totp_secret }))
+  if (!authenticator.verify({ token: String(token), secret: user.totp_secret })) {
+    _registerFailedAttempt(req.ip);
     return res.status(401).json({ error: 'Invalid code' });
+  }
+  _clearRateLimit(req.ip);
   const remember = !!req.session.pending2faRememberMe;
-  delete req.session.pending2fa;
-  delete req.session.pending2faRememberMe;
-  req.session.authed = true;
-  req.session.user   = user.username;
-  req.session.role   = user.role;
-  if (remember) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
-  res.json({ ok: true, role: user.role });
+  req.session.regenerate(() => {
+    req.session.authed = true;
+    req.session.user   = user.username;
+    req.session.role   = user.role;
+    if (remember) req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
+    res.json({ ok: true, role: user.role });
+  });
 }));
 
 // ---------------------------------------------------------------------------
@@ -3395,7 +3445,7 @@ app.get('/api/security/local-https', requireAuth, (req, res) => {
   });
 });
 
-app.post('/api/security/local-https', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/security/local-https', requireAdmin, asyncHandler(async (req, res) => {
   const host = String(req.body?.host || '').trim();
   if (!host || !/^[a-zA-Z0-9.-]+$/.test(host)) {
     return res.status(400).json({ error: 'Gültiger Hostname oder IP erforderlich' });
@@ -3935,7 +3985,7 @@ app.get('/api/stacks/custom', requireAuth, (req, res) => {
   res.json(runtimeConfig.customStacks || []);
 });
 
-app.post('/api/stacks/custom', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/stacks/custom', requireAdmin, asyncHandler(async (req, res) => {
   const { json, url } = req.body || {};
   let stackDef;
   if (url) {
@@ -3956,7 +4006,7 @@ app.post('/api/stacks/custom', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true, id: stackDef.id });
 }));
 
-app.put('/api/stacks/custom/:id', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/stacks/custom/:id', requireAdmin, asyncHandler(async (req, res) => {
   const { json } = req.body || {};
   const stackDef = typeof json === 'string' ? JSON.parse(json) : json;
   _validateCustomStack(stackDef);
@@ -3969,7 +4019,7 @@ app.put('/api/stacks/custom/:id', requireAuth, asyncHandler(async (req, res) => 
   res.json({ ok: true });
 }));
 
-app.delete('/api/stacks/custom/:id', requireAuth, (req, res) => {
+app.delete('/api/stacks/custom/:id', requireAdmin, (req, res) => {
   const customs = runtimeConfig.customStacks || [];
   const filtered = customs.filter(s => s.id !== req.params.id);
   if (filtered.length === customs.length) return res.status(404).json({ error: 'Custom stack not found' });
@@ -3979,7 +4029,7 @@ app.delete('/api/stacks/custom/:id', requireAuth, (req, res) => {
 
 // ── Stack Deploy ─────────────────────────────────────────────────────────────
 
-app.post('/api/stacks/:presetId/services/:serviceKey/deploy', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/stacks/:presetId/services/:serviceKey/deploy', requireAdmin, asyncHandler(async (req, res) => {
   const customStacks = runtimeConfig.customStacks || [];
   const preset = [...STACK_PRESETS, ...customStacks].find(p => p.id === req.params.presetId);
   if (!preset) return res.status(404).json({ error: 'Stack not found' });
@@ -4094,7 +4144,7 @@ app.get('/api/theme', requireAuth, (req, res) => {
   res.json(t ? { id: t.id, name: t.name, sourceUrl: t.sourceUrl || null } : null);
 });
 
-app.post('/api/theme', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/theme', requireAdmin, asyncHandler(async (req, res) => {
   const { css, url, id, name } = req.body || {};
   let finalCss = css || '';
   let sourceUrl = null;
@@ -4110,7 +4160,7 @@ app.post('/api/theme', requireAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.delete('/api/theme', requireAuth, (req, res) => {
+app.delete('/api/theme', requireAdmin, (req, res) => {
   saveConfig({ customTheme: null });
   res.json({ ok: true });
 });
@@ -4235,7 +4285,7 @@ app.get('/api/system-updates/check', requireAuth, asyncHandler(async (req, res) 
   }
 }));
 
-app.post('/api/system-updates/install', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/system-updates/install', requireAdmin, asyncHandler(async (req, res) => {
   const running = [..._sysUpdateJobs.values()].find(j => !j.done);
   if (running) return res.json({ jobId: running.id, status: 'running' });
   const jobId = String(_sysUpdateJobSeq++);
@@ -4371,7 +4421,7 @@ app.get('/api/raid/disks', requireAuth, asyncHandler(async (req, res) => {
   res.json({ disks });
 }));
 
-app.post('/api/raid/create', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/raid/create', requireAdmin, asyncHandler(async (req, res) => {
   const { level, devices, mddev } = req.body;
   const validLevels = ['0', '1', '4', '5', '6', '10'];
   if (!validLevels.includes(String(level))) return res.status(400).json({ error: 'Ungültiger RAID-Level' });
@@ -4398,14 +4448,14 @@ app.post('/api/raid/create', requireAuth, asyncHandler(async (req, res) => {
   }
 }));
 
-app.post('/api/raid/array/:dev/stop', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/raid/array/:dev/stop', requireAdmin, asyncHandler(async (req, res) => {
   const path = _validMd(req.params.dev);
   if (!path) return res.status(400).json({ error: 'Ungültiger Array-Name' });
   const { stdout, stderr, ok } = await raidExec(`mdadm --stop ${path} 2>&1`);
   res.json({ ok, output: stdout || stderr });
 }));
 
-app.post('/api/raid/array/:dev/add-disk', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/raid/array/:dev/add-disk', requireAdmin, asyncHandler(async (req, res) => {
   const path = _validMd(req.params.dev);
   const disk = _validDev(req.body.disk);
   if (!path || !disk) return res.status(400).json({ error: 'Ungültige Parameter' });
@@ -4413,7 +4463,7 @@ app.post('/api/raid/array/:dev/add-disk', requireAuth, asyncHandler(async (req, 
   res.json({ ok, output: stdout || stderr });
 }));
 
-app.post('/api/raid/array/:dev/fail-disk', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/raid/array/:dev/fail-disk', requireAdmin, asyncHandler(async (req, res) => {
   const path = _validMd(req.params.dev);
   const disk = _validDev(req.body.disk);
   if (!path || !disk) return res.status(400).json({ error: 'Ungültige Parameter' });
@@ -4421,7 +4471,7 @@ app.post('/api/raid/array/:dev/fail-disk', requireAuth, asyncHandler(async (req,
   res.json({ ok, output: stdout || stderr });
 }));
 
-app.post('/api/raid/array/:dev/remove-disk', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/raid/array/:dev/remove-disk', requireAdmin, asyncHandler(async (req, res) => {
   const path = _validMd(req.params.dev);
   const disk = _validDev(req.body.disk);
   if (!path || !disk) return res.status(400).json({ error: 'Ungültige Parameter' });
@@ -4429,7 +4479,7 @@ app.post('/api/raid/array/:dev/remove-disk', requireAuth, asyncHandler(async (re
   res.json({ ok, output: stdout || stderr });
 }));
 
-app.delete('/api/raid/array/:dev', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/raid/array/:dev', requireAdmin, asyncHandler(async (req, res) => {
   const path = _validMd(req.params.dev);
   if (!path) return res.status(400).json({ error: 'Ungültiger Array-Name' });
   const { stdout: detail } = await raidExec(`mdadm --detail ${path} 2>/dev/null || echo ""`);
@@ -4513,13 +4563,13 @@ app.get('/api/notifications/archive', requireAuth, (req, res) => {
   res.json({ items: _notifArchive.slice(offset, offset + limit), total: _notifArchive.length });
 });
 
-app.delete('/api/notifications/archive', requireAuth, (req, res) => {
+app.delete('/api/notifications/archive', requireAdmin, (req, res) => {
   _notifArchive = [];
   _saveNotifArchive();
   res.json({ ok: true });
 });
 
-app.post('/api/notifications/archive/max', requireAuth, (req, res) => {
+app.post('/api/notifications/archive/max', requireAdmin, (req, res) => {
   const max = parseInt(req.body?.max, 10);
   if (!max || max < 50) return res.status(400).json({ error: 'min 50' });
   saveConfig({ notifArchiveMax: max });
@@ -4559,7 +4609,7 @@ app.get(
 // Toggle guest-page visibility for a single container (no recreate needed)
 app.post(
   '/api/containers/:id/guest-visibility',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const { visible } = req.body || {};
     // Resolve name for stable storage across container recreates
@@ -4860,7 +4910,7 @@ app.get('/api/updates/branches', requireAuth, asyncHandler(async (req, res) => {
 // Einzelnen Container auf neues Image updaten (pull → recreate)
 app.post(
   '/api/updates/container/:id',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const c    = docker.getContainer(req.params.id);
     const info = await c.inspect();
@@ -5384,7 +5434,7 @@ function scheduleNightlyUpdate() {
 // Manual trigger endpoint
 app.post(
   '/api/updates/hearth',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     try {
       const result = await runHearthSelfUpdate();
@@ -5448,7 +5498,7 @@ app.get(
 
 app.post(
   '/api/containers/:id/:action(start|stop|restart|pause|unpause)',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const c = docker.getContainer(req.params.id);
     await c[req.params.action]();
@@ -5458,7 +5508,7 @@ app.post(
 
 app.delete(
   '/api/containers/:id',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const force = req.query.force === 'true';
     await docker.getContainer(req.params.id).remove({ force, v: false });
@@ -5469,7 +5519,7 @@ app.delete(
 // Container bearbeiten (stop → remove → neu erstellen mit neuen Einstellungen)
 app.put(
   '/api/containers/:id',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const b = req.body || {};
     if (!b.image) { res.status(400); throw new Error('Image is required'); }
@@ -5559,7 +5609,7 @@ app.get(
  */
 app.post(
   '/api/containers',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const b = req.body || {};
     if (!b.image) {
@@ -5674,7 +5724,7 @@ function pullImage(image) {
 
 app.post(
   '/api/images/pull',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const { image } = req.body || {};
     if (!image) {
@@ -5688,7 +5738,7 @@ app.post(
 
 app.delete(
   '/api/images/:id',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     await docker.getImage(req.params.id).remove({ force: req.query.force === 'true' });
     res.json({ ok: true });
@@ -5696,7 +5746,7 @@ app.delete(
 );
 
 // Images prune (dangling <none>:<none> images)
-app.post('/api/images/prune', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/images/prune', requireAdmin, asyncHandler(async (req, res) => {
   const result = await docker.pruneImages({ filters: JSON.stringify({ dangling: ['true'] }) });
   res.json({ ok: true, deleted: result.ImagesDeleted?.length || 0, freed: result.SpaceReclaimed || 0 });
 }));
@@ -5777,7 +5827,7 @@ app.get(
 // Write text file content
 app.put(
   '/api/files/content',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const full = safeResolve(req.body.path);
     const st = await fsp.stat(full).catch(() => null);
@@ -5790,14 +5840,15 @@ app.put(
 const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 1024 * 1024 * 1024 } });
 app.post(
   '/api/files/upload',
-  requireAuth,
+  requireAdmin,
   upload.array('files'),
   asyncHandler(async (req, res) => {
     const destDir = safeResolve(req.body.path || '/');
     for (const f of req.files || []) {
-      const target = path.join(destDir, f.originalname);
-      // sicherstellen, dass das Ziel innerhalb FILES_ROOT bleibt
-      if (!target.startsWith(FILES_ROOT)) {
+      let target;
+      try {
+        target = safeResolve(path.relative(FILES_ROOT, path.join(destDir, f.originalname)));
+      } catch (_) {
         await fsp.unlink(f.path).catch(() => {});
         continue;
       }
@@ -5813,7 +5864,7 @@ app.post(
 
 app.post(
   '/api/files/mkdir',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const target = safeResolve(path.join(req.body.path || '/', req.body.name || ''));
     await fsp.mkdir(target, { recursive: true });
@@ -5823,7 +5874,7 @@ app.post(
 
 app.post(
   '/api/files/rename',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const from = safeResolve(req.body.from);
     const to = safeResolve(req.body.to);
@@ -5834,7 +5885,7 @@ app.post(
 
 app.delete(
   '/api/files',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const target = safeResolve(req.query.path);
     if (target === FILES_ROOT) {
@@ -5848,12 +5899,12 @@ app.delete(
 
 app.post(
   '/api/files/copy',
-  requireAuth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const from = safeResolve(req.body.from);
     const toDir = safeResolve(req.body.toDir || '/');
     const name = req.body.name || path.basename(from);
-    const target = path.join(toDir, name);
+    const target = safeResolve(path.relative(FILES_ROOT, path.join(toDir, name)));
     if (target === from) {
       res.status(400);
       throw new Error('Quelle und Ziel sind identisch');
@@ -5879,7 +5930,7 @@ app.get(
           let used = 0, total = 0;
           try {
             await new Promise((resolve) => {
-              exec(`df -k "${p}"`, (err, stdout) => {
+              execFile('df', ['-k', p], (err, stdout) => {
                 if (!err && stdout) {
                   const lines = stdout.trim().split('\n');
                   const parts = lines[lines.length - 1].trim().split(/\s+/);
@@ -5931,16 +5982,17 @@ function _serveHtml(html, res) {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.send(_injectTheme(injectVersion(html)));
 }
-for (const page of ['admin.html', 'index.html', 'login.html', 'setup.html']) {
+for (const page of ['index.html', 'login.html', 'setup.html']) {
   app.get('/' + page.replace('index.html', ''), (req, res, next) => {
     const file = path.join(_STATIC_DIR, page);
     fs.readFile(file, 'utf8', (err, html) => { if (err) return next(); _serveHtml(html, res); });
   });
 }
-app.get('/admin', (req, res, next) => {
-  const file = path.join(_STATIC_DIR, 'admin.html');
-  fs.readFile(file, 'utf8', (err, html) => { if (err) return next(); _serveHtml(html, res); });
-});
+// admin.html is deliberately NOT in the loop above, and is excluded from the
+// express.static mount below — it must never be served without checking the
+// session first. A direct /admin.html request is redirected through the
+// guarded /admin route (further down), the only place that actually sends it.
+app.get('/admin.html', (req, res) => res.redirect('/admin'));
 
 app.use(express.static(_STATIC_DIR));
 
@@ -6120,7 +6172,7 @@ async function applyVpnPeersEnv(tokens, extraEnvOverrides = {}) {
   await recreateVpnContainer({ PEERS: tokens.join(','), ...extraEnvOverrides }, currentPort);
 }
 
-app.post('/api/vpn/settings', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/vpn/settings', requireAdmin, asyncHandler(async (req, res) => {
   const newHost = String(req.body?.host || '').trim();
   const newPort = parseInt(req.body?.port, 10);
   if (!newHost) return res.status(400).json({ error: 'Server-Adresse darf nicht leer sein' });
@@ -6153,7 +6205,7 @@ app.post('/api/vpn/settings', requireAuth, asyncHandler(async (req, res) => {
 // container — the entrypoint generates its keys/conf itself (since no
 // privatekey-<dir> exists yet for a new name) using the same layout the
 // QR/conf routes already expect: /config/<dirName>/<dirName>.conf.
-app.post('/api/vpn/peers', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/vpn/peers', requireAdmin, asyncHandler(async (req, res) => {
   const rawName = String(req.body?.name || '').trim();
   // The image's own peer-name check is `[[:alnum:]]+` — no underscore/hyphen —
   // anything else gets silently skipped during generation, producing no peer
@@ -6190,7 +6242,7 @@ app.post('/api/vpn/peers', requireAuth, asyncHandler(async (req, res) => {
 // generating a fresh keypair — which would silently invalidate every device
 // that already scanned/imported the old config. Also folds it into $PEERS
 // if it wasn't tracked there yet (peers created before this fix).
-app.patch('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => {
+app.patch('/api/vpn/peers/:name', requireAdmin, asyncHandler(async (req, res) => {
   const oldDir = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
   const newSafe = String(req.body?.name || '').trim().replace(/[^a-zA-Z0-9]/g, '');
   if (!newSafe) return res.status(400).json({ error: 'Ungültiger Name (nur Buchstaben und Zahlen)' });
@@ -6223,7 +6275,7 @@ app.patch('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => 
 // access is revoked right away rather than waiting for the recreate below),
 // drop it from $PEERS and recreate so it doesn't come back on the next
 // restart, then delete its /config directory.
-app.delete('/api/vpn/peers/:name', requireAuth, asyncHandler(async (req, res) => {
+app.delete('/api/vpn/peers/:name', requireAdmin, asyncHandler(async (req, res) => {
   const dirName = req.params.name.replace(/[^a-zA-Z0-9_-]/g, '');
   const exists = (await vpnExec(`test -d "/config/${dirName}" && echo yes || echo no`)).trim() === 'yes';
   if (!exists) return res.status(404).json({ error: 'Client nicht gefunden' });
@@ -6288,11 +6340,10 @@ app.get('/setup', (req, res) => {
 });
 
 // Admin-Seite nur ausliefern, wenn man eingeloggt ist – sonst zum Login
-app.get('/admin', (req, res) => {
-  if (req.session && req.session.authed) {
-    return res.sendFile(path.join(__dirname, 'public', 'admin.html'));
-  }
-  return res.redirect('/login');
+app.get('/admin', (req, res, next) => {
+  if (!(req.session && req.session.authed)) return res.redirect('/login');
+  const file = path.join(_STATIC_DIR, 'admin.html');
+  fs.readFile(file, 'utf8', (err, html) => { if (err) return next(); _serveHtml(html, res); });
 });
 app.get('/login', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'login.html'))
