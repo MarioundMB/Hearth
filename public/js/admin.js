@@ -5373,22 +5373,29 @@ document.getElementById('btn-contrib-submit').addEventListener('click', () => {
     if (!name || !json) { toast(t('community.fillNameJson'), 'error'); return; }
     let parsed;
     try { parsed = JSON.parse(json); } catch { toast(t('community.invalidJson'), 'error'); return; }
-    const body = `## Community Stack Submission\n\n**Name:** ${name}\n**Description:** ${desc}\n\n\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\`\n\n---\n*Submitted via Hearth*`;
-    window.open(
-      `https://github.com/MarioundMB/Hearth/issues/new?title=${encodeURIComponent('[Community Stack] ' + name)}&body=${encodeURIComponent(body)}&labels=community-stack`,
-      '_blank'
-    );
+    const params = new URLSearchParams({
+      template: 'community-stack.yml',
+      title: `[Community Stack] ${name}`,
+      'stack-name': name,
+      'stack-description': desc,
+      'stack-json': JSON.stringify(parsed, null, 2),
+    });
+    window.open(`https://github.com/MarioundMB/Hearth/issues/new?${params.toString()}`, '_blank');
   } else {
     const name   = document.getElementById('contrib-theme-name').value.trim();
     const desc   = document.getElementById('contrib-theme-desc').value.trim();
     const author = document.getElementById('contrib-theme-author').value.trim();
     const css    = document.getElementById('contrib-theme-css').value.trim();
     if (!name || !css) { toast(t('community.fillNameCss'), 'error'); return; }
-    const body = `## Community Theme Submission\n\n**Name:** ${name}\n**Description:** ${desc}\n**Author:** ${author || 'anonymous'}\n\n\`\`\`css\n${css}\n\`\`\`\n\n---\n*Submitted via Hearth*`;
-    window.open(
-      `https://github.com/MarioundMB/Hearth/issues/new?title=${encodeURIComponent('[Community Theme] ' + name)}&body=${encodeURIComponent(body)}&labels=community-theme`,
-      '_blank'
-    );
+    const params = new URLSearchParams({
+      template: 'community-theme.yml',
+      title: `[Community Theme] ${name}`,
+      'theme-name': name,
+      'theme-description': desc,
+      'theme-css': css,
+    });
+    if (author) params.set('theme-author', author);
+    window.open(`https://github.com/MarioundMB/Hearth/issues/new?${params.toString()}`, '_blank');
   }
 });
 

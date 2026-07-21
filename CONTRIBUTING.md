@@ -37,6 +37,10 @@ This starts Hearth on `http://localhost:4500` (admin), `:3000` (guest view) and 
 - Keep new strings translatable via `public/js/i18n.js` if they're user-facing
 - No linter is enforced — just match the formatting of the surrounding code
 
+## Contributing a Community Hub stack or theme
+
+Use the [Community Stack Submission](https://github.com/MarioundMB/Hearth/issues/new?template=community-stack.yml) or [Community Theme Submission](https://github.com/MarioundMB/Hearth/issues/new?template=community-theme.yml) issue form (also reachable from Hearth's Community Hub → "+ Beitragen") instead of opening a PR directly. A GitHub Action validates the submission automatically and opens a PR for maintainer review if it passes — if it doesn't, just edit the issue with the fix and it's re-checked. Nothing goes live until a maintainer merges that PR.
+
 ## Pull requests
 
 - Branch off `main`, keep PRs focused on one change

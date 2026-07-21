@@ -1,0 +1,106 @@
+name: Community Submission Intake
+
+# Reacts to issues opened via the "Community Stack/Theme Submission" issue
+# forms (auto-labeled community-stack / community-theme). Validates the
+# submission and, if it passes, opens a PR that appends it to
+# community/{stacks,themes}/index.json. A maintainer still has to review and
+# merge that PR by hand — nothing here publishes anything automatically.
+#
+# Security notes:
+# - Issue title/body/comment text is never interpolated directly into a
+#   `run:` shell block (that's a classic script-injection hole in Actions).
+#   It's always passed through `env:` and read from `process.env`/`$VAR` in
+#   double-quoted shell contexts instead.
+# - This only reacts to `issues`, never checks out or executes anything from
+#   the issue itself — it always runs our own committed scripts against the
+#   issue text as inert data (JSON.parse / regex), so there's no equivalent
+#   of the pull_request_target "run the fork's code" trap here.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: community-submission-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  process:
+    if: >
+      contains(github.event.issue.labels.*.name, 'community-stack') ||
+      contains(github.event.issue.labels.*.name, 'community-theme')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Parse & validate submission
+        id: process
+        env:
+          SUBMISSION_TYPE: ${{ contains(github.event.issue.labels.*.name, 'community-stack') && 'stack' || 'theme' }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: node scripts/community/process-submission.js
+
+      - name: Comment - validation failed
+        if: steps.process.outputs.valid != 'true'
+        env:
+          ERRORS: ${{ steps.process.outputs.errors }}
+        run: |
+          {
+            echo "❌ **Automated validation failed.** Please edit this issue to fix the following — it gets re-checked automatically:"
+            echo ""
+            echo "$ERRORS"
+          } > /tmp/comment.md
+          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/comment.md
+
+      - name: Commit submission
+        if: steps.process.outputs.valid == 'true'
+        env:
+          BRANCH: ${{ steps.process.outputs.branch }}
+          TITLE: ${{ steps.process.outputs.title }}
+        run: |
+          git config user.name "hearth-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add community/
+          git commit -m "$TITLE"
+          git push --force origin "$BRANCH"
+
+      - name: Open or update pull request
+        if: steps.process.outputs.valid == 'true'
+        id: pr
+        env:
+          BRANCH: ${{ steps.process.outputs.branch }}
+          TITLE: ${{ steps.process.outputs.title }}
+        run: |
+          if gh pr view "$BRANCH" --json url -q .url > /tmp/pr-url.txt 2>/dev/null; then
+            echo "url=$(cat /tmp/pr-url.txt)" >> "$GITHUB_OUTPUT"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" \
+              --body "Automated submission from #${ISSUE_NUMBER}. Closes #${ISSUE_NUMBER}." \
+              > /tmp/pr-url.txt
+            echo "url=$(cat /tmp/pr-url.txt)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment - PR ready for review
+        if: steps.process.outputs.valid == 'true'
+        env:
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "✅ Automated validation passed. Opened ${PR_URL} for maintainer review — nothing goes live until it's merged."

@@ -1,0 +1,44 @@
+name: Community Theme Submission
+description: Submit a CSS theme for the Hearth Community Hub
+title: "[Community Theme] "
+labels: ["community-theme"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing a theme! A GitHub Action validates this automatically
+        and opens a pull request if it looks good. A maintainer still reviews and
+        merges the PR before it goes live — nothing is published automatically.
+
+        If validation fails, just edit this issue with the fix; it gets re-checked
+        automatically.
+  - type: input
+    id: theme-name
+    attributes:
+      label: Theme name
+      placeholder: e.g. Catppuccin Latte
+    validations:
+      required: true
+  - type: textarea
+    id: theme-description
+    attributes:
+      label: Description
+      placeholder: Short description of the theme
+    validations:
+      required: true
+  - type: input
+    id: theme-author
+    attributes:
+      label: Author (GitHub username)
+      description: Optional — defaults to your GitHub username if left blank.
+      placeholder: e.g. octocat
+  - type: textarea
+    id: theme-css
+    attributes:
+      label: CSS
+      description: >
+        Must set at least --bg, --panel, --accent, --text and --border on :root.
+        No @import, no remote url(...) (data: URIs are fine).
+      render: css
+    validations:
+      required: true

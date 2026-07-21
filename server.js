@@ -3971,15 +3971,8 @@ app.get('/api/stacks', requireAuth, asyncHandler(async (req, res) => {
 
 // ── Custom Stack CRUD ────────────────────────────────────────────────────────
 
-function _validateCustomStack(s) {
-  if (!s || typeof s !== 'object')         throw new Error('Invalid JSON');
-  if (!s.id || !/^[a-z0-9_-]+$/.test(s.id)) throw new Error('id must be lowercase alphanumeric/dash/underscore');
-  if (!s.name || typeof s.name !== 'string')  throw new Error('name required');
-  if (!Array.isArray(s.services) || !s.services.length) throw new Error('services array required');
-  for (const svc of s.services) {
-    if (!svc.key || !svc.name || !svc.image) throw new Error(`Service missing key/name/image: ${JSON.stringify(svc)}`);
-  }
-}
+// Shared with the community-submission GitHub Action — see lib/community-validation.js
+const { assertValidStackDefinition: _validateCustomStack } = require('./lib/community-validation');
 
 app.get('/api/stacks/custom', requireAuth, (req, res) => {
   res.json(runtimeConfig.customStacks || []);

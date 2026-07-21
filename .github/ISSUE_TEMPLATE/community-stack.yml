@@ -1,0 +1,39 @@
+name: Community Stack Submission
+description: Submit a Docker stack definition for the Hearth Community Hub
+title: "[Community Stack] "
+labels: ["community-stack"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing a stack! A GitHub Action validates this automatically
+        and opens a pull request if it looks good. A maintainer still reviews and
+        merges the PR before it goes live — nothing is published automatically.
+
+        If validation fails, just edit this issue with the fix; it gets re-checked
+        automatically.
+  - type: input
+    id: stack-name
+    attributes:
+      label: Stack name
+      placeholder: e.g. Nextcloud Suite
+    validations:
+      required: true
+  - type: textarea
+    id: stack-description
+    attributes:
+      label: Description
+      placeholder: What does this stack do?
+    validations:
+      required: true
+  - type: textarea
+    id: stack-json
+    attributes:
+      label: Stack definition (JSON)
+      description: >
+        Use Hearth's own "An Community beitragen" dialog to export this from an
+        existing custom stack, or write it by hand. Must include id, name and a
+        non-empty services array (each service needs key, name, image).
+      render: json
+    validations:
+      required: true
