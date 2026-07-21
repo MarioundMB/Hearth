@@ -16,17 +16,48 @@
 
 Hearth ist ein leichtgewichtiges, selbst gehostetes Docker-Management-Panel — eine saubere, moderne Alternative zu CasaOS oder Portainer für Home-Server und kleine VPS-Umgebungen. Container verwalten, Domains über einen eingebauten Reverse Proxy mit SSL routen, die Firewall steuern und per WireGuard-VPN verbinden — alles aus einem Dashboard, ohne mehrere Einzeltools zu kombinieren.
 
-<!--
-  Screenshots: hier Produkt-Screenshots/GIFs ergänzen, sobald verfügbar, z.B.
-  <p align="center"><img src="docs/screenshots/containers.png" alt="Hearth Container-Dashboard" width="80%"/></p>
-  Gute Kandidaten: Container-Dashboard, App-Store, Reverse-Proxy-Tab, Firewall-Tab, Gäste-Ansicht.
--->
+## 📸 Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/containers.png" alt="Hearth Container-Dashboard mit laufenden Containern, Stacks und Live-Systemmonitoring" width="92%"/>
+  <br/><em>Container-Dashboard — Stacks, 1-Klick-Updates und Live-Systemmonitoring</em>
+</p>
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/app-store.png" alt="App-Store mit kuratierten Stacks, Kategorien und Suche"/>
+      <p align="center"><em>App-Store — 1-Klick-Installation &amp; kuratierte Stacks</em></p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/reverse-proxy.png" alt="Reverse-Proxy-Tab mit Domain-zu-Container-Routing und Let's-Encrypt-SSL"/>
+      <p align="center"><em>Reverse Proxy — Domains, SSL, WebSocket</em></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/firewall.png" alt="Firewall-Tab mit UFW-Regeln, Quick-Presets und externen Regeln"/>
+      <p align="center"><em>Firewall — UFW-Regeln mit Quick-Presets</em></p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/vpn.png" alt="VPN-Tab mit WireGuard-Serverstatus und Client-Verwaltung"/>
+      <p align="center"><em>VPN — WireGuard-Clients &amp; QR-Codes</em></p>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/guest-view.png" alt="Öffentliche Gäste-Ansicht mit Online-Diensten ohne Login" width="92%"/>
+  <br/><em>Gäste-Ansicht — öffentliche Statusseite deiner Dienste, ganz ohne Login</em>
+</p>
 
 ### Inhalt
 
+- [Screenshots](#-screenshots)
 - [Features](#-features)
 - [Hearth vs. Portainer vs. CasaOS](#-hearth-vs-portainer-vs-casaos)
 - [Installation](#-installation)
+- [Erste Schritte (Tutorial)](docs/getting-started.md)
 - [Konfiguration](#-konfiguration)
 - [Reverse Proxy](#-reverse-proxy)
 - [Firewall](#-firewall)
