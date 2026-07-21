@@ -3,6 +3,14 @@
 Alle nennenswerten Änderungen an Hearth werden hier festgehalten (menschenlesbar, pro Version).
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.5.49] - 2026-07-21
+
+### Docs
+- **README (EN/DE): echte Produkt-Screenshots** — neue 📸-Screenshots-Sektion (Container-Dashboard,
+  App-Store, Reverse Proxy, Firewall, VPN, Gäste-Ansicht) unter `docs/screenshots/`.
+- **Neues Getting-Started-Tutorial** unter `docs/getting-started.md` — Schritt für Schritt von der
+  Installation bis zur ersten App aus dem Store, im README unter "Contents" verlinkt.
+
 ## [1.5.48] - 2026-07-20
 
 ### Security
