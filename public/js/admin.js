@@ -4586,7 +4586,7 @@ async function loadVpn() {
 
   if (!data.available) return;
 
-  document.getElementById('vpn-server').textContent = data.host ? `${data.host}:${data.port}` : 'In den VPN-Einstellungen konfigurieren';
+  document.getElementById('vpn-server').textContent = data.host ? `${data.host}:${data.port}` : t('vpn.configureInSettings');
   document.getElementById('vpn-peer-count').textContent = (data.peers || []).length + ' configured';
 
   const list = document.getElementById('vpn-peers-list');
