@@ -58,13 +58,13 @@ Hearth is a lightweight, self-hosted Docker management panel — a clean, modern
 - [Hearth vs. Portainer vs. CasaOS](#-hearth-vs-portainer-vs-casaos)
 - [Installation](#-installation)
 - [Getting Started (Tutorial)](docs/getting-started.md)
-- [Configuration](#-configuration)
+- [Configuration](#️-configuration)
 - [Reverse Proxy](#-reverse-proxy)
 - [Firewall](#-firewall)
 - [Self-Update](#-self-update)
-- [Guest View Labels](#-guest-view-labels)
+- [Guest View Labels](#️-guest-view-labels)
 - [Security Notes](#-security-notes)
-- [Tech Stack](#-tech-stack)
+- [Tech Stack](#️-tech-stack)
 - [Contributing](#-contributing)
 
 ## ✨ Features
