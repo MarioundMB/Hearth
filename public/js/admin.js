@@ -723,6 +723,9 @@ document.getElementById('images').addEventListener('click', async (e) => {
 document.getElementById('pull-image').addEventListener('click', async () => {
   const image = prompt(t('images.pullPrompt'));
   if (!image) return;
+  const btn = document.getElementById('pull-image');
+  btn.disabled = true;
+  btn.textContent = t('images.pulling');
   toast(t('toast.imagePulling', { image }), 'info');
   try {
     await api('POST', '/api/images/pull', { image });
@@ -730,6 +733,9 @@ document.getElementById('pull-image').addEventListener('click', async () => {
     loadImages();
   } catch (err) {
     showDockerError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('images.pull');
   }
 });
 
