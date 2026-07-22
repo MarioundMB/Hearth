@@ -1824,7 +1824,8 @@ async function loadLocalHttpsStatus() {
   const hostInput = document.getElementById('local-https-host');
   try {
     const s = await api('GET', '/api/security/local-https');
-    document.getElementById('local-https-port-hint').textContent = s.port;
+    document.getElementById('local-https-explain').innerHTML =
+      t('security.localHttpsExplain', { port: `<span class="mono">${s.port}</span>` });
     if (!hostInput.value) hostInput.value = s.host || s.suggestedHost || '';
     const result = document.getElementById('local-https-result');
     const downloadArea = document.getElementById('local-https-download-area');
@@ -4611,7 +4612,7 @@ let _vpnCurrentPeer = null;
 
 async function openVpnQr(name) {
   _vpnCurrentPeer = name;
-  document.getElementById('vpn-qr-title').textContent = `VPN Client: ${name}`;
+  document.getElementById('vpn-qr-title').textContent = `${t('vpn.clientTitle')}: ${name}`;
   document.getElementById('vpn-edit-name').value = name.replace(/^peer_/, '');
   document.getElementById('vpn-qr-png').src = `/api/vpn/peers/${encodeURIComponent(name)}/qr?t=${Date.now()}`;
   document.getElementById('vpn-qr-download').href = `/api/vpn/peers/${encodeURIComponent(name)}/conf`;
@@ -4620,7 +4621,7 @@ async function openVpnQr(name) {
 }
 
 document.getElementById('vpn-add-peer-btn')?.addEventListener('click', async function () {
-  const name = prompt('Name für den neuen VPN-Client (nur Buchstaben/Zahlen, z.B. iPhone, Laptop):');
+  const name = prompt(t('vpn.addClientPrompt'));
   if (!name) return;
   const btn = this;
   btn.disabled = true;
@@ -5517,7 +5518,7 @@ let _editorPath = null;
 
 async function openFileEditor(filePath, name) {
   _editorPath = filePath;
-  document.getElementById('editor-title').textContent = 'Bearbeiten · ' + name;
+  document.getElementById('editor-title').textContent = t('files.editing') + ' · ' + name;
   const body = document.getElementById('editor-body');
   body.value = 'Lade…';
   body.disabled = true;

@@ -1687,8 +1687,8 @@
           <img src="/favicon.svg" alt="Hearth" class="flame" width="28" height="28">
           <span>Hearth <small>Admin</small></span>
         </button>
-        <button class="btn-community-nav" id="btn-community-nav" onclick="openCommunityHub()" title="Community Hub">
-          🌐 Community
+        <button class="btn-community-nav" id="btn-community-nav" onclick="openCommunityHub()" data-i18n-title="community.hubTitle" title="Community Hub">
+          🌐 <span data-i18n="community.nav">Community</span>
         </button>
         <div class="spacer"></div>
         <!-- Notification bell -->
@@ -1757,7 +1757,7 @@
             <div class="toolbar">
               <h2 data-i18n="images.title">Images</h2>
               <div class="spacer"></div>
-              <button class="btn ghost sm" id="prune-images" onclick="pruneImages()" title="Ungenutzte Images löschen" style="font-size:11px">🧹 Aufräumen</button>
+              <button class="btn ghost sm" id="prune-images" onclick="pruneImages()" data-i18n-title="images.pruneTitle" title="Ungenutzte Images löschen" style="font-size:11px" data-i18n="images.prune">🧹 Aufräumen</button>
               <button class="btn primary sm" id="pull-image" data-i18n="images.pull">↓ Image ziehen</button>
             </div>
             <div class="list" id="images"></div>
@@ -1981,18 +1981,18 @@
           <section class="view" id="view-vpn">
             <div class="toolbar">
               <div class="spacer"></div>
-              <button class="btn sm ghost" id="vpn-settings-btn">⚙ Einstellungen</button>
+              <button class="btn sm ghost" id="vpn-settings-btn" data-i18n="nav.settings">⚙ Einstellungen</button>
               <span class="vpn-status-badge" id="vpn-status-badge"></span>
             </div>
 
             <div id="vpn-unavail" style="display:none">
               <div class="empty">
                 <div class="big">🔒</div>
-                WireGuard container not running.
-                <div class="muted" style="margin-top:8px;font-size:13px">
+                <span data-i18n="vpn.unavailable">WireGuard container not running.</span>
+                <div class="muted" style="margin-top:8px;font-size:13px" data-i18n-html="vpn.unavailableHint">
                   Add the <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">hearth-vpn</code>
                   service to your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">docker-compose.yml</code>
-                  Danach die öffentliche IP oder Domain des Servers als <strong>VPN_HOST</strong> in der <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code>-Datei eintragen.
+                  service, then set the server's public IP or domain as <strong>VPN_HOST</strong> in your <code style="font-family:var(--font-mono);background:var(--panel-2);padding:1px 5px;border-radius:4px">.env</code> file.
                 </div>
               </div>
             </div>
@@ -2001,24 +2001,24 @@
               <!-- Info box -->
               <div class="vpn-info-box" id="vpn-info-box">
                 <div class="vpn-info-row">
-                  <span class="vpn-info-key">Server</span>
+                  <span class="vpn-info-key" data-i18n="vpn.server">Server</span>
                   <span class="vpn-info-val mono" id="vpn-server">–</span>
                 </div>
                 <div class="vpn-info-row">
-                  <span class="vpn-info-key">Protocol</span>
+                  <span class="vpn-info-key" data-i18n="vpn.protocol">Protocol</span>
                   <span class="vpn-info-val mono">WireGuard · UDP</span>
                 </div>
                 <div class="vpn-info-row">
-                  <span class="vpn-info-key">Clients</span>
+                  <span class="vpn-info-key" data-i18n="vpn.clients">Clients</span>
                   <span class="vpn-info-val mono" id="vpn-peer-count">–</span>
                 </div>
               </div>
 
               <!-- Peer list -->
               <div class="toolbar" style="margin-top:20px">
-                <h2 style="font-size:16px">VPN Clients</h2>
+                <h2 style="font-size:16px" data-i18n="vpn.clients">VPN Clients</h2>
                 <div class="spacer"></div>
-                <button class="btn sm ghost" id="vpn-add-peer-btn">+ Client</button>
+                <button class="btn sm ghost" id="vpn-add-peer-btn" data-i18n="vpn.addClient">+ Client</button>
               </div>
               <div class="list" id="vpn-peers-list"></div>
             </div>
@@ -2032,27 +2032,27 @@
                 </div>
                 <div class="modal-body" style="text-align:center">
                   <div class="field" style="text-align:left;margin-bottom:18px">
-                    <label>Name</label>
+                    <label data-i18n="modal.name">Name</label>
                     <div style="display:flex;gap:8px">
                       <input class="input" id="vpn-edit-name" style="flex:1" />
-                      <button class="btn sm ghost" id="vpn-rename-btn">Speichern</button>
+                      <button class="btn sm ghost" id="vpn-rename-btn" data-i18n="settings.save">Speichern</button>
                     </div>
                   </div>
-                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px" data-i18n-html="vpn.qrHint">
                     Scan with the <strong>WireGuard app</strong> on your phone or import the .conf file on a computer.
                   </p>
                   <div id="vpn-qr-img" style="background:white;padding:16px;border-radius:12px;display:inline-block">
                     <img id="vpn-qr-png" src="" alt="QR Code" style="display:block" />
                   </div>
-                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px">
+                  <p style="font-size:11px;color:var(--text-faint);margin-top:12px" data-i18n="vpn.qrPrivate">
                     Keep this QR code private — it grants full VPN access.
                   </p>
                 </div>
                 <div class="modal-foot" style="justify-content:space-between">
-                  <a id="vpn-qr-download" href="#" download class="btn ghost sm">⬇ Download .conf</a>
+                  <a id="vpn-qr-download" href="#" download class="btn ghost sm" data-i18n="vpn.downloadConf">⬇ Download .conf</a>
                   <div style="display:flex;gap:8px">
-                    <button class="btn sm danger" id="vpn-delete-btn">🗑 Löschen</button>
-                    <button class="btn ghost" data-close>Close</button>
+                    <button class="btn sm danger" id="vpn-delete-btn" data-i18n="vpn.delete">🗑 Löschen</button>
+                    <button class="btn ghost" data-close data-i18n="vpn.close">Close</button>
                   </div>
                 </div>
               </div>
@@ -2062,24 +2062,24 @@
             <div class="modal-backdrop" id="modal-vpn-settings">
               <div class="modal" style="max-width:420px">
                 <div class="modal-head">
-                  <h3>VPN-Einstellungen</h3>
+                  <h3 data-i18n="vpn.settingsTitle">VPN-Einstellungen</h3>
                   <button class="iconbtn" data-close>✕</button>
                 </div>
                 <div class="modal-body">
                   <div class="field">
-                    <label>Server-Adresse (VPN_HOST)</label>
+                    <label data-i18n="vpn.hostLabel">Server-Adresse (VPN_HOST)</label>
                     <input class="input" id="vpn-settings-host" placeholder="z.B. vpn.example.com oder 91.66.194.215" />
-                    <div class="muted" style="font-size:12px;margin-top:4px">Wird in neu erstellte/aktualisierte Client-Configs als Endpoint eingetragen.</div>
+                    <div class="muted" style="font-size:12px;margin-top:4px" data-i18n="vpn.hostHint">Wird in neu erstellte/aktualisierte Client-Configs als Endpoint eingetragen.</div>
                   </div>
                   <div class="field">
-                    <label>Port</label>
+                    <label data-i18n="firewall.port">Port</label>
                     <input class="input" id="vpn-settings-port" type="number" min="1" max="65535" placeholder="51820" />
-                    <div class="muted" style="font-size:12px;margin-top:4px">⚠ Jede Änderung hier erfordert einen kurzen Neustart des VPN-Containers — bereits verbundene Clients werden kurz getrennt.</div>
+                    <div class="muted" style="font-size:12px;margin-top:4px" data-i18n="vpn.portHint">⚠ Jede Änderung hier erfordert einen kurzen Neustart des VPN-Containers — bereits verbundene Clients werden kurz getrennt.</div>
                   </div>
                 </div>
                 <div class="modal-foot" style="justify-content:space-between">
-                  <button class="btn ghost" data-close>Abbrechen</button>
-                  <button class="btn primary sm" id="vpn-settings-save-btn">Speichern</button>
+                  <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
+                  <button class="btn primary sm" id="vpn-settings-save-btn" data-i18n="settings.save">Speichern</button>
                 </div>
               </div>
             </div>
@@ -2383,8 +2383,8 @@
           <textarea id="editor-body" spellcheck="false" style="width:100%;min-height:400px;padding:16px;border:none;background:var(--bg2);color:var(--text);font-family:monospace;font-size:13px;line-height:1.5;resize:vertical;box-sizing:border-box;outline:none"></textarea>
         </div>
         <div class="modal-foot">
-          <button class="btn ghost" data-close>Abbrechen</button>
-          <button class="btn primary" id="editor-save-btn">Speichern</button>
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
+          <button class="btn primary" id="editor-save-btn" data-i18n="settings.save">Speichern</button>
         </div>
       </div>
     </div>
@@ -2939,8 +2939,8 @@
             <div id="raid-unavailable" style="display:none">
               <div class="s-group">
                 <div style="padding:20px 14px;text-align:center">
-                  <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">mdadm nicht installiert</div>
-                  <div style="font-size:11px;color:var(--text-faint)">Installiere mdadm auf dem Host-System:<br><code style="font-family:monospace;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">sudo apt install mdadm</code></div>
+                  <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px" data-i18n="raid.notInstalled">mdadm nicht installiert</div>
+                  <div style="font-size:11px;color:var(--text-faint)" data-i18n-html="raid.installHint">Installiere mdadm auf dem Host-System:<br><code style="font-family:monospace;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">sudo apt install mdadm</code></div>
                 </div>
               </div>
             </div>
@@ -2951,8 +2951,8 @@
               <!-- Header-Leiste -->
               <div class="s-group" style="padding:0">
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px">
-                  <span style="font-size:11px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em">Software-RAID Arrays</span>
-                  <button class="btn primary" style="font-size:11px;padding:4px 10px" onclick="raidToggleCreate()">+ RAID erstellen</button>
+                  <span style="font-size:11px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em" data-i18n="raid.arrays">Software-RAID Arrays</span>
+                  <button class="btn primary" style="font-size:11px;padding:4px 10px" onclick="raidToggleCreate()" data-i18n="raid.create">+ RAID erstellen</button>
                 </div>
               </div>
 
@@ -2960,10 +2960,10 @@
               <div id="raid-create-form" style="display:none">
                 <div class="s-group">
                   <div style="padding:14px">
-                    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px">Neues RAID-Array erstellen</div>
+                    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px" data-i18n="raid.createNew">Neues RAID-Array erstellen</div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
                       <div>
-                        <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px">RAID-Level</label>
+                        <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px" data-i18n="raid.level">RAID-Level</label>
                         <select class="input s-select" id="raid-level" style="width:100%;max-width:100%">
                           <option value="0">RAID 0 — Striping</option>
                           <option value="1" selected>RAID 1 — Mirror</option>
@@ -2973,7 +2973,7 @@
                         </select>
                       </div>
                       <div>
-                        <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px">Array-Name</label>
+                        <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:4px" data-i18n="raid.arrayName">Array-Name</label>
                         <select class="input s-select" id="raid-mddev" style="width:100%;max-width:100%">
                           <option>md0</option><option>md1</option><option>md2</option>
                           <option>md3</option><option>md4</option><option>md5</option>
@@ -2981,15 +2981,15 @@
                       </div>
                     </div>
                     <div style="margin-bottom:10px">
-                      <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:6px">Geräte auswählen</label>
-                      <div id="raid-disk-list" style="font-size:11px;color:var(--text-faint)">Lade Festplatten…</div>
+                      <label style="font-size:11px;color:var(--text-faint);display:block;margin-bottom:6px" data-i18n="raid.selectDevices">Geräte auswählen</label>
+                      <div id="raid-disk-list" style="font-size:11px;color:var(--text-faint)" data-i18n="raid.loadingDisks">Lade Festplatten…</div>
                     </div>
                     <div style="background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;padding:8px 10px;font-size:11px;color:rgba(255,130,130,.9);margin-bottom:12px">
-                      ⚠ Alle Daten auf den gewählten Geräten werden <strong>unwiderruflich gelöscht!</strong>
+                      <span data-i18n-html="raid.deleteWarning">⚠ Alle Daten auf den gewählten Geräten werden <strong>unwiderruflich gelöscht!</strong></span>
                     </div>
                     <div style="display:flex;gap:8px">
-                      <button class="btn primary" style="flex:1;font-size:12px" onclick="raidCreate()">Array erstellen</button>
-                      <button class="btn ghost" style="font-size:12px" onclick="raidToggleCreate()">Abbrechen</button>
+                      <button class="btn primary" style="flex:1;font-size:12px" onclick="raidCreate()" data-i18n="raid.createArray">Array erstellen</button>
+                      <button class="btn ghost" style="font-size:12px" onclick="raidToggleCreate()" data-i18n="modal.cancel">Abbrechen</button>
                     </div>
                   </div>
                 </div>
@@ -3846,37 +3846,37 @@
 
           <!-- 2FA / TOTP -->
           <div class="s-group">
-            <div class="s-group-title">Zwei-Faktor-Authentifizierung</div>
+            <div class="s-group-title" data-i18n="security.twoFactor">Zwei-Faktor-Authentifizierung</div>
             <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:12px">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
                 <div>
-                  <div style="font-size:13px;font-weight:600">TOTP Authenticator-App</div>
-                  <div style="font-size:12px;color:var(--text-faint);margin-top:2px">Google Authenticator, Authy, Bitwarden, etc.</div>
+                  <div style="font-size:13px;font-weight:600" data-i18n="security.totpApp">TOTP Authenticator-App</div>
+                  <div style="font-size:12px;color:var(--text-faint);margin-top:2px" data-i18n="security.totpAppExamples">Google Authenticator, Authy, Bitwarden, etc.</div>
                 </div>
                 <span id="totp-status-badge" style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap">…</span>
               </div>
               <!-- Setup flow (hidden by default) -->
               <div id="totp-setup-area" style="display:none;flex-direction:column;gap:10px">
-                <div style="font-size:12px;color:var(--text-dim)">Scanne den QR-Code mit deiner Authenticator-App und gib danach den angezeigten 6-stelligen Code ein.</div>
+                <div style="font-size:12px;color:var(--text-dim)" data-i18n="security.totpScanHint">Scanne den QR-Code mit deiner Authenticator-App und gib danach den angezeigten 6-stelligen Code ein.</div>
                 <img id="totp-qr" src="" alt="QR-Code" style="width:180px;height:180px;border-radius:8px;background:#fff;padding:8px;align-self:center">
                 <details style="font-size:11px;color:var(--text-faint)">
-                  <summary style="cursor:pointer">Secret manuell eingeben</summary>
+                  <summary style="cursor:pointer" data-i18n="security.totpManualEntry">Secret manuell eingeben</summary>
                   <code id="totp-secret-text" style="display:block;margin-top:4px;word-break:break-all;font-size:12px;background:var(--panel);padding:6px 8px;border-radius:4px"></code>
                 </details>
                 <div style="display:flex;gap:8px">
                   <input class="input" id="totp-verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="flex:1;letter-spacing:4px;font-size:16px">
-                  <button class="btn primary sm" id="totp-confirm-btn">Bestätigen</button>
+                  <button class="btn primary sm" id="totp-confirm-btn" data-i18n="security.confirm">Bestätigen</button>
                 </div>
-                <button class="btn sm ghost" id="totp-cancel-btn" style="align-self:flex-start">Abbrechen</button>
+                <button class="btn sm ghost" id="totp-cancel-btn" style="align-self:flex-start" data-i18n="modal.cancel">Abbrechen</button>
               </div>
               <!-- Disable flow (hidden by default) -->
               <div id="totp-disable-area" style="display:none;flex-direction:column;gap:10px">
-                <div style="font-size:12px;color:var(--text-dim)">Gib deinen aktuellen Code ein, um 2FA zu deaktivieren.</div>
+                <div style="font-size:12px;color:var(--text-dim)" data-i18n="security.totpDisableHint">Gib deinen aktuellen Code ein, um 2FA zu deaktivieren.</div>
                 <div style="display:flex;gap:8px">
                   <input class="input" id="totp-disable-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="flex:1;letter-spacing:4px;font-size:16px">
-                  <button class="btn sm" style="background:var(--danger,#c0392b);color:#fff;border:none" id="totp-disable-confirm-btn">Deaktivieren</button>
+                  <button class="btn sm" style="background:var(--danger,#c0392b);color:#fff;border:none" id="totp-disable-confirm-btn" data-i18n="security.disable2fa">Deaktivieren</button>
                 </div>
-                <button class="btn sm ghost" id="totp-disable-cancel-btn" style="align-self:flex-start">Abbrechen</button>
+                <button class="btn sm ghost" id="totp-disable-cancel-btn" style="align-self:flex-start" data-i18n="modal.cancel">Abbrechen</button>
               </div>
               <!-- Action buttons -->
               <div id="totp-actions" style="display:flex;gap:8px"></div>
@@ -3885,17 +3885,17 @@
 
           <!-- Passkeys -->
           <div class="s-group" id="sec-passkeys-section">
-            <div class="s-group-title">Passkeys</div>
+            <div class="s-group-title" data-i18n="security.passkeys">Passkeys</div>
             <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:10px">
               <div style="display:none;font-size:12px;color:var(--text-faint);flex-direction:column;gap:8px" id="passkey-unavail-hint">
-                <div>Passkeys sind nur über HTTPS oder localhost verfügbar.</div>
-                <button class="btn sm ghost" id="passkey-goto-https-btn" style="align-self:flex-start">Zu den HTTPS-Einstellungen →</button>
+                <div data-i18n="security.passkeyHttpsRequired">Passkeys sind nur über HTTPS oder localhost verfügbar.</div>
+                <button class="btn sm ghost" id="passkey-goto-https-btn" style="align-self:flex-start" data-i18n="security.gotoHttpsSettings">Zu den HTTPS-Einstellungen →</button>
               </div>
               <div id="passkey-list" style="display:flex;flex-direction:column;gap:6px"></div>
               <div id="passkey-add-area" style="display:flex;flex-direction:column;gap:8px">
                 <div style="display:flex;gap:8px">
                   <input class="input" id="passkey-name-input" placeholder="Name (z.B. iPhone, YubiKey)" style="flex:1">
-                  <button class="btn sm ghost" id="passkey-add-btn">+ Passkey hinzufügen</button>
+                  <button class="btn sm ghost" id="passkey-add-btn" data-i18n="security.addPasskey">+ Passkey hinzufügen</button>
                 </div>
               </div>
             </div>
@@ -3926,28 +3926,28 @@
     <div class="modal-backdrop" id="modal-local-https">
       <div class="modal" style="max-width:480px">
         <div class="modal-head">
-          <h3><svg class="icon icon-lg" style="margin-right:6px;vertical-align:-3px"><use href="#icon-lock"/></svg><span>Lokales HTTPS</span></h3>
+          <h3><svg class="icon icon-lg" style="margin-right:6px;vertical-align:-3px"><use href="#icon-lock"/></svg><span data-i18n="security.localHttps">Lokales HTTPS</span></h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body" style="padding:0;max-height:70vh;overflow-y:auto">
           <div class="s-group">
             <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
-              <div style="font-size:12px;color:var(--text-dim)">
+              <div style="font-size:12px;color:var(--text-dim)" data-i18n="security.localHttpsIntro">
                 Passkeys lehnen reine IP-Adressen grundsätzlich ab (WebAuthn-Vorgabe) — das gilt auch mit HTTPS. Du brauchst einen echten Hostnamen. Hearth richtet dafür automatisch mDNS auf dem Server ein: der unten vorgeschlagene <span class="mono">.local</span>-Name funktioniert damit im LAN ohne weitere Einrichtung (auf Mac/iOS sofort, unter Windows meist auch).
               </div>
-              <div style="font-size:12px;color:var(--text-faint)">
+              <div style="font-size:12px;color:var(--text-faint)" id="local-https-explain">
                 Erstellt ein selbstsigniertes Zertifikat für diesen Hostnamen und startet HTTPS auf einem eigenen Port (<span class="mono" id="local-https-port-hint">4501</span>) neben dem normalen Admin-Port. Der Browser zeigt dabei eine Zertifikatswarnung — normal bei selbstsigniert, kann bestätigt werden. Falls eine Firewall aktiv ist, muss dieser Port zusätzlich freigegeben werden (im LAN reicht das, keine Freigabe nach außen nötig).
               </div>
               <div style="display:flex;gap:8px">
                 <input class="input" id="local-https-host" placeholder="z.B. hearth.local" style="flex:1">
-                <button class="btn sm ghost" id="local-https-btn">Zertifikat erstellen</button>
+                <button class="btn sm ghost" id="local-https-btn" data-i18n="security.createCert">Zertifikat erstellen</button>
               </div>
               <div id="local-https-result" style="font-size:12px;display:none"></div>
               <div id="local-https-download-area" style="display:none;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--border)">
-                <div style="font-size:12px;color:var(--text-dim)">
+                <div style="font-size:12px;color:var(--text-dim)" data-i18n="security.certDownloadHint">
                   Optional: Zertifikat herunterladen und als vertrauenswürdig installieren, damit die Browser-Warnung verschwindet (pro Gerät einmalig — unter macOS: Datei doppelklicken, in Schlüsselbundverwaltung öffnen, dann auf "Immer vertrauen" setzen).
                 </div>
-                <a class="btn sm ghost" href="/api/security/local-https/cert" download="hearth-local.crt" style="align-self:flex-start">Zertifikat herunterladen</a>
+                <a class="btn sm ghost" href="/api/security/local-https/cert" download="hearth-local.crt" style="align-self:flex-start" data-i18n="security.downloadCert">Zertifikat herunterladen</a>
               </div>
             </div>
           </div>
@@ -3959,23 +3959,23 @@
     <div class="modal-backdrop" id="modal-tap-key">
       <div class="modal" style="max-width:480px">
         <div class="modal-head">
-          <h3><svg class="icon icon-lg" style="margin-right:6px;vertical-align:-3px"><use href="#icon-lock"/></svg><span>Admin-Zugriff über 3000 freischalten</span></h3>
+          <h3><svg class="icon icon-lg" style="margin-right:6px;vertical-align:-3px"><use href="#icon-lock"/></svg><span data-i18n="security.tapKeyTitle">Admin-Zugriff über 3000 freischalten</span></h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body" style="padding:0;max-height:70vh;overflow-y:auto">
           <div class="s-group">
             <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
-              <div style="font-size:12px;color:var(--text-dim)">
+              <div style="font-size:12px;color:var(--text-dim)" data-i18n-html="security.tapKeyExplain">
                 Ein Passkey gilt nur für die Domain, mit der er erstellt wurde — auf dem Gäste-Port (3000) gibt es aber kein Passwort-Login mehr, um dort einen neuen Passkey einzurichten. Der TAP-Key ist ein Einmal-Code (24h gültig, nur für dein Konto), mit dem du auf <span class="mono">/setup-access</span> einen Passkey und danach 2FA für die aktuelle Domain einrichten kannst. Der Code verfällt sofort nach erfolgreichem Abschluss.
               </div>
-              <div id="tapkey-status" style="font-size:12px;color:var(--text-faint)">Lade…</div>
+              <div id="tapkey-status" style="font-size:12px;color:var(--text-faint)" data-i18n="misc.loading">Lade…</div>
               <div id="tapkey-code-area" style="display:none;gap:8px;align-items:center">
                 <input class="input mono" id="tapkey-code-display" readonly style="flex:1">
-                <button class="iconbtn" id="tapkey-copy-btn" title="Kopieren">⎘</button>
+                <button class="iconbtn" id="tapkey-copy-btn" title="Kopieren" data-i18n-title="misc.copy">⎘</button>
               </div>
               <div style="display:flex;gap:8px">
-                <button class="btn sm ghost" id="tapkey-generate-btn">Neuen Code generieren</button>
-                <button class="btn sm ghost" id="tapkey-revoke-btn" style="display:none">Widerrufen</button>
+                <button class="btn sm ghost" id="tapkey-generate-btn" data-i18n="security.tapKeyGenerate">Neuen Code generieren</button>
+                <button class="btn sm ghost" id="tapkey-revoke-btn" style="display:none" data-i18n="security.tapKeyRevoke">Widerrufen</button>
               </div>
             </div>
           </div>
@@ -3989,14 +3989,14 @@
         <div class="modal-head">
           <h3 id="upd-head-title" style="display:flex;align-items:center;gap:10px">
             <span id="upd-head-icon"><svg class="hearth-spin" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg></span>
-            Hearth wird aktualisiert…
+            <span data-i18n="update.inProgress">Hearth wird aktualisiert…</span>
           </h3>
         </div>
         <div class="modal-body" style="padding:22px 24px 24px">
           <div class="upd-bar-track">
             <div class="upd-bar-fill" id="upd-bar"></div>
           </div>
-          <div id="upd-status" style="font-size:12.5px;color:var(--text-faint);margin-top:12px;text-align:center">
+          <div id="upd-status" style="font-size:12.5px;color:var(--text-faint);margin-top:12px;text-align:center" data-i18n="update.connecting">
             Verbindung wird hergestellt…
           </div>
           <pre id="upd-log" style="font-size:11px;font-family:monospace;color:var(--text-faint);margin-top:10px;max-height:110px;overflow-y:auto;background:var(--bg);border-radius:6px;padding:8px 10px;white-space:pre-wrap;word-break:break-all;border:1px solid var(--border);text-align:left;display:none"></pre>
@@ -4008,23 +4008,23 @@
     <div class="modal-backdrop" id="modal-stack-import">
       <div class="modal" style="max-width:580px">
         <div class="modal-head">
-          <h3 id="stack-import-title">📦 Custom Stack importieren</h3>
+          <h3 id="stack-import-title" data-i18n="stack.importTitle">📦 Custom Stack importieren</h3>
           <button class="iconbtn" data-close>✕</button>
         </div>
         <div class="modal-body" style="padding:22px 24px;display:flex;flex-direction:column;gap:14px">
           <div class="field" style="margin:0">
-            <label style="font-size:13px;font-weight:600">Import via URL</label>
-            <div style="font-size:12px;color:var(--text-faint);margin-bottom:6px">GitHub Raw-Link, Gist oder jede öffentliche JSON-URL</div>
+            <label style="font-size:13px;font-weight:600" data-i18n="stack.importViaUrl">Import via URL</label>
+            <div style="font-size:12px;color:var(--text-faint);margin-bottom:6px" data-i18n="stack.urlHint">GitHub Raw-Link, Gist oder jede öffentliche JSON-URL</div>
             <div style="display:flex;gap:8px">
               <input class="input" id="stack-import-url" placeholder="https://raw.githubusercontent.com/…/stack.json" style="flex:1">
-              <button class="btn sm ghost" id="stack-import-fetch-btn">Laden</button>
+              <button class="btn sm ghost" id="stack-import-fetch-btn" data-i18n="stack.load">Laden</button>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:10px;color:var(--text-faint);font-size:12px">
-            <div style="flex:1;height:1px;background:var(--border)"></div>oder<div style="flex:1;height:1px;background:var(--border)"></div>
+            <div style="flex:1;height:1px;background:var(--border)"></div><span data-i18n="misc.or">oder</span><div style="flex:1;height:1px;background:var(--border)"></div>
           </div>
           <div class="field" style="margin:0">
-            <label style="font-size:13px;font-weight:600">JSON direkt einfügen / bearbeiten</label>
+            <label style="font-size:13px;font-weight:600" data-i18n="stack.jsonDirectEdit">JSON direkt einfügen / bearbeiten</label>
             <textarea class="input" id="stack-import-json" rows="14"
               style="font-family:monospace;font-size:12px;resize:vertical;white-space:pre"
               placeholder='{"id":"my-stack","name":"Mein Stack","icon":"🚀","description":"…","services":[{"key":"app","name":"App","image":"nginx","matchImages":["nginx"],"matchNames":["nginx"],"ports":[{"host":"8090","container":"80"}],"volumes":[],"env":[]}],"paths":{"config":{"label":"Konfig","default":"/opt/stacks/my","description":"Konfigurationspfad"}}}'></textarea>
@@ -4032,8 +4032,8 @@
           <div id="stack-import-error" style="display:none;color:var(--danger,#e74c3c);font-size:12px;padding:8px 10px;background:rgba(231,76,60,.1);border-radius:6px;border:1px solid rgba(231,76,60,.3)"></div>
         </div>
         <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:8px;padding:14px 22px;border-top:1px solid var(--border)">
-          <button class="btn ghost" data-close>Abbrechen</button>
-          <button class="btn primary" id="stack-import-save-btn">Speichern</button>
+          <button class="btn ghost" data-close data-i18n="modal.cancel">Abbrechen</button>
+          <button class="btn primary" id="stack-import-save-btn" data-i18n="settings.save">Speichern</button>
         </div>
       </div>
     </div>
@@ -4049,25 +4049,25 @@
 
           <!-- Beschreibung + Pfade -->
           <div class="s-group">
-            <div class="s-group-title">Beschreibung</div>
+            <div class="s-group-title" data-i18n="stack.description">Beschreibung</div>
             <div style="padding:0 22px 4px;font-size:13px;color:var(--text-dim)" id="stack-modal-desc"></div>
-            <div class="s-group-title" style="margin-top:12px">Pfade konfigurieren</div>
+            <div class="s-group-title" style="margin-top:12px" data-i18n="stack.configurePaths">Pfade konfigurieren</div>
             <div style="padding:0 22px 16px" id="stack-modal-paths"></div>
           </div>
 
           <!-- Dienste -->
           <div class="s-group">
-            <div class="s-group-title">Dienste</div>
+            <div class="s-group-title" data-i18n="stack.services">Dienste</div>
             <div style="padding:0 22px 16px;display:flex;flex-direction:column;gap:8px" id="stack-modal-services"></div>
           </div>
 
         </div>
         <div class="modal-foot" style="display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-top:1px solid var(--border)">
           <div style="display:flex;gap:8px">
-            <button class="btn primary" id="stack-deploy-missing-btn">Fehlende installieren</button>
-            <button class="btn ghost" id="stack-export-btn" title="Als JSON exportieren">⬇ Exportieren</button>
+            <button class="btn primary" id="stack-deploy-missing-btn" data-i18n="stack.installMissing">Fehlende installieren</button>
+            <button class="btn ghost" id="stack-export-btn" title="Als JSON exportieren" data-i18n="stack.export" data-i18n-title="stack.exportTitle">⬇ Exportieren</button>
           </div>
-          <button class="btn ghost" data-close>Schließen</button>
+          <button class="btn ghost" data-close data-i18n="misc.close">Schließen</button>
         </div>
       </div>
     </div>
@@ -4186,11 +4186,11 @@
       <div class="community-hub-inner">
         <div class="community-hub-header">
           <span style="font-size:19px;font-weight:700;display:flex;align-items:center;gap:10px">
-            🌐 Community Hub
+            🌐 <span data-i18n="community.hubTitle">Community Hub</span>
           </span>
           <div class="spacer"></div>
-          <button class="btn primary sm" id="btn-contribute">+ Beitragen</button>
-          <button class="btn sm ghost" id="community-refresh-btn"><svg class="hearth-spin" width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg> Aktualisieren</button>
+          <button class="btn primary sm" id="btn-contribute" data-i18n="community.contribute">+ Beitragen</button>
+          <button class="btn sm ghost" id="community-refresh-btn"><svg class="hearth-spin" width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><polygon class="hs-bg" points="16,4 29,27 3,27"/><polygon class="hs-run" points="16,4 29,27 3,27"/></svg> <span data-i18n="misc.refresh">Aktualisieren</span></button>
           <button class="btn sm ghost" onclick="closeCommunityHub()" style="font-size:16px;padding:5px 10px">✕</button>
         </div>
 
@@ -4198,22 +4198,22 @@
           <!-- Community Stacks -->
           <div style="margin-bottom:36px">
             <div class="store-category-title" style="font-size:14px;margin-bottom:14px">
-              📦 Community Stacks
-              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">Importiere &amp; deploye community-gepflegte Stack-Definitionen</span>
+              📦 <span data-i18n="community.stacksTitle">Community Stacks</span>
+              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px" data-i18n="community.stacksDesc">Importiere &amp; deploye community-gepflegte Stack-Definitionen</span>
             </div>
             <div id="community-stacks-grid" class="stack-store-grid">
-              <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
+              <span style="font-size:13px;color:var(--text-faint)" data-i18n="misc.loading">Lädt…</span>
             </div>
           </div>
 
           <!-- Community Themes -->
           <div>
             <div class="store-category-title" style="font-size:14px;margin-bottom:14px">
-              🎨 Community Themes
-              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px">CSS-Themes für Hearth direkt anwenden</span>
+              🎨 <span data-i18n="community.themesTitle">Community Themes</span>
+              <span style="font-size:12px;font-weight:400;color:var(--text-faint);margin-left:8px" data-i18n="community.themesDesc">CSS-Themes für Hearth direkt anwenden</span>
             </div>
             <div id="community-themes-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
-              <span style="font-size:13px;color:var(--text-faint)">Lädt…</span>
+              <span style="font-size:13px;color:var(--text-faint)" data-i18n="misc.loading">Lädt…</span>
             </div>
           </div>
         </div>
@@ -4262,36 +4262,36 @@
     <div class="modal-backdrop" id="modal-contribute" onclick="if(event.target===this)closeModal('modal-contribute')">
       <div class="modal" style="max-width:560px">
         <div class="modal-head">
-          <span>An Community beitragen</span>
+          <span data-i18n="community.contributeTitle">An Community beitragen</span>
           <button class="close" onclick="closeModal('modal-contribute')">✕</button>
         </div>
         <div class="modal-body" style="padding:0">
           <div style="padding:16px 22px 0">
-            <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Teile deine Stacks oder Themes mit der Hearth-Community über ein GitHub-Issue.</p>
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px" data-i18n="community.contributeDesc">Teile deine Stacks oder Themes mit der Hearth-Community über ein GitHub-Issue.</p>
             <div style="display:flex;gap:8px;margin-bottom:18px">
-              <button class="btn sm" id="contrib-type-stack" onclick="setContribType('stack')">📦 Stack einreichen</button>
-              <button class="btn sm ghost" id="contrib-type-theme" onclick="setContribType('theme')">🎨 Theme einreichen</button>
+              <button class="btn sm" id="contrib-type-stack" onclick="setContribType('stack')" data-i18n="community.submitStack">📦 Stack einreichen</button>
+              <button class="btn sm ghost" id="contrib-type-theme" onclick="setContribType('theme')" data-i18n="community.submitTheme">🎨 Theme einreichen</button>
             </div>
           </div>
 
           <!-- Stack form -->
           <div id="contrib-stack-form" style="padding:0 22px 4px">
             <div class="field">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Aus eigenen Stacks laden</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.loadFromOwn">Aus eigenen Stacks laden</label>
               <select class="input" id="contrib-stack-select" style="margin-top:5px">
-                <option value="">— Eigenen Stack auswählen (optional) —</option>
+                <option value="" data-i18n="community.selectOwnStack">— Eigenen Stack auswählen (optional) —</option>
               </select>
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Name *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.stackName">Name *</label>
               <input class="input" id="contrib-stack-name" placeholder="z.B. Nextcloud Suite" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Beschreibung</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.description">Beschreibung</label>
               <input class="input" id="contrib-stack-desc" placeholder="Was macht dieser Stack?" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Stack-Definition (JSON) *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.stackJson">Stack-Definition (JSON) *</label>
               <textarea class="input" id="contrib-stack-json" rows="9" style="margin-top:5px;font-family:var(--font-mono);font-size:12px;resize:vertical" placeholder='{"id": "my-stack", "name": "My Stack", "services": [...]}'></textarea>
             </div>
           </div>
@@ -4299,28 +4299,28 @@
           <!-- Theme form -->
           <div id="contrib-theme-form" style="display:none;padding:0 22px 4px">
             <div class="field">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Theme-Name *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.themeName">Theme-Name *</label>
               <input class="input" id="contrib-theme-name" placeholder="z.B. Catppuccin Latte" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Beschreibung</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.description">Beschreibung</label>
               <input class="input" id="contrib-theme-desc" placeholder="Kurze Beschreibung des Themes" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">Autor (GitHub-Username)</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.themeAuthor">Autor (GitHub-Username)</label>
               <input class="input" id="contrib-theme-author" placeholder="z.B. octocat" style="margin-top:5px" />
             </div>
             <div class="field" style="margin-top:12px">
-              <label style="font-size:12px;font-weight:600;color:var(--text-dim)">CSS *</label>
+              <label style="font-size:12px;font-weight:600;color:var(--text-dim)" data-i18n="community.themeCss">CSS *</label>
               <textarea class="input" id="contrib-theme-css" rows="11" style="margin-top:5px;font-family:var(--font-mono);font-size:12px;resize:vertical" placeholder=":root {&#10;  --accent: #89b4fa;&#10;  --bg: #1e1e2e;&#10;  --panel: #181825;&#10;}"></textarea>
             </div>
           </div>
         </div>
         <div class="modal-foot">
-          <span style="font-size:12px;color:var(--text-faint)">Öffnet ein vorausgefülltes GitHub-Issue</span>
+          <span style="font-size:12px;color:var(--text-faint)" data-i18n="community.opensGithubIssue">Öffnet ein vorausgefülltes GitHub-Issue</span>
           <div class="spacer"></div>
-          <button class="btn" onclick="closeModal('modal-contribute')">Abbrechen</button>
-          <button class="btn primary" id="btn-contrib-submit">GitHub-Issue öffnen ↗</button>
+          <button class="btn" onclick="closeModal('modal-contribute')" data-i18n="modal.cancel">Abbrechen</button>
+          <button class="btn primary" id="btn-contrib-submit" data-i18n="community.openGithubIssue">GitHub-Issue öffnen ↗</button>
         </div>
       </div>
     </div>
