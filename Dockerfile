@@ -15,6 +15,7 @@ RUN npm install --omit=dev
 
 # Quellcode
 COPY server.js ./
+COPY lib ./lib
 COPY public ./public
 
 # Nginx-Basiskonfiguration — rendered from template at boot (startNginx() in
