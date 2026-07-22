@@ -723,6 +723,9 @@ document.getElementById('images').addEventListener('click', async (e) => {
 document.getElementById('pull-image').addEventListener('click', async () => {
   const image = prompt(t('images.pullPrompt'));
   if (!image) return;
+  const btn = document.getElementById('pull-image');
+  btn.disabled = true;
+  btn.textContent = t('images.pulling');
   toast(t('toast.imagePulling', { image }), 'info');
   try {
     await api('POST', '/api/images/pull', { image });
@@ -730,6 +733,9 @@ document.getElementById('pull-image').addEventListener('click', async () => {
     loadImages();
   } catch (err) {
     showDockerError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('images.pull');
   }
 });
 
@@ -5186,7 +5192,7 @@ let _communityLoaded = false;
 async function loadCommunityTab(force = false) {
   if (_communityLoaded && !force) return;
   _communityLoaded = true;
-  await Promise.all([loadCommunityStacks(), loadCommunityThemes()]);
+  await Promise.all([loadCommunityStacks(force), loadCommunityThemes(force)]);
 }
 
 async function loadCommunityStacks(force = false) {
@@ -5309,10 +5315,7 @@ async function applyCommunityTheme(theme) {
 }
 
 document.getElementById('community-refresh-btn').addEventListener('click', () => {
-  _communityLoaded = false;
   loadCommunityTab(true);
-  loadCommunityStacks(true);
-  loadCommunityThemes(true);
 });
 
 // ── Contribute Modal ──────────────────────────────────────────────────────────
