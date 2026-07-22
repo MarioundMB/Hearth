@@ -77,6 +77,11 @@ function nextFromAccount() {
   goTo(3);
 }
 
+document.getElementById('form-account').addEventListener('submit', (e) => {
+  e.preventDefault();
+  nextFromAccount();
+});
+
 // ── Step 3: finish ────────────────────────────────────────────────────────────
 async function finish() {
   const btn = document.getElementById('finishBtn');
@@ -97,6 +102,11 @@ async function finish() {
     btn.textContent = t('setup.finish');
   }
 }
+
+document.getElementById('form-name').addEventListener('submit', (e) => {
+  e.preventDefault();
+  finish();
+});
 
 // ── Redirect if setup already done ───────────────────────────────────────────
 api('GET', '/api/setup/status').then((data) => {

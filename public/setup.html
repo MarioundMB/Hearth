@@ -358,35 +358,37 @@
           <div class="setup-title" data-i18n="setup.accountTitle">Admin account</div>
           <div class="setup-sub" data-i18n="setup.accountSub">This account is the only way to access the admin panel.</div>
 
-          <div class="field">
-            <label for="adminUser" data-i18n="login.username">Username</label>
-            <input class="input" id="adminUser" autocomplete="username"
-              data-i18n-ph="setup.userPlaceholder" placeholder="e.g. admin" />
-          </div>
-
-          <div class="field">
-            <label for="adminPassword" data-i18n="login.password">Password</label>
-            <input class="input" id="adminPassword" type="password"
-              autocomplete="new-password" data-i18n-ph="setup.pwPlaceholder" placeholder="At least 8 characters" />
-            <div class="pw-strength">
-              <div class="pw-bar" id="bar0"></div>
-              <div class="pw-bar" id="bar1"></div>
-              <div class="pw-bar" id="bar2"></div>
-              <div class="pw-bar" id="bar3"></div>
+          <form id="form-account">
+            <div class="field">
+              <label for="adminUser" data-i18n="login.username">Username</label>
+              <input class="input" id="adminUser" autocomplete="username"
+                data-i18n-ph="setup.userPlaceholder" placeholder="e.g. admin" />
             </div>
-            <div class="pw-label" id="pwLabel">–</div>
-          </div>
 
-          <div class="field">
-            <label for="adminPasswordConfirm" data-i18n="setup.confirmPw">Confirm password</label>
-            <input class="input" id="adminPasswordConfirm" type="password"
-              autocomplete="new-password" data-i18n-ph="setup.confirmPwPlaceholder" placeholder="Repeat password" />
-          </div>
+            <div class="field">
+              <label for="adminPassword" data-i18n="login.password">Password</label>
+              <input class="input" id="adminPassword" type="password"
+                autocomplete="new-password" data-i18n-ph="setup.pwPlaceholder" placeholder="At least 8 characters" />
+              <div class="pw-strength">
+                <div class="pw-bar" id="bar0"></div>
+                <div class="pw-bar" id="bar1"></div>
+                <div class="pw-bar" id="bar2"></div>
+                <div class="pw-bar" id="bar3"></div>
+              </div>
+              <div class="pw-label" id="pwLabel">–</div>
+            </div>
 
-          <div class="setup-foot spread">
-            <button class="btn ghost" onclick="goTo(1)" data-i18n="setup.back">← Back</button>
-            <button class="btn primary" onclick="nextFromAccount()" data-i18n="setup.next">Next →</button>
-          </div>
+            <div class="field">
+              <label for="adminPasswordConfirm" data-i18n="setup.confirmPw">Confirm password</label>
+              <input class="input" id="adminPasswordConfirm" type="password"
+                autocomplete="new-password" data-i18n-ph="setup.confirmPwPlaceholder" placeholder="Repeat password" />
+            </div>
+
+            <div class="setup-foot spread">
+              <button class="btn ghost" type="button" onclick="goTo(1)" data-i18n="setup.back">← Back</button>
+              <button class="btn primary" type="submit" data-i18n="setup.next">Next →</button>
+            </div>
+          </form>
         </div>
 
         <!-- Step 3: Server name -->
@@ -394,16 +396,18 @@
           <div class="setup-title" data-i18n="setup.nameTitle">Name your server</div>
           <div class="setup-sub" data-i18n="setup.nameSub">The name appears in the guest view and in the browser tab.</div>
 
-          <div class="field">
-            <label for="serverName" data-i18n="settings.serverName">Server name</label>
-            <input class="input" id="serverName" placeholder="Hearth" value="Hearth" />
-            <div class="hint" data-i18n="setup.nameHint">Leave blank to use "Hearth".</div>
-          </div>
+          <form id="form-name">
+            <div class="field">
+              <label for="serverName" data-i18n="settings.serverName">Server name</label>
+              <input class="input" id="serverName" placeholder="Hearth" value="Hearth" />
+              <div class="hint" data-i18n="setup.nameHint">Leave blank to use "Hearth".</div>
+            </div>
 
-          <div class="setup-foot spread">
-            <button class="btn ghost" onclick="goTo(2)" data-i18n="setup.back">← Back</button>
-            <button class="btn primary" id="finishBtn" onclick="finish()" data-i18n="setup.finish">Finish setup</button>
-          </div>
+            <div class="setup-foot spread">
+              <button class="btn ghost" type="button" onclick="goTo(2)" data-i18n="setup.back">← Back</button>
+              <button class="btn primary" id="finishBtn" type="submit" data-i18n="setup.finish">Finish setup</button>
+            </div>
+          </form>
         </div>
 
         <!-- Step 4: Done -->
