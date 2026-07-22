@@ -723,6 +723,9 @@ document.getElementById('images').addEventListener('click', async (e) => {
 document.getElementById('pull-image').addEventListener('click', async () => {
   const image = prompt(t('images.pullPrompt'));
   if (!image) return;
+  const btn = document.getElementById('pull-image');
+  btn.disabled = true;
+  btn.textContent = t('images.pulling');
   toast(t('toast.imagePulling', { image }), 'info');
   try {
     await api('POST', '/api/images/pull', { image });
@@ -730,6 +733,9 @@ document.getElementById('pull-image').addEventListener('click', async () => {
     loadImages();
   } catch (err) {
     showDockerError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t('images.pull');
   }
 });
 
@@ -4586,7 +4592,7 @@ async function loadVpn() {
 
   if (!data.available) return;
 
-  document.getElementById('vpn-server').textContent = data.host ? `${data.host}:${data.port}` : 'In den VPN-Einstellungen konfigurieren';
+  document.getElementById('vpn-server').textContent = data.host ? `${data.host}:${data.port}` : t('vpn.configureInSettings');
   document.getElementById('vpn-peer-count').textContent = (data.peers || []).length + ' configured';
 
   const list = document.getElementById('vpn-peers-list');
@@ -5533,8 +5539,10 @@ setInterval(checkUpdates, 30 * 60 * 1000);
 
 // ---------- Text-Datei-Editor ----------
 let _editorPath = null;
+let _editorLoadToken = 0;
 
 async function openFileEditor(filePath, name) {
+  const token = ++_editorLoadToken;
   _editorPath = filePath;
   document.getElementById('editor-title').textContent = 'Bearbeiten · ' + name;
   const body = document.getElementById('editor-body');
@@ -5544,10 +5552,13 @@ async function openFileEditor(filePath, name) {
   try {
     const txt = await fetch('/api/files/content?path=' + encodeURIComponent(filePath), { credentials: 'same-origin' });
     if (!txt.ok) { const e = await txt.json(); throw new Error(e.error || txt.statusText); }
-    body.value = await txt.text();
+    const content = await txt.text();
+    if (token !== _editorLoadToken) return; // a newer openFileEditor() call has superseded this load — discard
+    body.value = content;
     body.disabled = false;
     body.focus();
   } catch (e) {
+    if (token !== _editorLoadToken) return;
     body.value = 'Fehler: ' + e.message;
   }
 }

@@ -16,25 +16,55 @@
 
 Hearth is a lightweight, self-hosted Docker management panel — a clean, modern alternative to CasaOS or Portainer for home servers and small VPS setups. Manage containers, route domains through a built-in reverse proxy with SSL, control your firewall, and connect over WireGuard VPN — all from one dashboard, without stitching together separate tools.
 
-<!--
-  Screenshots: add product screenshots/GIFs here once available, e.g.
-  <p align="center"><img src="docs/screenshots/containers.png" alt="Hearth container dashboard" width="80%"/></p>
-  Good candidates: Container dashboard, App Store, Reverse Proxy tab, Firewall tab, Guest View.
-  Screenshots are the single biggest trust/conversion signal for self-hosted software — prioritize adding these.
--->
+## 📸 Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/containers.png" alt="Hearth container dashboard with running containers, stacks and live system monitoring" width="92%"/>
+  <br/><em>Container dashboard — stacks, one-click updates and live system monitoring</em>
+</p>
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/app-store.png" alt="App Store with curated stacks, categories and search"/>
+      <p align="center"><em>App Store — 1-click installs &amp; curated stacks</em></p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/reverse-proxy.png" alt="Reverse proxy tab with domain-to-container routing and Let's Encrypt SSL"/>
+      <p align="center"><em>Reverse proxy — domains, SSL, WebSocket</em></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/firewall.png" alt="Firewall tab with UFW rules, quick presets and external rules"/>
+      <p align="center"><em>Firewall — UFW rules with quick presets</em></p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/vpn.png" alt="VPN tab with WireGuard server status and client management"/>
+      <p align="center"><em>VPN — WireGuard clients &amp; QR codes</em></p>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/guest-view.png" alt="Public guest view showing online services without login" width="92%"/>
+  <br/><em>Guest view — a public status page for your services, no login required</em>
+</p>
 
 ### Contents
 
+- [Screenshots](#-screenshots)
 - [Features](#-features)
 - [Hearth vs. Portainer vs. CasaOS](#-hearth-vs-portainer-vs-casaos)
 - [Installation](#-installation)
-- [Configuration](#-configuration)
+- [Getting Started (Tutorial)](docs/getting-started.md)
+- [Configuration](#️-configuration)
 - [Reverse Proxy](#-reverse-proxy)
 - [Firewall](#-firewall)
 - [Self-Update](#-self-update)
-- [Guest View Labels](#-guest-view-labels)
+- [Guest View Labels](#️-guest-view-labels)
 - [Security Notes](#-security-notes)
-- [Tech Stack](#-tech-stack)
+- [Tech Stack](#️-tech-stack)
 - [Contributing](#-contributing)
 
 ## ✨ Features
